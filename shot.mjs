@@ -1,0 +1,10 @@
+import { chromium } from 'playwright'
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' })
+const p = await (await b.newContext({ viewport: { width: 1200, height: 900 } })).newPage()
+await p.goto('file:///home/claude/lifehub/app/LifeHub.html', { waitUntil: 'load' })
+await p.waitForSelector('.app', { timeout: 40000 }); await p.waitForTimeout(3000)
+await p.locator('.fab').click(); await p.waitForTimeout(400)
+await p.locator('.modal-body button', { hasText: 'Transfer' }).first().click(); await p.waitForTimeout(600)
+await p.screenshot({ path: '/tmp/shots/transfer.png' })
+console.log((await p.locator('.modal-body').innerText()).slice(0, 400))
+await b.close()

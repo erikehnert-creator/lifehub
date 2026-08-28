@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//C:/Users/triva/OneDrive/Dokumente/Claude Gedächtniss/**)"
+    ],
+    "deny": [
+      "Edit(//C:/Users/triva/OneDrive/Dokumente/Claude Gedächtniss/**)",
+      "Write(//C:/Users/triva/OneDrive/Dokumente/Claude Gedächtniss/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\triva\\OneDrive\\Dokumente\\Claude Gedächtniss"
+    ]
+  }
+}
