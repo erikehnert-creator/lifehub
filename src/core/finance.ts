@@ -7,7 +7,7 @@ import type { Account, Budget, Category, Transaction, RecurringRule, Transaction
 import { type Cents, percentOf, formatNumber } from './money'
 import {
   type DayString, monthOf, monthStart, monthEnd, diffDays, todayString, addDays,
-  addMonthsToYearMonth,
+  addMonthsToYearMonth, formatDay,
 } from './dates'
 import { occurrences } from './recurrence'
 
@@ -240,9 +240,41 @@ export function expectedRecurring(
 
 export type EinnahmenQuelle = 'regeln' | 'schnitt' | 'keine'
 
+/** Regel, deren nächste Fälligkeit eine erwartete Einnahme erklärt (für den Hinweistext). */
+export interface RegelHerkunft {
+  titel: string
+  tag: DayString
+}
+
 export interface ErwarteteEinnahmen {
   cents: Cents
   quelle: EinnahmenQuelle
+  /** Nur gesetzt, wenn `quelle === 'regeln'` – welche Regel liefert die nächste Fälligkeit. */
+  regel?: RegelHerkunft | null
+}
+
+/**
+ * Welche Regel liefert im Zeitraum als Erstes eine noch offene Einnahme?
+ * Dient nur der Anzeige – dem Hinweistext, der erklärt, woher die erwartete
+ * Einnahme kommt, statt nur "eine Regel" zu sagen.
+ */
+function naechsteEinnahmeRegel(
+  rules: RecurringRule[],
+  from: DayString,
+  to: DayString,
+): RegelHerkunft | null {
+  let best: RegelHerkunft | null = null
+  for (const r of rules) {
+    if (r.deleted_at || !r.is_active || r.kind !== 'transaction') continue
+    let tpl: Record<string, any> = {}
+    try { tpl = JSON.parse(r.template_json || '{}') } catch { continue }
+    if (tpl.type !== 'income' || !tpl.amount_cents) continue
+    const ende = r.ends_on && r.ends_on < to ? r.ends_on : to
+    const tage = occurrences(r.rrule, r.starts_on, from, ende)
+    if (!tage.length) continue
+    if (!best || tage[0] < best.tag) best = { titel: r.title, tag: tage[0] }
+  }
+  return best
 }
 
 /**
@@ -260,8 +292,10 @@ export function expectedIncomeRest(
   yearMonth: string,
   today: DayString = todayString(),
 ): ErwarteteEinnahmen {
-  const ausRegeln = expectedRecurring(rules, addDays(today, 1), monthEnd(yearMonth)).income
-  if (ausRegeln > 0) return { cents: ausRegeln, quelle: 'regeln' }
+  const von = addDays(today, 1)
+  const bis = monthEnd(yearMonth)
+  const ausRegeln = expectedRecurring(rules, von, bis).income
+  if (ausRegeln > 0) return { cents: ausRegeln, quelle: 'regeln', regel: naechsteEinnahmeRegel(rules, von, bis) }
 
   const vormonate: Cents[] = []
   for (let i = 1; i <= 3; i++) {
@@ -352,6 +386,7 @@ export function savingsRateView(
   outstandingIncome: Cents,
   isCurrentMonth: boolean,
   quelle: EinnahmenQuelle = 'regeln',
+  regel: RegelHerkunft | null = null,
 ): SavingsRateView {
   const basis = isCurrentMonth ? totals.income + Math.max(0, outstandingIncome) : totals.income
   const savings = basis - totals.expense
@@ -371,7 +406,9 @@ export function savingsRateView(
     hint: !expected ? null
       : quelle === 'schnitt'
         ? 'Geschätzt aus dem Schnitt der letzten Monate. Trag deine Ausbildungsvergütung unter „Wiederkehrend" ein – dann wird daraus eine feste Zahl.'
-        : 'Die Einnahmen, die diesen Monat noch kommen, sind mitgerechnet.',
+        : quelle === 'regeln' && regel
+          ? `Kommt aus deiner wiederkehrenden Zahlung „${regel.titel}", fällig am ${formatDay(regel.tag, 'short')}.`
+          : 'Die Einnahmen, die diesen Monat noch kommen, sind mitgerechnet.',
   }
 }
 
@@ -607,6 +644,31 @@ export interface MonthForecast {
 }
 
 /**
+ * Ø Tagesausgaben der letzten (bis zu) drei abgeschlossenen Monate.
+ * Dieselbe Drei-Monats-Betrachtung wie bei expectedIncomeRest() – ein
+ * einzelner Monat kann ein Ausreißer sein (Weihnachten, Urlaubsreise),
+ * drei Monate glätten das. Monate ohne Ausgaben (z. B. vor Kontoeröffnung)
+ * zählen nicht mit. null kommt zurück, wenn es gar keine Vormonate mit
+ * Ausgaben gibt – dann kann nicht historisch geschätzt werden.
+ */
+function historicalDailyExpense(
+  transactions: Transaction[],
+  yearMonth: string,
+  lookbackMonths = 3,
+): number | null {
+  const tagesschnitte: number[] = []
+  for (let i = 1; i <= lookbackMonths; i++) {
+    const m = addMonthsToYearMonth(yearMonth, -i)
+    const t = monthTotals(transactions, m)
+    if (t.expense <= 0) continue
+    const tage = diffDays(monthStart(m), monthEnd(m)) + 1
+    tagesschnitte.push(t.expense / tage)
+  }
+  if (!tagesschnitte.length) return null
+  return tagesschnitte.reduce((a, b) => a + b, 0) / tagesschnitte.length
+}
+
+/**
  * Monatsprognose: bereits gebuchte Werte plus Hochrechnung des Restmonats
  * plus fest geplante Zahlungen (status = 'planned').
  * Ergebnis ist ausdrücklich eine Schätzung, keine Zusage.
@@ -644,7 +706,29 @@ export function forecastMonth(
   }
 
   const remainingDays = Math.max(0, totalDays - elapsed)
-  const dailyBurn = elapsed > 0 ? actualExpense / elapsed : 0
+  /**
+   * Tagesschnitt für die Hochrechnung des Restmonats.
+   *
+   * Nur den bisherigen Tagesschnitt des laufenden Monats zu nehmen, ist
+   * gerade am Monatsanfang unbrauchbar: Am 2. eines Monats wiegt eine
+   * einzelne Ausgabe (oder gar keine) mehr als der ganze restliche Monat –
+   * die Hochrechnung läge dann entweder nahe null oder würde durch einen
+   * einzelnen großen Einkauf wild nach oben ausschlagen. Deshalb wird der
+   * bisherige Tagesschnitt mit dem Tagesschnitt der letzten drei Monate
+   * gemischt: Am Monatsanfang zählt größtenteils die Erfahrung aus den
+   * Vormonaten, gegen Monatsende größtenteils der tatsächliche Verlauf
+   * dieses Monats. Der Übergang ist linear über den Anteil des bereits
+   * vergangenen Monats (elapsed / totalDays) – kein Sprung, sondern ein
+   * gleitender Wechsel von Erfahrungswert zu echtem Verlauf.
+   * Gibt es keine Vormonate mit Ausgaben (z. B. ganz neue App), bleibt es
+   * beim bisherigen Verhalten: nur der laufende Tagesschnitt zählt.
+   */
+  const dailyBurnBisher = elapsed > 0 ? actualExpense / elapsed : 0
+  const dailyBurnSchnitt = historicalDailyExpense(transactions, yearMonth)
+  const anteilVergangen = totalDays > 0 ? Math.min(1, elapsed / totalDays) : 1
+  const dailyBurn = dailyBurnSchnitt === null
+    ? dailyBurnBisher
+    : dailyBurnSchnitt * (1 - anteilVergangen) + dailyBurnBisher * anteilVergangen
   const projectedExpense = Math.round(actualExpense + dailyBurn * remainingDays) + plannedExpense
   const projectedIncome = actualIncome + plannedIncome + Math.max(0, erwarteteEinnahmen)
   const projectedSavings = projectedIncome - projectedExpense

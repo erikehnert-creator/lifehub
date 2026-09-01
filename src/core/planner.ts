@@ -264,8 +264,7 @@ export function carryOverPatches(
   return out
 }
 
-export function tasksForDay(tasks: Task[], day: DayString): Task[] {
-  const today = todayString()
+export function tasksForDay(tasks: Task[], day: DayString, today: DayString = todayString()): Task[] {
   return tasks
     .filter((t) => {
       if (t.deleted_at || t.status === 'cancelled') return false

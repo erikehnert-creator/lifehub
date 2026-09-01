@@ -411,6 +411,55 @@ export const MIGRATIONS: Migration[] = [
     ALTER TABLE tasks ADD COLUMN progress_done INTEGER;
     `,
   },
+  {
+    id: 6,
+    name: 'tagesnotizen',
+    sql: `
+    ----------------------------------------------------------------- Tracking
+    -- Eine formlose Notiz je Kalendertag – für Dinge, die zu keinem einzelnen
+    -- Messwert gehören (z. B. "Mopedsturz, Schürfwunde am Knie"). Ein Tag hat
+    -- höchstens eine Notiz; ohne Eintrag existiert einfach keine Zeile.
+    CREATE TABLE day_notes (
+      id TEXT PRIMARY KEY, day TEXT NOT NULL, note TEXT NOT NULL, ${BASE}
+    );
+    CREATE UNIQUE INDEX ux_day_notes ON day_notes(day);
+    `,
+  },
+  {
+    id: 7,
+    name: 'investments',
+    sql: `
+    ------------------------------------------------------------ Investments
+    -- Eine Investmentposition (z. B. "Trading212 – MSCI World ETF"). Keine
+    -- Kursdaten, keine Stückzahlen – nur eingesetztes Geld und was davon
+    -- zurückkam. Bewusst unabhängig von den normalen Konten/Buchungen: das Geld
+    -- ist dort schon als Ausgabe/Überweisung erfasst (falls überhaupt), hier
+    -- geht es nur um die Investment-Seite selbst.
+    CREATE TABLE investments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      note TEXT,
+      ${BASE}
+    );
+
+    -- Eine Bewegung innerhalb einer Investmentposition: Kauf (Geld rein) oder
+    -- Verkauf (Geld raus). Bei einem Verkauf trägt cost_basis_cents ein, welcher
+    -- Anteil des ursprünglich eingesetzten Kapitals damit verkauft wurde – das
+    -- ist die einzige Angabe, die für Gewinn/Verlust ohne Kursdaten nötig ist
+    -- (Gewinn/Verlust dieser Bewegung = amount_cents - cost_basis_cents).
+    CREATE TABLE investment_moves (
+      id TEXT PRIMARY KEY,
+      investment_id TEXT NOT NULL,
+      day TEXT NOT NULL,
+      kind TEXT NOT NULL,              -- 'buy' | 'sell'
+      amount_cents INTEGER NOT NULL,   -- Kauf: eingesetztes Kapital · Verkauf: Erlös
+      cost_basis_cents INTEGER,        -- nur bei Verkauf gesetzt
+      note TEXT,
+      ${BASE}
+    );
+    CREATE INDEX ix_investment_moves_investment ON investment_moves(investment_id);
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
@@ -425,7 +474,7 @@ export const SYNCED_TABLES = [
   'workout_sessions', 'workout_sets',
   'body_measurements', 'progress_photos', 'goals', 'goal_contributions',
   'notes', 'notifications', 'insights', 'task_templates', 'account_checks',
-  'shopping_items',
+  'shopping_items', 'day_notes', 'investments', 'investment_moves',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

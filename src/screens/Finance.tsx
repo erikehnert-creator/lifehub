@@ -4,6 +4,8 @@
 import React, { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Tabs, Empty, Confirm, StatusPill, MoneyInput } from '../ui/components'
 import { AttachmentList, AttachmentBadge } from '../ui/attachments'
+import { usePageLayout, LayoutEditToggle, LayoutEditPanel } from '../ui/pageLayout'
+import type { LayoutCardDef } from '../core/layout'
 import { BarChart, LineChart, DonutChart, Meter, RankBars, seriesColor, ChartFrame } from '../charts'
 import { useData, useMutations } from '../state/store'
 import {
@@ -13,14 +15,17 @@ import {
   expectedRecurring, expectedIncomeRest, savingsRateView, forecastStatus, dueRecurringBookings,
   transactionsForAccount,
 } from '../core/finance'
+import {
+  summarizeInvestment, summarizePortfolio, maxSellCostBasis, validateSellCostBasis,
+} from '../core/investments'
 import { formatMoney, formatMoneyAxis, parseAmountToCents, toEuro, centsToInput } from '../core/money'
 import {
   todayString, monthOf, formatDay, formatMonth, monthLabelShort, lastMonths,
   addMonthsToYearMonth, monthStart, monthEnd, addDays, relativeDay,
 } from '../core/dates'
 import { describeRRule, nextOccurrence, buildRRule, occurrences } from '../core/recurrence'
-import { generateFinanceDayChecklist } from '../core/financeDay'
-import type { Account, Transaction, Category, Budget } from '../core/types'
+import { generateFinanceDayChecklist, financeChecklistRoute } from '../core/financeDay'
+import type { Account, Transaction, Category, Budget, Investment, InvestmentMove } from '../core/types'
 import { TransactionForm } from './QuickAdd'
 
 const ACCOUNT_TYPES: { value: string; label: string }[] = [
@@ -34,8 +39,8 @@ const ACCOUNT_TYPES: { value: string; label: string }[] = [
   { value: 'custom', label: 'Sonstiges' },
 ]
 
-export function FinanceScreen({ sub, navigate, openQuickAdd }: {
-  sub: string; navigate: (r: string) => void; openQuickAdd: (kind?: any) => void
+export function FinanceScreen({ sub, params, navigate, openQuickAdd }: {
+  sub: string; params?: Record<string, string>; navigate: (r: string) => void; openQuickAdd: (kind?: any) => void
 }) {
   const tabs = [
     { key: '', label: 'Übersicht' },
@@ -44,7 +49,9 @@ export function FinanceScreen({ sub, navigate, openQuickAdd }: {
     { key: 'budgets', label: 'Budgets' },
     { key: 'wiederkehrend', label: 'Wiederkehrend' },
     { key: 'finanztag', label: 'Finanztag' },
+    { key: 'investments', label: 'Investments' },
   ]
+  const p = params ?? {}
   return (
     <div className="page">
       <div className="page-head">
@@ -57,22 +64,40 @@ export function FinanceScreen({ sub, navigate, openQuickAdd }: {
         </div>
       </div>
       <Tabs tabs={tabs} active={sub} onChange={(k) => navigate(`#/finanzen${k ? '/' + k : ''}`)} />
-      {sub === '' && <Overview navigate={navigate} />}
-      {sub === 'buchungen' && <TransactionsTab openQuickAdd={openQuickAdd} />}
+      {sub === '' && <Overview navigate={navigate} params={p} />}
+      {sub === 'buchungen' && <TransactionsTab openQuickAdd={openQuickAdd} params={p} />}
       {sub === 'konten' && <AccountsTab />}
       {sub === 'budgets' && <BudgetsTab />}
       {sub === 'wiederkehrend' && <RecurringTab />}
-      {sub === 'finanztag' && <FinanceDayTab navigate={navigate} />}
+      {sub === 'finanztag' && <FinanceDayTab navigate={navigate} params={p} />}
+      {sub === 'investments' && <InvestmentsTab />}
     </div>
   )
 }
 
 /* ------------------------------------------------------------- Übersicht */
 
-function Overview({ navigate }: { navigate: (r: string) => void }) {
+/** Werkseinstellung der Finanzübersicht – wie bisher alles sichtbar, aber jetzt
+ * frei umsortier- und ausblendbar (siehe ui/pageLayout.tsx). */
+const OVERVIEW_CARD_DEFS: LayoutCardDef[] = [
+  { id: 'kennzahlen', title: 'Kennzahlen' },
+  { id: 'chart_ein_aus', title: 'Einnahmen und Ausgaben' },
+  { id: 'chart_sparen', title: 'Sparbetrag und Sparquote' },
+  { id: 'chart_kategorie', title: 'Ausgaben nach Kategorie' },
+  { id: 'chart_vermoegen', title: 'Vermögensentwicklung' },
+  { id: 'prognose', title: 'Monatsprognose' },
+  { id: 'ausgaben_konto', title: 'Ausgaben nach Konto' },
+  { id: 'budgets', title: 'Budgets' },
+]
+
+function Overview({ navigate, params }: { navigate: (r: string) => void; params: Record<string, string> }) {
   const data = useData()
   const today = todayString()
-  const [month, setMonth] = useState(monthOf(today))
+  // Ein Finanztag-Punkt wie „Monatsabschluss Juli durchführen" soll direkt den
+  // betroffenen Monat zeigen, nicht immer nur den laufenden.
+  const [month, setMonth] = useState(() => (
+    params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : monthOf(today)
+  ))
 
   const balances = useMemo(() => accountBalances(data.accounts, data.transactions), [data.accounts, data.transactions])
   const totals = useMemo(() => monthTotals(data.transactions, month), [data.transactions, month])
@@ -115,7 +140,7 @@ function Overview({ navigate }: { navigate: (r: string) => void }) {
   const saved = savingsBalance(data.accounts, balances)
 
   const quote = useMemo(
-    () => savingsRateView(totals, offeneEinnahmen.cents, isCurrentMonth, offeneEinnahmen.quelle),
+    () => savingsRateView(totals, offeneEinnahmen.cents, isCurrentMonth, offeneEinnahmen.quelle, offeneEinnahmen.regel),
     [totals, offeneEinnahmen, isCurrentMonth],
   )
   const ampel = useMemo(() => forecastStatus(forecast), [forecast])
@@ -124,188 +149,238 @@ function Overview({ navigate }: { navigate: (r: string) => void }) {
   const pct = (a: number, b: number) => (b === 0 ? null : Math.round(((a - b) / Math.abs(b)) * 100))
   const expenseChange = pct(totals.expense, prev.expense)
 
+  const layout = usePageLayout('finanzen_uebersicht', OVERVIEW_CARD_DEFS)
+
+  function renderCard(id: string): React.ReactNode {
+    switch (id) {
+      case 'kennzahlen':
+        return (
+          <Card key={id} title="Kennzahlen">
+            <div className="grid grid-2 keep2" style={{ gap: 10 }}>
+              <Stat small label="Gesamtvermögen" value={money(nw)} sub={<span className="muted small">alle Konten</span>} />
+              <Stat small label="Verfügbar" value={money(avail)} sub={<span className="muted small">ohne Sparkonten</span>} />
+              <Stat small label={quote.expected ? 'Sparbetrag Monat · erwartet' : 'Sparbetrag Monat'} value={money(quote.savings)}
+                delta={`Sparquote ${quote.text}`}
+                deltaKind={quote.savings >= 0 ? 'up' : 'down'}
+                sub={quote.hint ?? undefined} />
+              <Stat small label="Rücklagen" value={money(saved)} sub={<span className="muted small">als Sparen markiert</span>} />
+            </div>
+          </Card>
+        )
+
+      case 'chart_ein_aus':
+        return (
+          <Card key={id} title="Einnahmen und Ausgaben" sub="letzte 12 Monate · antippen zum Vergrößern">
+            <ChartFrame title="Einnahmen und Ausgaben" sub="letzte 12 Monate">
+              {({ height }) => (
+                <BarChart
+                  data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.income, s.expense] }))}
+                  seriesNames={['Einnahmen', 'Ausgaben']}
+                  height={height}
+                  axisLabel="Euro"
+                  formatValue={(v) => formatMoney(v)}
+                  formatAxis={formatMoneyAxis}
+                />
+              )}
+            </ChartFrame>
+          </Card>
+        )
+
+      case 'chart_sparen':
+        return (
+          <Card key={id} title="Sparbetrag und Sparquote" sub="letzte 12 Monate · antippen zum Vergrößern">
+            <ChartFrame title="Sparbetrag je Monat" sub="letzte 12 Monate">
+              {({ height }) => (
+                <BarChart
+                  data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.savings] }))}
+                  seriesNames={['Sparbetrag']}
+                  height={height}
+                  axisLabel="Euro"
+                  formatValue={(v) => formatMoney(v)}
+                  formatAxis={formatMoneyAxis}
+                />
+              )}
+            </ChartFrame>
+            <div className="mt12">
+              <ChartFrame title="Sparquote je Monat"
+                sub="Anteil der Einnahmen, der übrig bleibt · Werte unter −100 % sind bei −100 % abgeschnitten">
+                {({ height, gross }) => (
+                  <LineChart
+                    series={[{ name: 'Sparquote', points: series.map((s) => ({
+                      label: monthLabelShort(s.month),
+                      // Ein Monat mit 2,50 € Einnahmen und 163 € Ausgaben ergibt
+                      // −6.440 % und drückt alle anderen Monate auf eine Linie.
+                      value: Math.max(-100, Math.min(150, s.rate)),
+                    })) }]}
+                    formatValue={(v) => `${Math.round(v)} %`}
+                    formatAxis={(v) => `${Math.round(v)} %`}
+                    axisLabel="Prozent"
+                    height={gross ? height : 130}
+                    zeroBased
+                  />
+                )}
+              </ChartFrame>
+            </div>
+          </Card>
+        )
+
+      case 'chart_kategorie':
+        return (
+          <Card key={id} title={`Ausgaben nach Kategorie · ${formatMonth(month, true)}`}
+            sub={byCat.length ? `${formatMoney(totals.expense)} gesamt` : undefined}>
+            {byCat.length ? (
+              <ChartFrame title={`Ausgaben nach Kategorie · ${formatMonth(month)}`}
+                sub={`${formatMoney(totals.expense)} gesamt`}>
+                {({ gross }) => (
+                  <DonutChart
+                    slices={byCat.slice(0, gross ? 14 : 8).map((c, i) => ({ label: c.name, value: c.amount, color: c.color ?? seriesColor(i) }))}
+                    size={gross ? 240 : 168}
+                    thickness={gross ? 30 : 22}
+                    centerLabel="Ausgaben"
+                    centerValue={formatMoney(totals.expense, { compact: true })}
+                    maxLegend={gross ? 14 : 8}
+                    formatValue={(v) => formatMoney(v)}
+                  />
+                )}
+              </ChartFrame>
+            ) : <Empty icon="📊" title="Keine Ausgaben in diesem Monat" />}
+          </Card>
+        )
+
+      case 'chart_vermoegen':
+        return (
+          <Card key={id} title="Vermögensentwicklung" sub="Monatsende · antippen zum Vergrößern">
+            <ChartFrame title="Vermögensentwicklung" sub="Stand am Monatsende">
+              {({ height }) => (
+                <LineChart
+                  series={[{ name: 'Vermögen', points: worth.map((w) => ({ label: monthLabelShort(w.month), value: toEuro(w.value) })) }]}
+                  formatValue={(v) => formatMoney(Math.round(v * 100))}
+                  formatAxis={(v) => formatMoneyAxis(Math.round(v * 100))}
+                  axisLabel="Euro"
+                  height={height}
+                />
+              )}
+            </ChartFrame>
+          </Card>
+        )
+
+      case 'prognose':
+        // Die Prognose ist die Zahl, auf die man am Monatsanfang schaut.
+        // Deshalb bekommt sie eine Ampel: eine Farbe, die man von weitem sieht.
+        return (
+          <Card key={id} className={`forecast forecast-${ampel.status}`}
+            title="Monatsprognose" sub="Schätzung auf Basis des bisherigen Verlaufs – keine Zusage">
+            <div className="forecast-head">
+              <div>
+                <div className="forecast-label">{ampel.label}</div>
+                <div className="forecast-big">{money(forecast.projectedSavings)}</div>
+                <div className="small muted">bleiben voraussichtlich übrig</div>
+              </div>
+              <StatusPill status={ampel.status}>
+                {formatSavingsRate(forecast.projectedSavingsRate, forecast.projectedIncome)}
+              </StatusPill>
+            </div>
+            <Meter percent={Math.min(100, (forecast.elapsedDays / forecast.totalDays) * 100)}
+              status={ampel.status === 'green' ? 'good' : ampel.status === 'amber' ? 'warning' : 'critical'} />
+            <div className="grid grid-2 keep2 mt12" style={{ gap: 10 }}>
+              <Stat small label="Erwartete Ausgaben" value={money(forecast.projectedExpense)} />
+              <Stat small label="Erwartete Einnahmen" value={money(forecast.projectedIncome)} />
+            </div>
+            <div className="hint-box mt12">
+              <strong>{ampel.sentence}</strong><br />
+              Tag {forecast.elapsedDays} von {forecast.totalDays}. Bisher {formatMoney(forecast.actualExpense)} ausgegeben
+              {forecast.plannedExpense > 0 && <>, {formatMoney(forecast.plannedExpense)} sind fest eingeplant</>}.
+              Die Hochrechnung setzt den bisherigen Tagesschnitt fort.
+              {forecast.expectedIncome > 0 && (
+                <> Bei den Einnahmen sind {formatMoney(forecast.expectedIncome)} mitgerechnet, die noch kommen.</>
+              )}
+            </div>
+          </Card>
+        )
+
+      case 'ausgaben_konto':
+        return (
+          <Card key={id} title="Ausgaben nach Konto" sub={formatMonth(month, true)}>
+            {byAcc.length
+              ? <RankBars items={byAcc.map((a) => ({
+                  label: a.name, value: a.amount,
+                  color: data.accounts.find((x) => x.id === a.accountId)?.color ?? undefined,
+                }))} formatValue={(v) => formatMoney(v)} />
+              : <Empty icon="🏦" title="Keine Ausgaben" />}
+            {expenseChange !== null && (
+              <div className="hint-box mt12">
+                {expenseChange > 0 ? `${expenseChange} % mehr` : `${-expenseChange} % weniger`} ausgegeben als
+                im {formatMonth(addMonthsToYearMonth(month, -1), true)} ({formatMoney(prev.expense)}).
+              </div>
+            )}
+          </Card>
+        )
+
+      case 'budgets':
+        if (budgets.length === 0) return null
+        return (
+          <Card key={id} title="Budgets" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/budgets')}>Alle →</button>}>
+            {budgets.slice(0, 5).map((b) => (
+              <div className="progress-row" key={b.budget.id}>
+                <div className="progress-head">
+                  <span className="dot" style={{ background: b.categoryColor ?? seriesColor(0) }} />
+                  <span>{b.categoryName}</span>
+                  <StatusPill status={b.status}>{Math.round(b.usedPercent)} %</StatusPill>
+                  <span className="val">{formatMoney(b.spent)} / {formatMoney(b.limit)}</span>
+                </div>
+                <Meter percent={b.usedPercent} status={b.status === 'green' ? 'good' : b.status === 'amber' ? 'warning' : 'critical'} markerPercent={b.paceExpectedPercent} />
+              </div>
+            ))}
+          </Card>
+        )
+
+      default:
+        return null
+    }
+  }
+
   return (
     <div className="col" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="row">
-        <button className="btn btn-sm" onClick={() => setMonth(addMonthsToYearMonth(month, -1))}>←</button>
-        <strong style={{ minWidth: 130, textAlign: 'center' }}>{formatMonth(month)}</strong>
-        <button className="btn btn-sm" disabled={month >= monthOf(today)} onClick={() => setMonth(addMonthsToYearMonth(month, 1))}>→</button>
-        {!isCurrentMonth && <button className="btn btn-sm btn-ghost" onClick={() => setMonth(monthOf(today))}>Heute</button>}
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div className="row">
+          <button className="btn btn-sm" onClick={() => setMonth(addMonthsToYearMonth(month, -1))}>←</button>
+          <strong style={{ minWidth: 130, textAlign: 'center' }}>{formatMonth(month)}</strong>
+          <button className="btn btn-sm" disabled={month >= monthOf(today)} onClick={() => setMonth(addMonthsToYearMonth(month, 1))}>→</button>
+          {!isCurrentMonth && <button className="btn btn-sm btn-ghost" onClick={() => setMonth(monthOf(today))}>Heute</button>}
+        </div>
+        <LayoutEditToggle editMode={layout.editMode} onToggle={() => layout.setEditMode(!layout.editMode)} />
       </div>
 
-      <div className="grid grid-4 keep2">
-        <Card><Stat label="Gesamtvermögen" value={money(nw)} sub={<span className="muted small">alle Konten</span>} /></Card>
-        <Card><Stat label="Verfügbar" value={money(avail)} sub={<span className="muted small">ohne Sparkonten</span>} /></Card>
-        <Card><Stat label={quote.expected ? 'Sparbetrag Monat · erwartet' : 'Sparbetrag Monat'} value={money(quote.savings)}
-          delta={`Sparquote ${quote.text}`}
-          deltaKind={quote.savings >= 0 ? 'up' : 'down'}
-          sub={quote.hint ?? undefined} /></Card>
-        <Card><Stat label="Rücklagen" value={money(saved)} sub={<span className="muted small">als Sparen markiert</span>} /></Card>
-      </div>
-
-      <div className="grid grid-2">
-        <Card title="Einnahmen und Ausgaben" sub="letzte 12 Monate · antippen zum Vergrößern">
-          <ChartFrame title="Einnahmen und Ausgaben" sub="letzte 12 Monate">
-            {({ height }) => (
-              <BarChart
-                data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.income, s.expense] }))}
-                seriesNames={['Einnahmen', 'Ausgaben']}
-                height={height}
-                axisLabel="Euro"
-                formatValue={(v) => formatMoney(v)}
-                formatAxis={formatMoneyAxis}
-              />
-            )}
-          </ChartFrame>
-        </Card>
-        <Card title="Sparbetrag und Sparquote" sub="letzte 12 Monate · antippen zum Vergrößern">
-          <ChartFrame title="Sparbetrag je Monat" sub="letzte 12 Monate">
-            {({ height }) => (
-              <BarChart
-                data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.savings] }))}
-                seriesNames={['Sparbetrag']}
-                height={height}
-                axisLabel="Euro"
-                formatValue={(v) => formatMoney(v)}
-                formatAxis={formatMoneyAxis}
-              />
-            )}
-          </ChartFrame>
-          <div className="mt12">
-            <ChartFrame title="Sparquote je Monat"
-              sub="Anteil der Einnahmen, der übrig bleibt · Werte unter −100 % sind bei −100 % abgeschnitten">
-              {({ height, gross }) => (
-                <LineChart
-                  series={[{ name: 'Sparquote', points: series.map((s) => ({
-                    label: monthLabelShort(s.month),
-                    // Ein Monat mit 2,50 € Einnahmen und 163 € Ausgaben ergibt
-                    // −6.440 % und drückt alle anderen Monate auf eine Linie.
-                    value: Math.max(-100, Math.min(150, s.rate)),
-                  })) }]}
-                  formatValue={(v) => `${Math.round(v)} %`}
-                  formatAxis={(v) => `${Math.round(v)} %`}
-                  axisLabel="Prozent"
-                  height={gross ? height : 130}
-                  zeroBased
-                />
-              )}
-            </ChartFrame>
-          </div>
-        </Card>
-      </div>
-
-      <div className="grid grid-2">
-        <Card title={`Ausgaben nach Kategorie · ${formatMonth(month, true)}`}
-          sub={byCat.length ? `${formatMoney(totals.expense)} gesamt` : undefined}>
-          {byCat.length ? (
-            <ChartFrame title={`Ausgaben nach Kategorie · ${formatMonth(month)}`}
-              sub={`${formatMoney(totals.expense)} gesamt`}>
-              {({ gross }) => (
-                <DonutChart
-                  slices={byCat.slice(0, gross ? 14 : 8).map((c, i) => ({ label: c.name, value: c.amount, color: c.color ?? seriesColor(i) }))}
-                  size={gross ? 240 : 168}
-                  thickness={gross ? 30 : 22}
-                  centerLabel="Ausgaben"
-                  centerValue={formatMoney(totals.expense, { compact: true })}
-                  maxLegend={gross ? 14 : 8}
-                  formatValue={(v) => formatMoney(v)}
-                />
-              )}
-            </ChartFrame>
-          ) : <Empty icon="📊" title="Keine Ausgaben in diesem Monat" />}
-        </Card>
-        <Card title="Vermögensentwicklung" sub="Monatsende · antippen zum Vergrößern">
-          <ChartFrame title="Vermögensentwicklung" sub="Stand am Monatsende">
-            {({ height }) => (
-              <LineChart
-                series={[{ name: 'Vermögen', points: worth.map((w) => ({ label: monthLabelShort(w.month), value: toEuro(w.value) })) }]}
-                formatValue={(v) => formatMoney(Math.round(v * 100))}
-                formatAxis={(v) => formatMoneyAxis(Math.round(v * 100))}
-                axisLabel="Euro"
-                height={height}
-              />
-            )}
-          </ChartFrame>
-        </Card>
-      </div>
-
-      <div className="grid grid-2">
-        {/* Die Prognose ist die Zahl, auf die man am Monatsanfang schaut.
-            Deshalb bekommt sie eine Ampel: eine Farbe, die man von weitem sieht. */}
-        <Card className={`forecast forecast-${ampel.status}`}
-          title="Monatsprognose" sub="Schätzung auf Basis des bisherigen Verlaufs – keine Zusage">
-          <div className="forecast-head">
-            <div>
-              <div className="forecast-label">{ampel.label}</div>
-              <div className="forecast-big">{money(forecast.projectedSavings)}</div>
-              <div className="small muted">bleiben voraussichtlich übrig</div>
-            </div>
-            <StatusPill status={ampel.status}>
-              {formatSavingsRate(forecast.projectedSavingsRate, forecast.projectedIncome)}
-            </StatusPill>
-          </div>
-          <Meter percent={Math.min(100, (forecast.elapsedDays / forecast.totalDays) * 100)}
-            status={ampel.status === 'green' ? 'good' : ampel.status === 'amber' ? 'warning' : 'critical'} />
-          <div className="grid grid-2 keep2 mt12" style={{ gap: 10 }}>
-            <Stat small label="Erwartete Ausgaben" value={money(forecast.projectedExpense)} />
-            <Stat small label="Erwartete Einnahmen" value={money(forecast.projectedIncome)} />
-          </div>
-          <div className="hint-box mt12">
-            <strong>{ampel.sentence}</strong><br />
-            Tag {forecast.elapsedDays} von {forecast.totalDays}. Bisher {formatMoney(forecast.actualExpense)} ausgegeben
-            {forecast.plannedExpense > 0 && <>, {formatMoney(forecast.plannedExpense)} sind fest eingeplant</>}.
-            Die Hochrechnung setzt den bisherigen Tagesschnitt fort.
-            {forecast.expectedIncome > 0 && (
-              <> Bei den Einnahmen sind {formatMoney(forecast.expectedIncome)} mitgerechnet, die noch kommen.</>
-            )}
-          </div>
-        </Card>
-        <Card title="Ausgaben nach Konto" sub={formatMonth(month, true)}>
-          {byAcc.length
-            ? <RankBars items={byAcc.map((a) => ({
-                label: a.name, value: a.amount,
-                color: data.accounts.find((x) => x.id === a.accountId)?.color ?? undefined,
-              }))} formatValue={(v) => formatMoney(v)} />
-            : <Empty icon="🏦" title="Keine Ausgaben" />}
-          {expenseChange !== null && (
-            <div className="hint-box mt12">
-              {expenseChange > 0 ? `${expenseChange} % mehr` : `${-expenseChange} % weniger`} ausgegeben als
-              im {formatMonth(addMonthsToYearMonth(month, -1), true)} ({formatMoney(prev.expense)}).
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {budgets.length > 0 && (
-        <Card title="Budgets" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/budgets')}>Alle →</button>}>
-          {budgets.slice(0, 5).map((b) => (
-            <div className="progress-row" key={b.budget.id}>
-              <div className="progress-head">
-                <span className="dot" style={{ background: b.categoryColor ?? seriesColor(0) }} />
-                <span>{b.categoryName}</span>
-                <StatusPill status={b.status}>{Math.round(b.usedPercent)} %</StatusPill>
-                <span className="val">{formatMoney(b.spent)} / {formatMoney(b.limit)}</span>
-              </div>
-              <Meter percent={b.usedPercent} status={b.status === 'green' ? 'good' : b.status === 'amber' ? 'warning' : 'critical'} markerPercent={b.paceExpectedPercent} />
-            </div>
-          ))}
-        </Card>
+      {layout.editMode && (
+        <LayoutEditPanel cards={layout.allCards}
+          onToggleVisible={layout.toggleVisible} onMoveUp={layout.moveUp} onMoveDown={layout.moveDown}
+          onReset={layout.resetLayout} />
       )}
+
+      <div className="grid grid-2">
+        {layout.visibleCards.map((c) => renderCard(c.id))}
+      </div>
     </div>
   )
 }
 
 /* ------------------------------------------------------------- Buchungen */
 
-function TransactionsTab({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }) {
+function TransactionsTab({ openQuickAdd, params }: { openQuickAdd: (kind?: any) => void; params: Record<string, string> }) {
   const data = useData()
   const m = useMutations()
   const [query, setQuery] = useState('')
-  const [type, setType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all')
-  const [categoryId, setCategoryId] = useState<string>('')
+  // Von einem Finanztag-Punkt aus („12 Buchungen kategorisieren", „größere
+  // Ausgaben prüfen") soll die Liste schon gefiltert ankommen, statt dass man
+  // sich die gemeinten Buchungen von Hand wieder zusammensucht.
+  const [type, setType] = useState<'all' | 'income' | 'expense' | 'transfer'>(
+    () => (params.uncategorised || params.minAmount ? 'expense' : 'all'),
+  )
+  const [categoryId, setCategoryId] = useState<string>(() => (params.uncategorised ? '__none__' : ''))
   const [accountId, setAccountId] = useState<string>('')
-  const [from, setFrom] = useState('')
+  const [from, setFrom] = useState(() => params.since ?? '')
   const [to, setTo] = useState('')
+  const [minAmount, setMinAmount] = useState<number | null>(() => (params.minAmount ? Number(params.minAmount) : null))
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [limit, setLimit] = useState(80)
 
@@ -317,10 +392,12 @@ function TransactionsTab({ openQuickAdd }: { openQuickAdd: (kind?: any) => void 
     return data.transactions.filter((t) => {
       if (t.deleted_at) return false
       if (type !== 'all' && t.type !== type) return false
-      if (categoryId && t.category_id !== categoryId) return false
+      if (categoryId === '__none__') { if (t.category_id) return false }
+      else if (categoryId && t.category_id !== categoryId) return false
       if (accountId && t.account_id !== accountId && t.to_account_id !== accountId) return false
       if (from && t.booked_on < from) return false
       if (to && t.booked_on > to) return false
+      if (minAmount !== null && t.amount_cents < minAmount) return false
       if (q) {
         const hay = [t.merchant, t.description, t.note, catById.get(t.category_id ?? '')?.name]
           .filter(Boolean).join(' ').toLowerCase()
@@ -328,7 +405,7 @@ function TransactionsTab({ openQuickAdd }: { openQuickAdd: (kind?: any) => void 
       }
       return true
     })
-  }, [data.transactions, query, type, categoryId, accountId, from, to, catById])
+  }, [data.transactions, query, type, categoryId, accountId, from, to, minAmount, catById])
 
   const sum = filtered.reduce((s, t) => s + (t.type === 'income' ? t.amount_cents : t.type === 'expense' ? -t.amount_cents : 0), 0)
 
@@ -346,6 +423,7 @@ function TransactionsTab({ openQuickAdd }: { openQuickAdd: (kind?: any) => void 
           </select>
           <select className="select" style={{ flex: '1 1 150px' }} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">Alle Kategorien</option>
+            <option value="__none__">Ohne Kategorie</option>
             {data.categories.filter((c) => !c.deleted_at).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <select className="select" style={{ flex: '1 1 140px' }} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
@@ -362,8 +440,9 @@ function TransactionsTab({ openQuickAdd }: { openQuickAdd: (kind?: any) => void 
         <div className="row mt8 small muted">
           <span>{filtered.length} Buchungen</span>
           <span>Saldo der Auswahl: <strong className="mono" style={{ color: 'var(--text)' }}>{formatMoney(sum, { sign: true })}</strong></span>
-          {(query || type !== 'all' || categoryId || accountId || from || to) && (
-            <button className="btn btn-sm btn-ghost" onClick={() => { setQuery(''); setType('all'); setCategoryId(''); setAccountId(''); setFrom(''); setTo('') }}>Filter zurücksetzen</button>
+          {minAmount !== null && <span>nur ab {formatMoney(minAmount)}</span>}
+          {(query || type !== 'all' || categoryId || accountId || from || to || minAmount !== null) && (
+            <button className="btn btn-sm btn-ghost" onClick={() => { setQuery(''); setType('all'); setCategoryId(''); setAccountId(''); setFrom(''); setTo(''); setMinAmount(null) }}>Filter zurücksetzen</button>
           )}
         </div>
       </Card>
@@ -873,6 +952,9 @@ function RecurringTab() {
     [data.recurring, data.transactions, today],
   )
 
+  // Normalerweise bucht die App fällige Zahlungen beim Öffnen von selbst
+  // (siehe automatik.ts). Dieser Knopf ist der Notnagel für den Moment
+  // dazwischen – z. B. eine Regel, die gerade erst angelegt wurde.
   const bookDue = () => {
     for (const d of due) {
       m.create('transactions', {
@@ -880,7 +962,8 @@ function RecurringTab() {
         amount_cents: d.template.amount_cents ?? 0, currency: 'EUR',
         account_id: d.template.account_id, to_account_id: d.template.to_account_id ?? null,
         category_id: d.template.category_id ?? null,
-        merchant: d.rule.title, description: null, note: null,
+        merchant: d.rule.title, description: d.template.description ?? null,
+        note: d.template.note ?? 'Automatisch aus einer wiederkehrenden Zahlung gebucht',
         status: 'booked', recurring_id: d.rule.id,
       })
       m.patch('recurring_rules', d.rule.id, { last_generated_on: d.day })
@@ -965,8 +1048,8 @@ function RecurringEditor({ rule, onClose }: { rule: any | null; onClose: () => v
   })
   const [startsOn, setStartsOn] = useState(rule?.starts_on ?? todayString())
   const [endsOn, setEndsOn] = useState(rule?.ends_on ?? '')
-  // Neue Regeln buchen von selbst. Bei Bestehenden bleibt es so, wie es war.
-  const [autoBook, setAutoBook] = useState(rule ? rule.auto_book !== 0 : true)
+  const [description, setDescription] = useState(tpl.description ?? '')
+  const [note, setNote] = useState(tpl.note ?? '')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const save = () => {
@@ -976,8 +1059,11 @@ function RecurringEditor({ rule, onClose }: { rule: any | null; onClose: () => v
       kind: 'transaction', title: title.trim(),
       rrule: buildRRule({ freq: 'MONTHLY', byMonthDay: [dayOfMonth] }),
       starts_on: startsOn, ends_on: endsOn || null,
-      template_json: JSON.stringify({ type, amount_cents: cents, account_id: accountId, category_id: categoryId || null }),
-      auto_book: autoBook ? 1 : 0, lead_days: 5, is_active: 1,
+      template_json: JSON.stringify({
+        type, amount_cents: cents, account_id: accountId, category_id: categoryId || null,
+        description: description.trim() || null, note: note.trim() || null,
+      }),
+      lead_days: 5, is_active: 1,
     }
     if (rule) m.patch('recurring_rules', rule.id, payload, 'Zahlung geändert')
     else m.create('recurring_rules', payload, 'Zahlung angelegt')
@@ -1010,17 +1096,8 @@ function RecurringEditor({ rule, onClose }: { rule: any | null; onClose: () => v
           {data.accounts.filter((a) => !a.deleted_at).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </Field>
-      <label className="row" style={{ alignItems: 'flex-start', gap: 9 }}>
-        <input type="checkbox" style={{ marginTop: 4 }} checked={autoBook}
-          onChange={(e) => setAutoBook(e.target.checked)} />
-        <span>
-          <strong>Von selbst buchen, wenn sie fällig ist</strong>
-          <span className="small muted" style={{ display: 'block' }}>
-            Sinnvoll bei allem, was ohnehin abgebucht wird. Abschalten, wenn der Betrag
-            jedes Mal anders ist und du ihn selbst eintragen willst.
-          </span>
-        </span>
-      </label>
+      <Field label="Beschreibung"><input className="input" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+      <Field label="Notiz"><textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       <Field label="Kategorie">
         <select className="select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
           <option value="">Ohne Kategorie</option>
@@ -1050,13 +1127,17 @@ function RecurringEditor({ rule, onClose }: { rule: any | null; onClose: () => v
 
 /* -------------------------------------------------------------- Finanztag */
 
-function FinanceDayTab({ navigate }: { navigate: (r: string) => void }) {
+function FinanceDayTab({ navigate, params }: { navigate: (r: string) => void; params: Record<string, string> }) {
   const data = useData()
   const m = useMutations()
   const today = todayString()
   const [done, setDone] = useState<Set<string>>(new Set())
   const [actual, setActual] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
+  // Von einem Finanztag-Punkt „Kontostand X abgleichen" oder „Bargeld zählen"
+  // kommt man mit dem betroffenen Konto in der Query an – die Zeile wird
+  // hervorgehoben, damit man sie unter allen Konten nicht erst suchen muss.
+  const highlightAccountId = params.account || null
 
   const balances = useMemo(() => accountBalances(data.accounts, data.transactions), [data.accounts, data.transactions])
   const accounts = data.accounts.filter((a) => !a.deleted_at && a.is_active)
@@ -1151,8 +1232,11 @@ function FinanceDayTab({ navigate }: { navigate: (r: string) => void }) {
             <tbody>
               {diffs.map((d) => {
                 const check = lastCheckOf(d.account.id)
+                const highlighted = d.account.id === highlightAccountId
                 return (
-                  <tr key={d.account.id}>
+                  <tr key={d.account.id}
+                    ref={(el) => { if (highlighted) el?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }}
+                    style={highlighted ? { background: 'rgba(250,178,25,.18)', outline: '1.5px solid var(--warning)' } : undefined}>
                     <td>
                       <span className="row" style={{ gap: 8 }}>
                         <span className="avatar" style={{ width: 24, height: 24, fontSize: 13, background: d.account.color ?? undefined }}>{d.account.icon ?? '🏦'}</span>
@@ -1214,10 +1298,9 @@ function FinanceDayTab({ navigate }: { navigate: (r: string) => void }) {
                     <span className="list-sub">{i.detail}</span>
                     <span className="list-sub" style={{ fontStyle: 'italic' }}>Warum: {i.reason}</span>
                   </span>
-                  {i.action?.kind === 'open_budgets' && <button className="btn btn-sm" onClick={() => navigate('#/finanzen/budgets')}>Öffnen</button>}
-                  {i.action?.kind === 'open_uncategorised' && <button className="btn btn-sm" onClick={() => navigate('#/finanzen/buchungen')}>Öffnen</button>}
-                  {i.action?.kind === 'open_recurring' && <button className="btn btn-sm" onClick={() => navigate('#/finanzen/wiederkehrend')}>Öffnen</button>}
-                  {i.action?.kind === 'open_goal' && <button className="btn btn-sm" onClick={() => navigate('#/ziele')}>Ziele</button>}
+                  {financeChecklistRoute(i.action) && (
+                    <button className="btn btn-sm" onClick={() => navigate(financeChecklistRoute(i.action)!)}>Öffnen</button>
+                  )}
                 </div>
               )
             })}
@@ -1225,5 +1308,283 @@ function FinanceDayTab({ navigate }: { navigate: (r: string) => void }) {
         )}
       </Card>
     </>
+  )
+}
+
+/* -------------------------------------------------------- Investments */
+
+/**
+ * Manuelles Investment-Tracking (z. B. Trading212) – bewusst ohne Kursdaten.
+ *
+ * Erfasst wird nur, wie viel Geld in eine Position eingesetzt wurde und was
+ * bei einem (Teil-)Verkauf zurückkam. Anders als bei den normalen Konten
+ * fließt das hier weder in netWorth/availableMoney noch in die Kontostände
+ * ein – siehe core/investments.ts. Das ist eine bewusste Abgrenzung für
+ * diese Ausbaustufe, keine technische Notwendigkeit.
+ */
+function InvestmentsTab() {
+  const data = useData()
+  const m = useMutations()
+  const [editing, setEditing] = useState<Investment | 'new' | null>(null)
+  const [detail, setDetail] = useState<Investment | null>(null)
+
+  const investments = data.investments.filter((i) => !i.deleted_at)
+  const movesByInvestment = useMemo(() => {
+    const map = new Map<string, InvestmentMove[]>()
+    for (const mv of data.investmentMoves) {
+      const list = map.get(mv.investment_id)
+      if (list) list.push(mv)
+      else map.set(mv.investment_id, [mv])
+    }
+    return map
+  }, [data.investmentMoves])
+
+  const portfolio = useMemo(
+    () => summarizePortfolio(data.investments, movesByInvestment),
+    [data.investments, movesByInvestment],
+  )
+
+  // Bei einer Änderung an einem Investment (z. B. gerade gelöscht) zeigt die
+  // Detailansicht sonst noch den alten Stand – hier wird sie synchron gehalten.
+  const detailCurrent = detail ? investments.find((i) => i.id === detail.id) ?? null : null
+
+  return (
+    <>
+      <Card className="mb16" title="Investments" sub="Manuell erfasst · keine Kursdaten, keine Kopplung an Kontostände oder Gesamtvermögen">
+        <div className="grid grid-3 keep2">
+          <Stat small label="Eingesetzt (aktuell)" value={formatMoney(portfolio.totalRemaining)} sub={<span className="muted small">von {formatMoney(portfolio.totalInvested)} insgesamt</span>} />
+          <Stat small label="Realisierter Gewinn/Verlust" value={formatMoney(portfolio.totalRealizedProfitLoss, { sign: true })} />
+          <Stat small label="Positionen" value={`${portfolio.openCount} offen · ${portfolio.closedCount} geschlossen`} />
+        </div>
+      </Card>
+
+      <div className="page-actions mb16">
+        <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Investment</button>
+      </div>
+
+      {investments.length === 0 ? (
+        <Empty icon="📈" title="Noch keine Investments erfasst"
+          hint="Lege eine Position an, z. B. dein Trading212-Depot oder einen einzelnen ETF."
+          action={<button className="btn btn-primary" onClick={() => setEditing('new')}>+ Erstes Investment</button>} />
+      ) : (
+        <div className="grid grid-2">
+          {investments.map((inv) => {
+            const summary = summarizeInvestment(movesByInvestment.get(inv.id) ?? [])
+            return (
+              <Card key={inv.id}>
+                <button className="row konto-kopf" style={{ width: '100%', textAlign: 'left' }}
+                  onClick={() => setDetail(inv)} title={`${inv.name} ansehen`}>
+                  <span className="avatar" style={{ background: 'var(--surface-3)' }}>📈</span>
+                  <span className="list-main">
+                    <span className="list-title">{inv.name}</span>
+                    <span className="list-sub">
+                      {inv.note || `${formatMoney(summary.totalInvested)} insgesamt eingesetzt`}
+                    </span>
+                  </span>
+                  <span style={{ textAlign: 'right' }}>
+                    <span className="stat-value sm mono" style={{ display: 'block' }}>{formatMoney(summary.remainingBasis)}</span>
+                    <span className="small muted">eingesetzt aktuell</span>
+                  </span>
+                  <span className="muted" style={{ marginLeft: 6 }}>›</span>
+                </button>
+                <div className="row mt12">
+                  <StatusPill status={summary.isClosed ? 'green' : 'amber'}>{summary.isClosed ? 'geschlossen' : 'offen'}</StatusPill>
+                  {summary.realizedProfitLoss !== 0 && (
+                    <span className={`small ${summary.realizedProfitLoss > 0 ? 'up' : 'down'}`}>
+                      Realisiert: {formatMoney(summary.realizedProfitLoss, { sign: true })}
+                    </span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <button className="btn btn-sm" onClick={() => setDetail(inv)}>Ansehen</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setEditing(inv)}>Bearbeiten</button>
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {detailCurrent && (
+        <InvestmentDetail investment={detailCurrent} moves={movesByInvestment.get(detailCurrent.id) ?? []}
+          onClose={() => setDetail(null)}
+          onEdit={() => { setEditing(detailCurrent); setDetail(null) }} />
+      )}
+      {editing && <InvestmentEditor investment={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+    </>
+  )
+}
+
+/** Ein einzelnes Investment von innen: alle Bewegungen, neueste zuerst. */
+function InvestmentDetail({ investment, moves, onClose, onEdit }: {
+  investment: Investment; moves: InvestmentMove[]; onClose: () => void; onEdit: () => void
+}) {
+  const m = useMutations()
+  const [neu, setNeu] = useState<'buy' | 'sell' | null>(null)
+
+  const active = moves.filter((mv) => !mv.deleted_at)
+  const sorted = [...active].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0))
+  const summary = summarizeInvestment(active)
+
+  return (
+    <Modal open wide title={investment.name} onClose={onClose}
+      footer={<>
+        <button className="btn" onClick={onEdit}>Bearbeiten</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn btn-primary" onClick={onClose}>Schließen</button>
+      </>}>
+      <div className="grid grid-3 keep2">
+        <Stat small label="Eingesetzt aktuell" value={formatMoney(summary.remainingBasis)} sub={<span className="muted small">von {formatMoney(summary.totalInvested)} insgesamt</span>} />
+        <Stat small label="Verkaufserlöse gesamt" value={formatMoney(summary.totalProceeds)} />
+        <Stat small label="Realisierter Gewinn/Verlust" value={formatMoney(summary.realizedProfitLoss, { sign: true })} />
+      </div>
+
+      {investment.note && <div className="hint-box">{investment.note}</div>}
+
+      <Card title={`Bewegungen (${sorted.length})`} className="pad0"
+        action={<div className="row" style={{ gap: 8 }}>
+          <button className="btn btn-sm" onClick={() => setNeu('buy')}>+ Kauf</button>
+          <button className="btn btn-sm btn-primary" disabled={summary.remainingBasis <= 0} onClick={() => setNeu('sell')}>+ Verkauf</button>
+        </div>}>
+        {sorted.length === 0 ? (
+          <Empty icon="💶" title="Noch keine Bewegungen" hint="Starte mit dem ersten Kauf." />
+        ) : (
+          <div className="list">
+            {sorted.map((mv) => {
+              const pnl = mv.kind === 'sell' ? mv.amount_cents - (mv.cost_basis_cents ?? 0) : null
+              return (
+                <div className="list-row" key={mv.id}>
+                  <span className="avatar" style={{ background: 'var(--surface-3)' }}>{mv.kind === 'buy' ? '⬇' : '⬆'}</span>
+                  <span className="list-main">
+                    <span className="list-title">{mv.kind === 'buy' ? 'Kauf' : 'Verkauf'} · {formatMoney(mv.amount_cents)}</span>
+                    <span className="list-sub">
+                      {formatDay(mv.day)}
+                      {mv.kind === 'sell' && ` · Einsatz verkauft ${formatMoney(mv.cost_basis_cents ?? 0)}`}
+                      {pnl !== null && ` · G/V ${formatMoney(pnl, { sign: true })}`}
+                      {mv.note && ` · ${mv.note}`}
+                    </span>
+                  </span>
+                  <button className="btn btn-sm btn-ghost" onClick={() => m.remove('investment_moves', mv.id, 'Bewegung gelöscht')}>Löschen</button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
+
+      {neu && (
+        <InvestmentMoveEditor investment={investment} moves={active} kind={neu} onClose={() => setNeu(null)} />
+      )}
+    </Modal>
+  )
+}
+
+function InvestmentEditor({ investment, onClose }: { investment: Investment | null; onClose: () => void }) {
+  const m = useMutations()
+  const [name, setName] = useState(investment?.name ?? '')
+  const [note, setNote] = useState(investment?.note ?? '')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const save = () => {
+    if (!name.trim()) return
+    const payload = { name: name.trim(), note: note.trim() || null }
+    if (investment) m.patch('investments', investment.id, payload, 'Investment geändert')
+    else m.create('investments', payload, 'Investment angelegt')
+    onClose()
+  }
+
+  return (
+    <Modal open title={investment ? 'Investment bearbeiten' : 'Neues Investment'} onClose={onClose}
+      footer={<>
+        {investment && <button className="btn btn-danger" onClick={() => setConfirmDelete(true)}>Löschen</button>}
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={onClose}>Abbrechen</button>
+        <button className="btn btn-primary" onClick={save} disabled={!name.trim()}>Speichern</button>
+      </>}>
+      <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Trading212 – MSCI World ETF" autoFocus /></Field>
+      <Field label="Notiz" hint="optional"><textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      <Confirm open={confirmDelete} title="Investment löschen?"
+        message="Die erfassten Bewegungen bleiben erhalten, das Investment landet im Papierkorb."
+        danger onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => { m.remove('investments', investment!.id, 'Investment gelöscht'); setConfirmDelete(false); onClose() }} />
+    </Modal>
+  )
+}
+
+/** Formular für eine Bewegung – Kauf oder Verkauf, je nach `kind`. */
+function InvestmentMoveEditor({ investment, moves, kind, onClose }: {
+  investment: Investment; moves: InvestmentMove[]; kind: 'buy' | 'sell'; onClose: () => void
+}) {
+  const m = useMutations()
+  const remainingBasis = maxSellCostBasis(moves)
+
+  const [day, setDay] = useState(todayString())
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  // Verkauf: vollständig (ganzer Rest-Einsatz) oder Teilverkauf (frei eingegeben).
+  const [full, setFull] = useState(true)
+  const [costBasisInput, setCostBasisInput] = useState(centsToInput(remainingBasis))
+
+  const amountCents = parseAmountToCents(amount)
+  const costBasisCents = kind === 'sell'
+    ? (full ? remainingBasis : (parseAmountToCents(costBasisInput) ?? 0))
+    : null
+  const sellValidation = kind === 'sell' ? validateSellCostBasis(remainingBasis, costBasisCents ?? 0) : { ok: true }
+
+  const valid = amountCents !== null && amountCents > 0 && (kind === 'buy' || sellValidation.ok)
+
+  const save = () => {
+    if (!valid) return
+    m.create('investment_moves', {
+      investment_id: investment.id,
+      day,
+      kind,
+      amount_cents: amountCents,
+      cost_basis_cents: kind === 'sell' ? costBasisCents : null,
+      note: note.trim() || null,
+    }, kind === 'buy' ? 'Kauf erfasst' : 'Verkauf erfasst')
+    onClose()
+  }
+
+  return (
+    <Modal open title={kind === 'buy' ? 'Kauf erfassen' : 'Verkauf erfassen'} onClose={onClose}
+      footer={<>
+        <button className="btn" onClick={onClose}>Abbrechen</button>
+        <button className="btn btn-primary" onClick={save} disabled={!valid}>Speichern</button>
+      </>}>
+      <Field label="Datum"><input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} /></Field>
+      <Field label={kind === 'buy' ? 'Eingesetztes Kapital' : 'Erlös'} hint="Cent wandern von rechts herein: 2000 wird zu 20,00 €">
+        <MoneyInput value={amount} onChange={setAmount} autoFocus />
+      </Field>
+
+      {kind === 'sell' && (
+        <>
+          <Field label="Art des Verkaufs">
+            <Chips options={[{ value: 'full', label: 'Vollständiger Verkauf' }, { value: 'partial', label: 'Teilverkauf' }]}
+              value={full ? 'full' : 'partial'}
+              onChange={(v) => {
+                const isFull = v === 'full'
+                setFull(isFull)
+                if (isFull) setCostBasisInput(centsToInput(remainingBasis))
+              }} />
+          </Field>
+          <Field label="Davon eingesetztes Kapital verkauft"
+            hint={`Verfügbar: ${formatMoney(remainingBasis)} – hieraus ergibt sich der Gewinn/Verlust dieser Bewegung`}>
+            {full
+              ? <input className="input" value={costBasisInput} readOnly />
+              : <MoneyInput value={costBasisInput} onChange={setCostBasisInput} />}
+          </Field>
+          {!sellValidation.ok && <div className="hint-box small" style={{ color: 'var(--critical)' }}>{sellValidation.message}</div>}
+          {sellValidation.ok && amountCents !== null && costBasisCents !== null && (
+            <div className="hint-box small">
+              Gewinn/Verlust dieser Bewegung: <strong className={amountCents - costBasisCents >= 0 ? 'up' : 'down'}>
+                {formatMoney(amountCents - costBasisCents, { sign: true })}
+              </strong>
+            </div>
+          )}
+        </>
+      )}
+
+      <Field label="Notiz" hint="optional"><textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+    </Modal>
   )
 }

@@ -5,3 +5,4 @@ src-tauri/target/
 .DS_Store
 check.mjs
 diag*.mjs
+_to_delete/

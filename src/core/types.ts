@@ -1,5 +1,8 @@
 import type { Cents } from './money'
 import type { DayString, Instant } from './dates'
+import type { InvestmentMove } from './investments'
+
+export type { InvestmentMove }
 
 export interface BaseEntity {
   id: string
@@ -259,6 +262,7 @@ export interface RecurringRule extends BaseEntity {
   starts_on: DayString
   ends_on: DayString | null
   template_json: string
+  /** Historisches Feld – jede aktive Regel bucht fällige Zahlungen inzwischen von selbst, ungefragt. */
   auto_book: number
   lead_days: number
   last_generated_on: DayString | null
@@ -328,6 +332,16 @@ export interface BodyMeasurement extends BaseEntity {
   neck_cm: number | null
   body_fat_percent: number | null
   method: string | null
+  note: string | null
+}
+
+export interface DayNote extends BaseEntity {
+  day: DayString
+  note: string
+}
+
+export interface Investment extends BaseEntity {
+  name: string
   note: string | null
 }
 

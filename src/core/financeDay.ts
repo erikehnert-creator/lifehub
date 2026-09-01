@@ -177,3 +177,47 @@ export function generateFinanceDayChecklist(i: FinanceDayInput): ChecklistItem[]
 
   return items.sort((a, b) => a.priority - b.priority)
 }
+
+/**
+ * Zu welcher Route führt ein Klick auf einen Finanztag-Punkt?
+ *
+ * Ein Punkt wie „12 Buchungen kategorisieren" ist nutzlos, wenn er nur auf
+ * die allgemeine Buchungsliste zeigt – dann sucht man die gemeinten
+ * Buchungen von Hand wieder zusammen. Die Routen hier verlinken deshalb so
+ * genau wie möglich auf das, worüber der Punkt tatsächlich spricht (per
+ * Query an die Buchungsliste bzw. das betroffene Konto), statt nur auf den
+ * Bereich. Eine Stelle für diese Übersetzung, damit Finanztag-Tab und die
+ * Kurzfassung auf „Heute" nicht auseinanderlaufen.
+ */
+export function financeChecklistRoute(action?: ChecklistItem['action']): string | null {
+  if (!action) return null
+  switch (action.kind) {
+    case 'open_uncategorised':
+      return '#/finanzen/buchungen?uncategorised=1'
+    case 'open_transactions': {
+      const p = action.payload ?? {}
+      const params: string[] = []
+      if (p.minAmount) params.push(`minAmount=${encodeURIComponent(p.minAmount)}`)
+      if (p.since) params.push(`since=${encodeURIComponent(p.since)}`)
+      return `#/finanzen/buchungen${params.length ? '?' + params.join('&') : ''}`
+    }
+    case 'reconcile_account': {
+      const id = action.payload?.accountId
+      return id ? `#/finanzen/finanztag?account=${encodeURIComponent(id)}` : '#/finanzen/finanztag'
+    }
+    case 'open_budgets':
+      return '#/finanzen/budgets'
+    case 'open_recurring':
+      return '#/finanzen/wiederkehrend'
+    case 'open_goal':
+      return '#/ziele'
+    case 'open_forecast':
+      return '#/finanzen'
+    case 'close_month': {
+      const ym = action.payload?.yearMonth
+      return ym ? `#/finanzen?month=${encodeURIComponent(ym)}` : '#/finanzen'
+    }
+    default:
+      return null
+  }
+}

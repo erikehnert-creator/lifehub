@@ -9,6 +9,7 @@ import { parseDuration, durationToInput, formatHoursMinutes } from '../src/core/
 import {
   expectedRecurring, dueRecurringBookings, savingsRateView, forecastStatus,
   periodTotals, forecastMonth, monthTotalsErwartet, topMerchants, transactionsForAccount,
+  expectedIncomeRest,
 } from '../src/core/finance'
 import {
   anlaufTage, defaultShowFrom, effectiveShowFrom, dringlichkeit,
@@ -19,6 +20,12 @@ import type { Metric } from '../src/core/types'
 import { generateInsights } from '../src/core/insights'
 import { niceTicks } from '../src/charts'
 import { vorkommenIn } from '../src/screens/Calendar'
+import { financeChecklistRoute } from '../src/core/financeDay'
+import { resolveLayout, moveInOrder, moveCard, toggleCardVisible, type LayoutCardDef } from '../src/core/layout'
+import {
+  summarizeInvestment, maxSellCostBasis, validateSellCostBasis, summarizePortfolio,
+  type InvestmentMove,
+} from '../src/core/investments'
 
 /* -------------------------------------------------------- Kasseneingabe */
 
@@ -144,12 +151,46 @@ describe('Erwartete Einnahmen und fällige Buchungen', () => {
     expect(faellig.every((f) => f.day >= '2026-05-30')).toBe(true)
   })
 
+  it('gibt Beschreibung und Notiz aus der Vorlage weiter, damit sie in die gebuchte Zahlung übernommen werden können', () => {
+    const r = regel({
+      template_json: JSON.stringify({
+        type: 'income', amount_cents: 120000, account_id: 'a1',
+        description: 'Ausbildungsvergütung', note: 'überweist die Firma laut Vertrag',
+      }),
+      last_generated_on: '2026-07-28',
+    })
+    const [faellig] = dueRecurringBookings([r], [], '2026-08-30')
+    expect(faellig.template.description).toBe('Ausbildungsvergütung')
+    expect(faellig.template.note).toBe('überweist die Firma laut Vertrag')
+  })
+
   it('überspringt abgeschaltete Regeln und solche ohne Konto', () => {
     expect(dueRecurringBookings([regel({ is_active: 0 })], [], '2026-08-30')).toHaveLength(0)
     expect(dueRecurringBookings(
       [regel({ template_json: JSON.stringify({ type: 'income', amount_cents: 1 }) })],
       [], '2026-08-30',
     )).toHaveLength(0)
+  })
+})
+
+describe('Hinweis zur erwarteten Einnahme nennt die Regel', () => {
+  it('liefert Titel und Fälligkeitstag der Regel, aus der die Erwartung stammt', () => {
+    const e = expectedIncomeRest([], [regel()], '2026-08', '2026-08-05')
+    expect(e.quelle).toBe('regeln')
+    expect(e.regel).toEqual({ titel: 'Gehalt', tag: '2026-08-28' })
+  })
+
+  it('zeigt im Hinweistext, welche Regel und welcher Tag gemeint ist – nicht nur „mitgerechnet"', () => {
+    const totals = periodTotals([], '2026-08-01', '2026-08-31')
+    const v = savingsRateView(totals, 120000, true, 'regeln', { titel: 'Gehalt', tag: '2026-08-28' })
+    expect(v.hint).toContain('Gehalt')
+    expect(v.hint).toContain('28.08.')
+  })
+
+  it('fällt ohne bekannte Regel auf den allgemeinen Hinweis zurück', () => {
+    const totals = periodTotals([], '2026-08-01', '2026-08-31')
+    const v = savingsRateView(totals, 120000, true, 'regeln', null)
+    expect(v.hint).toBe('Die Einnahmen, die diesen Monat noch kommen, sind mitgerechnet.')
   })
 })
 
@@ -272,6 +313,67 @@ describe('Ampel der Monatsprognose', () => {
   })
   it('wird grün, wenn ordentlich übrig bleibt', () => {
     expect(forecastStatus(f(120000, 40000)).status).toBe('green')
+  })
+})
+
+describe('Monatsprognose lehnt sich an die Vormonate an', () => {
+  const tx = (over: Record<string, any>) => ({
+    ...basis, id: Math.random().toString(36), type: 'expense', currency: 'EUR',
+    account_id: 'a1', to_account_id: null, category_id: null, merchant: null,
+    description: null, note: null, status: 'booked', recurring_id: null,
+    import_batch_id: null, external_ref: null, ...over,
+  }) as any
+
+  it('ist am Monatsanfang mit kaum Daten nah am Schnitt der letzten Monate statt bei null', () => {
+    // Juni und Juli je 3.000 € Ausgaben – rund 100 €/Tag.
+    const transactions = [
+      tx({ amount_cents: 300000, booked_on: '2026-06-15' }),
+      tx({ amount_cents: 300000, booked_on: '2026-07-15' }),
+      // August: noch keine einzige Buchung.
+    ]
+    const f = forecastMonth(transactions, '2026-08', '2026-08-01')
+    // Der reine Tagesschnitt des laufenden Monats wäre hier 0 (keine Buchung) –
+    // die alte Rechnung hätte 0 € Ausgaben für den ganzen Monat prognostiziert.
+    // Mit den Vormonaten im Blick liegt die Schätzung stattdessen nah an
+    // einem normalen Monat von rund 3.000 €.
+    expect(f.projectedExpense).toBeGreaterThan(200000)
+    expect(f.projectedExpense).toBeLessThan(320000)
+  })
+
+  it('lässt gegen Monatsende den tatsächlichen Verlauf dieses Monats überwiegen', () => {
+    // Juni und Juli je ~10.000 €-Tagesschnitt (300.000 / 30 bzw. 310.000 / 31).
+    const transactions = [
+      tx({ amount_cents: 300000, booked_on: '2026-06-15' }),
+      tx({ amount_cents: 310000, booked_on: '2026-07-15' }),
+      // August: bis zum 28. schon 560.000 (20.000/Tag) ausgegeben – ein
+      // deutlich teurerer Monat als sonst.
+      tx({ amount_cents: 560000, booked_on: '2026-08-28' }),
+    ]
+    const f = forecastMonth(transactions, '2026-08', '2026-08-28')
+    // Rein historisch (10.000/Tag) käme man auf 560.000 + 3·10.000 = 590.000.
+    // Rein am laufenden Monat (20.000/Tag) auf 560.000 + 3·20.000 = 620.000.
+    // Am 28. von 31 Tagen soll der laufende Verlauf klar überwiegen.
+    expect(f.projectedExpense).toBeGreaterThan(610000)
+    expect(f.projectedExpense).toBeLessThanOrEqual(620000)
+  })
+
+  it('bricht ohne jede Historie nicht ab und liefert keine NaN', () => {
+    const f = forecastMonth([], '2026-08', '2026-08-15')
+    expect(Number.isFinite(f.projectedExpense)).toBe(true)
+    expect(f.projectedExpense).toBe(0)
+    expect(f.projectedSavings).toBe(0)
+  })
+
+  it('verhält sich ohne Vormonate wie die bisherige einfache Hochrechnung', () => {
+    // Kein Ausgaben-Monat vor August vorhanden – historicalDailyExpense()
+    // liefert null, also zählt nur der bisherige Tagesschnitt wie zuvor.
+    const transactions = [
+      tx({ amount_cents: 60000, booked_on: '2026-08-01' }),
+      tx({ amount_cents: 60000, booked_on: '2026-08-10' }),
+    ]
+    const f = forecastMonth(transactions, '2026-08', '2026-08-10')
+    // 120.000 in 10 Tagen = 12.000/Tag, 21 Resttage → 120.000 + 252.000
+    expect(f.projectedExpense).toBe(372000)
   })
 })
 
@@ -448,9 +550,13 @@ describe('Aufgaben mit Zeitraum', () => {
   })
 
   it('verhält sich ohne Zeitraum wie eine gewöhnliche Aufgabe an einem Tag', () => {
+    // today fest auf den Plantag gesetzt: sonst würde diese Prüfung an dem
+    // Kalendertag falsch, an dem der wirkliche "heute" zufällig mit
+    // scheduled_end_on zusammenfällt – das Übertrag-Verhalten für
+    // liegengebliebene Aufgaben (siehe carryOverPatches) hat dann Vorrang.
     const t = aufgabe({ scheduled_on: '2026-08-29' })
-    expect(tasksForDay([t], '2026-08-29')).toHaveLength(1)
-    expect(tasksForDay([t], '2026-08-30')).toHaveLength(0)
+    expect(tasksForDay([t], '2026-08-29', '2026-08-29')).toHaveLength(1)
+    expect(tasksForDay([t], '2026-08-30', '2026-08-29')).toHaveLength(0)
   })
 
   it('verschiebt eine noch laufende Mehrtagesaufgabe nicht mitten im Zeitraum', () => {
@@ -594,5 +700,244 @@ describe('Häufigste Händler/Empfänger', () => {
     expect(topMerchants(list, 'expense')).toEqual(['REWE'])
     const viele = Array.from({ length: 8 }, (_, i) => tx({ merchant: `Laden ${i}` }))
     expect(topMerchants(viele, 'expense', 5)).toHaveLength(5)
+  })
+})
+
+/* -------------------------------------------- Finanztag-Punkte verlinken */
+
+describe('financeChecklistRoute – verlinkt auf die betroffenen Buchungen, nicht nur den Bereich', () => {
+  it('führt bei nicht kategorisierten Buchungen direkt zur gefilterten Liste', () => {
+    expect(financeChecklistRoute({ kind: 'open_uncategorised' }))
+      .toBe('#/finanzen/buchungen?uncategorised=1')
+  })
+
+  it('gibt Mindestbetrag und Datum der größeren Ausgaben als Filter mit', () => {
+    expect(financeChecklistRoute({ kind: 'open_transactions', payload: { minAmount: 10000, since: '2026-07-15' } }))
+      .toBe('#/finanzen/buchungen?minAmount=10000&since=2026-07-15')
+  })
+
+  it('führt beim Kontenabgleich zum betroffenen Konto', () => {
+    expect(financeChecklistRoute({ kind: 'reconcile_account', payload: { accountId: 'konto1' } }))
+      .toBe('#/finanzen/finanztag?account=konto1')
+  })
+
+  it('nimmt beim Monatsabschluss den betroffenen Monat mit', () => {
+    expect(financeChecklistRoute({ kind: 'close_month', payload: { yearMonth: '2026-07' } }))
+      .toBe('#/finanzen?month=2026-07')
+  })
+
+  it('kommt ohne Aktion oder bei unbekannter Art ohne Fehler zurecht', () => {
+    expect(financeChecklistRoute(undefined)).toBeNull()
+    expect(financeChecklistRoute({ kind: 'unbekannt' })).toBeNull()
+  })
+})
+
+/* ------------------------------------------------- Frei anpassbare Seiten */
+
+const seitenkarten: LayoutCardDef[] = [
+  { id: 'a', title: 'Karte A' },
+  { id: 'b', title: 'Karte B' },
+  { id: 'c', title: 'Karte C', defaultVisible: false },
+]
+
+describe('resolveLayout – Kartenangebot einer Seite mit gespeicherter Einstellung verschmelzen', () => {
+  it('zeigt ohne gespeicherte Einstellung die Standardreihenfolge und -sichtbarkeit', () => {
+    expect(resolveLayout(seitenkarten, null)).toEqual([
+      { id: 'a', title: 'Karte A', visible: true },
+      { id: 'b', title: 'Karte B', visible: true },
+      { id: 'c', title: 'Karte C', defaultVisible: false, visible: false },
+    ])
+  })
+
+  it('übernimmt die gespeicherte Reihenfolge', () => {
+    const ergebnis = resolveLayout(seitenkarten, { order: ['c', 'a', 'b'], hidden: [] })
+    expect(ergebnis.map((k) => k.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('übernimmt die gespeicherte Sichtbarkeit – auch entgegen der Werkseinstellung', () => {
+    // c ist per Werkseinstellung unsichtbar, steht hier aber (bewusst vom Nutzer
+    // eingeschaltet) in der Reihenfolge und NICHT in hidden.
+    const ergebnis = resolveLayout(seitenkarten, { order: ['a', 'b', 'c'], hidden: ['a'] })
+    const byId = new Map(ergebnis.map((k) => [k.id, k.visible]))
+    expect(byId.get('a')).toBe(false)
+    expect(byId.get('c')).toBe(true)
+    expect(byId.get('b')).toBe(true)
+  })
+
+  it('übergeht eine gespeicherte Karten-ID, die es nicht mehr gibt, ohne Fehler', () => {
+    const ergebnis = resolveLayout(seitenkarten, { order: ['x', 'a', 'geloescht', 'b'], hidden: ['geloescht'] })
+    expect(ergebnis.map((k) => k.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('hängt eine neue Karte, die die gespeicherte Einstellung noch nicht kannte, sichtbar ans Ende', () => {
+    // Die Einstellung wurde gespeichert, als es "b" noch nicht gab.
+    const ergebnis = resolveLayout(seitenkarten, { order: ['c', 'a'], hidden: [] })
+    expect(ergebnis.map((k) => k.id)).toEqual(['c', 'a', 'b'])
+    expect(ergebnis.find((k) => k.id === 'b')?.visible).toBe(true)
+  })
+
+  it('kommt mit einer leeren Einstellung ({order:[],hidden:[]}) wie ohne Einstellung zurecht', () => {
+    expect(resolveLayout(seitenkarten, { order: [], hidden: [] })).toEqual(resolveLayout(seitenkarten, null))
+  })
+})
+
+describe('moveInOrder – Karte in der Reihenfolge verschieben', () => {
+  it('tauscht mit dem Nachbarn', () => {
+    expect(moveInOrder(['a', 'b', 'c'], 'a', 1)).toEqual(['b', 'a', 'c'])
+    expect(moveInOrder(['a', 'b', 'c'], 'c', -1)).toEqual(['a', 'c', 'b'])
+  })
+
+  it('tut nichts, wenn die Karte schon am Rand steht', () => {
+    expect(moveInOrder(['a', 'b', 'c'], 'a', -1)).toEqual(['a', 'b', 'c'])
+    expect(moveInOrder(['a', 'b', 'c'], 'c', 1)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('tut nichts bei einer unbekannten ID', () => {
+    expect(moveInOrder(['a', 'b', 'c'], 'zzz', 1)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('toggleCardVisible / moveCard – vollständige, speicherbare Einstellung liefern', () => {
+  it('blendet eine sichtbare Karte aus und wieder ein', () => {
+    const ausgeblendet = toggleCardVisible(seitenkarten, null, 'a')
+    expect(ausgeblendet.hidden).toContain('a')
+    const wiederEingeblendet = toggleCardVisible(seitenkarten, ausgeblendet, 'a')
+    expect(wiederEingeblendet.hidden).not.toContain('a')
+  })
+
+  it('verschiebt eine Karte und merkt sich das dauerhaft, auch ohne vorherige Einstellung', () => {
+    const verschoben = moveCard(seitenkarten, null, 'a', 1)
+    expect(verschoben.order).toEqual(['b', 'a', 'c'])
+    // Reihenfolge bleibt beim nächsten Verschmelzen erhalten
+    expect(resolveLayout(seitenkarten, verschoben).map((k) => k.id)).toEqual(['b', 'a', 'c'])
+  })
+})
+
+/* ------------------------------------------------- Investments (Trading212) */
+
+describe('Investments (Trading212)', () => {
+  let seq = 0
+  function move(partial: Partial<InvestmentMove> & { kind: 'buy' | 'sell'; amount_cents: number }): InvestmentMove {
+    seq++
+    return {
+      id: `m${seq}`,
+      investment_id: 'i1',
+      day: '2026-01-01',
+      cost_basis_cents: null,
+      note: null,
+      deleted_at: null,
+      ...partial,
+    }
+  }
+
+  it('nur ein Kauf: Rest = Einsatz, kein Erlös, kein Gewinn/Verlust, nicht geschlossen', () => {
+    const moves = [move({ kind: 'buy', amount_cents: 10000, day: '2026-01-01' })]
+    const s = summarizeInvestment(moves)
+    expect(s.totalInvested).toBe(10000)
+    expect(s.remainingBasis).toBe(10000)
+    expect(s.totalProceeds).toBe(0)
+    expect(s.realizedProfitLoss).toBe(0)
+    expect(s.isClosed).toBe(false)
+  })
+
+  it('Kauf + vollständiger Verkauf: Rest 0, geschlossen, G/V = Erlös - Einsatz', () => {
+    const moves = [
+      move({ kind: 'buy', amount_cents: 10000, day: '2026-01-01' }),
+      move({ kind: 'sell', amount_cents: 12000, cost_basis_cents: 10000, day: '2026-02-01' }),
+    ]
+    const s = summarizeInvestment(moves)
+    expect(s.remainingBasis).toBe(0)
+    expect(s.isClosed).toBe(true)
+    expect(s.totalProceeds).toBe(12000)
+    expect(s.realizedProfitLoss).toBe(2000)
+  })
+
+  it('Kauf + Teilverkauf: Rest = Einsatz - verkaufter Einsatz, weiterhin offen', () => {
+    const moves = [
+      move({ kind: 'buy', amount_cents: 10000, day: '2026-01-01' }),
+      move({ kind: 'sell', amount_cents: 4000, cost_basis_cents: 3000, day: '2026-02-01' }),
+    ]
+    const s = summarizeInvestment(moves)
+    expect(s.remainingBasis).toBe(7000)
+    expect(s.isClosed).toBe(false)
+    expect(s.realizedProfitLoss).toBe(1000)
+  })
+
+  it('Kauf, Teilverkauf, dann zweiter Verkauf des Rests: geschlossen, G/V summiert beide Verkäufe', () => {
+    const moves = [
+      move({ kind: 'buy', amount_cents: 10000, day: '2026-01-01' }),
+      move({ kind: 'sell', amount_cents: 4000, cost_basis_cents: 3000, day: '2026-02-01' }),
+      move({ kind: 'sell', amount_cents: 6500, cost_basis_cents: 7000, day: '2026-03-01' }),
+    ]
+    const s = summarizeInvestment(moves)
+    expect(s.remainingBasis).toBe(0)
+    expect(s.isClosed).toBe(true)
+    // 1000 aus dem ersten Verkauf + (6500 - 7000) aus dem zweiten
+    expect(s.realizedProfitLoss).toBe(1000 + (6500 - 7000))
+  })
+
+  it('mehrere Käufe vor jedem Verkauf: totalInvested summiert korrekt', () => {
+    const moves = [
+      move({ kind: 'buy', amount_cents: 5000, day: '2026-01-01' }),
+      move({ kind: 'buy', amount_cents: 3000, day: '2026-01-15' }),
+      move({ kind: 'buy', amount_cents: 2000, day: '2026-02-01' }),
+    ]
+    const s = summarizeInvestment(moves)
+    expect(s.totalInvested).toBe(10000)
+    expect(s.remainingBasis).toBe(10000)
+  })
+
+  it('ignoriert gelöschte Bewegungen', () => {
+    const moves = [
+      move({ kind: 'buy', amount_cents: 10000, day: '2026-01-01' }),
+      move({ kind: 'sell', amount_cents: 999999, cost_basis_cents: 10000, day: '2026-02-01', deleted_at: '2026-02-02T00:00:00Z' }),
+    ]
+    const s = summarizeInvestment(moves)
+    expect(s.remainingBasis).toBe(10000)
+    expect(s.totalProceeds).toBe(0)
+    expect(s.isClosed).toBe(false)
+  })
+
+  it('maxSellCostBasis liefert dasselbe wie summarizeInvestment().remainingBasis', () => {
+    const moves = [
+      move({ kind: 'buy', amount_cents: 10000, day: '2026-01-01' }),
+      move({ kind: 'sell', amount_cents: 4000, cost_basis_cents: 3000, day: '2026-02-01' }),
+    ]
+    expect(maxSellCostBasis(moves)).toBe(summarizeInvestment(moves).remainingBasis)
+  })
+
+  it('validateSellCostBasis: lehnt 0/negativ ab, lehnt mehr als remainingBasis ab, akzeptiert gültigen Wert', () => {
+    expect(validateSellCostBasis(5000, 0).ok).toBe(false)
+    expect(validateSellCostBasis(5000, -100).ok).toBe(false)
+    expect(validateSellCostBasis(5000, 5001).ok).toBe(false)
+    expect(validateSellCostBasis(5000, 5000).ok).toBe(true)
+    expect(validateSellCostBasis(5000, 2500).ok).toBe(true)
+  })
+
+  it('summarizePortfolio aggregiert über mehrere Investments und ignoriert gelöschte', () => {
+    const invests = [
+      { id: 'i1', deleted_at: null },
+      { id: 'i2', deleted_at: null },
+      { id: 'i3', deleted_at: '2026-02-02T00:00:00Z' }, // gelöscht – zählt nicht mit
+    ]
+    const byInvestment = new Map<string, InvestmentMove[]>([
+      ['i1', [
+        move({ investment_id: 'i1', kind: 'buy', amount_cents: 10000, day: '2026-01-01' }),
+        move({ investment_id: 'i1', kind: 'sell', amount_cents: 12000, cost_basis_cents: 10000, day: '2026-02-01' }),
+      ]],
+      ['i2', [
+        move({ investment_id: 'i2', kind: 'buy', amount_cents: 5000, day: '2026-01-01' }),
+      ]],
+      ['i3', [
+        // Sollte komplett ignoriert werden, da die Position selbst gelöscht ist
+        move({ investment_id: 'i3', kind: 'buy', amount_cents: 999999, day: '2026-01-01' }),
+      ]],
+    ])
+    const p = summarizePortfolio(invests, byInvestment)
+    expect(p.totalInvested).toBe(15000)       // 10000 + 5000, i3 ignoriert
+    expect(p.totalRemaining).toBe(5000)       // i1 geschlossen (0), i2 offen (5000)
+    expect(p.totalRealizedProfitLoss).toBe(2000)
+    expect(p.openCount).toBe(1)               // i2
+    expect(p.closedCount).toBe(1)             // i1
   })
 })

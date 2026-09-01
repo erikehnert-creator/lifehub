@@ -631,6 +631,51 @@ CREATE INDEX IF NOT EXISTS ix_shopping_open ON shopping_items(user_id, is_checke
 
 CREATE INDEX IF NOT EXISTS ix_task_due ON tasks(user_id, due_on);
 
+CREATE TABLE IF NOT EXISTS day_notes (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY, day text NOT NULL, note text NOT NULL,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ux_day_notes ON day_notes(user_id, day);
+
+CREATE TABLE IF NOT EXISTS investments (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      name text NOT NULL,
+      note text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE TABLE IF NOT EXISTS investment_moves (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      investment_id text NOT NULL,
+      day text NOT NULL,
+      kind text NOT NULL,
+      amount_cents integer NOT NULL,
+      cost_basis_cents integer,
+      note text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_investment_moves_investment ON investment_moves(user_id, investment_id);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -643,6 +688,9 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS carried_count integer NOT NULL DEFAUL
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS carried_from text;
 ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS end_day text;
 ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS reminder_minutes integer;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scheduled_end_on text;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_total integer;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_done integer;
 
 
 -- server_rev: Sequenz, Index und Trigger je Tabelle
@@ -893,6 +941,24 @@ DROP TRIGGER IF EXISTS trg_shopping_items_rev ON shopping_items;
 CREATE TRIGGER trg_shopping_items_rev BEFORE INSERT OR UPDATE ON shopping_items
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE day_notes ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_day_notes_rev ON day_notes(server_rev);
+DROP TRIGGER IF EXISTS trg_day_notes_rev ON day_notes;
+CREATE TRIGGER trg_day_notes_rev BEFORE INSERT OR UPDATE ON day_notes
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE investments ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_investments_rev ON investments(server_rev);
+DROP TRIGGER IF EXISTS trg_investments_rev ON investments;
+CREATE TRIGGER trg_investments_rev BEFORE INSERT OR UPDATE ON investments
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE investment_moves ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_investment_moves_rev ON investment_moves(server_rev);
+DROP TRIGGER IF EXISTS trg_investment_moves_rev ON investment_moves;
+CREATE TRIGGER trg_investment_moves_rev BEFORE INSERT OR UPDATE ON investment_moves
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1030,6 +1096,15 @@ REVOKE ALL ON account_checks FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON shopping_items TO authenticated;
 REVOKE ALL ON shopping_items FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON day_notes TO authenticated;
+REVOKE ALL ON day_notes FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON investments TO authenticated;
+REVOKE ALL ON investments FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON investment_moves TO authenticated;
+REVOKE ALL ON investment_moves FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1242,10 +1317,25 @@ DROP POLICY IF EXISTS shopping_items_own ON shopping_items;
 CREATE POLICY shopping_items_own ON shopping_items FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE day_notes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS day_notes_own ON day_notes;
+CREATE POLICY day_notes_own ON day_notes FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE investments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS investments_own ON investments;
+CREATE POLICY investments_own ON investments FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE investment_moves ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS investment_moves_own ON investment_moves;
+CREATE POLICY investment_moves_own ON investment_moves FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 41 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 44 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1336,6 +1426,12 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM account_checks
   UNION ALL
   SELECT max(server_rev) AS rev FROM shopping_items
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM day_notes
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM investments
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM investment_moves
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;

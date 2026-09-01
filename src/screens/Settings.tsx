@@ -31,6 +31,7 @@ import {
   signIn, signOut, currentSession, syncRolle, clearSyncRolle, meldeSyncAenderung,
   type Session, type SyncRolle,
 } from '../sync/auth'
+import { resolvedSyncUrl, resolvedSyncKey, hasBuiltinSyncDefaults } from '../sync/config'
 
 const STATES: [string, string][] = [
   ['BW', 'Baden-Württemberg'], ['BY', 'Bayern'], ['BE', 'Berlin'], ['BB', 'Brandenburg'],
@@ -670,9 +671,13 @@ function SyncTab() {
   const [confirmFresh, setConfirmFresh] = useState(false)
   const [confirmPush, setConfirmPush] = useState(false)
 
-  const url = data.settings.sync_url
-  const key = data.settings.sync_key
+  // Eine von Hand eingetragene Server-Verbindung geht vor, sonst greift die
+  // eingebaute Werkseinstellung (src/sync/config.ts) – dann muss hier nie
+  // wieder eine Projekt-URL eingetippt werden, nur noch E-Mail und Passwort.
+  const url = resolvedSyncUrl(data.settings.sync_url)
+  const key = resolvedSyncKey(data.settings.sync_key)
   const configured = !!url && !!key
+  const nutztWerkseinstellung = !data.settings.sync_url && !data.settings.sync_key && hasBuiltinSyncDefaults()
 
   const pending = all<{ n: number }>('SELECT COUNT(*) AS n FROM change_log')[0]?.n ?? 0
   const conflicts = all<{ n: number }>('SELECT COUNT(*) AS n FROM conflicts WHERE resolved_at IS NULL')[0]?.n ?? 0
@@ -734,16 +739,36 @@ function SyncTab() {
         </div>
       </Card>
 
-      <Card className="mb16" title="Server" sub="Supabase-Projekt. Beide Angaben findest du dort unter Project Settings → API.">
-        <Field label="Projekt-URL">
-          <input className="input" placeholder="https://xxxxxxxx.supabase.co" value={url}
-            onChange={(e) => m.setSetting('sync_url', e.target.value.trim())} />
-        </Field>
-        <Field label="Öffentlicher Schlüssel (anon public)" hint="Dieser Schlüssel ist nicht geheim – er benennt nur das Projekt.">
-          <input className="input" value={key}
-            onChange={(e) => m.setSetting('sync_key', e.target.value.trim())} />
-        </Field>
-      </Card>
+      {nutztWerkseinstellung ? (
+        <Card className="mb16" title="Server">
+          <div className="row" style={{ gap: 7 }}>
+            <span className="pill good">✓ voreingestellter Server</span>
+            <span className="small muted">Auf diesem Gerät reicht die Anmeldung unten – Projekt-URL und Schlüssel sind schon hinterlegt.</span>
+          </div>
+          <Collapsible label="Andere Server-Verbindung nutzen" >
+            <Field label="Projekt-URL">
+              <input className="input" placeholder="https://xxxxxxxx.supabase.co" value={data.settings.sync_url}
+                onChange={(e) => m.setSetting('sync_url', e.target.value.trim())} />
+            </Field>
+            <Field label="Öffentlicher Schlüssel (anon public)" hint="Dieser Schlüssel ist nicht geheim – er benennt nur das Projekt.">
+              <input className="input" value={data.settings.sync_key}
+                onChange={(e) => m.setSetting('sync_key', e.target.value.trim())} />
+            </Field>
+            <div className="small muted mt8">Beide Felder leer lassen, um wieder den voreingestellten Server zu nutzen.</div>
+          </Collapsible>
+        </Card>
+      ) : (
+        <Card className="mb16" title="Server" sub="Supabase-Projekt. Beide Angaben findest du dort unter Project Settings → API.">
+          <Field label="Projekt-URL">
+            <input className="input" placeholder="https://xxxxxxxx.supabase.co" value={data.settings.sync_url}
+              onChange={(e) => m.setSetting('sync_url', e.target.value.trim())} />
+          </Field>
+          <Field label="Öffentlicher Schlüssel (anon public)" hint="Dieser Schlüssel ist nicht geheim – er benennt nur das Projekt.">
+            <input className="input" value={data.settings.sync_key}
+              onChange={(e) => m.setSetting('sync_key', e.target.value.trim())} />
+          </Field>
+        </Card>
+      )}
 
       <Card className="mb16" title="Anmeldung" sub="Einmal pro Gerät. Die Anmeldung bleibt auf diesem Gerät gespeichert.">
         {session ? (

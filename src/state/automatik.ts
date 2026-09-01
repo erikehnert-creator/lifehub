@@ -43,8 +43,11 @@ export function useAutomatik() {
       const meldungen: string[] = []
 
       if (data.settings.auto_book_recurring !== false) {
+        // Kein Bestätigen mehr nötig: Jede fällige, aktive Regel bucht von
+        // selbst. Wer eine Zahlung mit schwankendem Betrag hat, bucht sie wie
+        // gewohnt automatisch mit dem hinterlegten Betrag und korrigiert die
+        // entstandene Buchung danach – die verhält sich wie jede andere.
         const faellig = dueRecurringBookings(data.recurring, data.transactions, heute)
-          .filter((d) => d.rule.auto_book !== 0)
         let summe = 0
         for (const d of faellig) {
           mutations.create('transactions', {
@@ -52,8 +55,8 @@ export function useAutomatik() {
             amount_cents: d.template.amount_cents ?? 0, currency: 'EUR',
             account_id: d.template.account_id, to_account_id: d.template.to_account_id ?? null,
             category_id: d.template.category_id ?? null,
-            merchant: d.rule.title, description: null,
-            note: 'Automatisch aus einer wiederkehrenden Zahlung gebucht',
+            merchant: d.rule.title, description: d.template.description ?? null,
+            note: d.template.note ?? 'Automatisch aus einer wiederkehrenden Zahlung gebucht',
             status: 'booked', recurring_id: d.rule.id,
           })
           mutations.patch('recurring_rules', d.rule.id, { last_generated_on: d.day })

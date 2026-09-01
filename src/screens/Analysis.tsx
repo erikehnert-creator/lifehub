@@ -6,11 +6,12 @@
  * sagt das ausdrücklich, statt es dem Zufall zu überlassen.
  */
 import React, { useMemo, useState } from 'react'
-import { Card, Stat, Tabs, Empty, Collapsible } from '../ui/components'
+import { Card, Stat, Tabs, Empty, Collapsible, StatusPill } from '../ui/components'
 import { LineChart, BarChart, YearHeatmap, RankBars, seriesColor } from '../charts'
 import { useData } from '../state/store'
 import {
   monthTotals, monthTotalsErwartet, monthlySeries, netWorthSeries, totalsByCategory, accountBalances, formatSavingsRate,
+  expectedIncomeRest, forecastMonth, forecastStatus,
 } from '../core/finance'
 import { dailySeries, correlation, correlationLabel, aggregate, groupSeries, formatMetricValue } from '../core/metrics'
 import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
@@ -58,6 +59,19 @@ function OverviewTab() {
   // mitgerechnet – sonst widerspricht diese Kachel der Sparquote auf Heute/Finanzen.
   const cur = useMemo(() => monthTotalsErwartet(data.transactions, data.recurring, monthOf(today), today), [data.transactions, data.recurring, today])
 
+  // Statt des schlichten „Sparbetrag bisher" (der Mitte des Monats zu optimistisch
+  // wirkt, weil er dem bisherigen Ausgeben die volle Monatseinnahme gegenüberstellt)
+  // zeigt die Kachel die Monatsprognose – dieselbe Hochrechnung wie auf Finanzen/Heute.
+  const offeneEinnahmen = useMemo(
+    () => expectedIncomeRest(data.transactions, data.recurring, monthOf(today), today),
+    [data.transactions, data.recurring, today],
+  )
+  const forecast = useMemo(
+    () => forecastMonth(data.transactions, monthOf(today), today, offeneEinnahmen.cents),
+    [data.transactions, today, offeneEinnahmen],
+  )
+  const ampel = useMemo(() => forecastStatus(forecast), [forecast])
+
   const metricCards = data.metrics.filter((m) => !m.deleted_at && m.is_enabled).slice(0, 6)
   const from = addDays(today, -(months * 30))
 
@@ -91,7 +105,10 @@ function OverviewTab() {
       <div className="grid grid-4 keep2 mb16">
         <Card><Stat label={cur.projected ? 'Einnahmen (Monat) · erwartet' : 'Einnahmen (Monat)'} value={formatMoney(cur.income, { compact: true })} /></Card>
         <Card><Stat label="Ausgaben (Monat)" value={formatMoney(cur.expense, { compact: true })} /></Card>
-        <Card><Stat label="Sparbetrag" value={formatMoney(cur.savings, { compact: true })} /></Card>
+        <Card className={`forecast forecast-${ampel.status}`}>
+          <Stat label="Monatsprognose" value={formatMoney(forecast.projectedSavings, { compact: true })}
+            sub={<StatusPill status={ampel.status}>{ampel.label}</StatusPill>} />
+        </Card>
         <Card><Stat label={cur.projected ? 'Sparquote · erwartet' : 'Sparquote'} value={formatSavingsRate(cur.savingsRatePercent, cur.income)} /></Card>
       </div>
 

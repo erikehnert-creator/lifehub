@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mergeRows } from '../src/sync/engine'
+import { resolvedSyncUrl, resolvedSyncKey, DEFAULT_SYNC_URL, DEFAULT_SYNC_KEY } from '../src/sync/config'
 
 const row = (over: Record<string, any> = {}) => ({
   id: 'x1', created_at: '2026-08-01T10:00:00Z', updated_at: '2026-08-01T10:00:00Z',
@@ -85,5 +86,17 @@ describe('Konflikt bewusst entschieden', () => {
     const { merged, conflicted } = mergeRows('transactions', local, remote)
     expect(merged.amount_cents).toBe(1111)
     expect(conflicted).toContain('amount_cents')
+  })
+})
+
+describe('Voreingestellte Server-Verbindung', () => {
+  it('bevorzugt eine von Hand eingetragene URL/Schlüssel gegenüber der Werkseinstellung', () => {
+    expect(resolvedSyncUrl('https://eigenes-projekt.supabase.co')).toBe('https://eigenes-projekt.supabase.co')
+    expect(resolvedSyncKey('eigener-schluessel')).toBe('eigener-schluessel')
+  })
+
+  it('fällt bei leerem Feld auf die eingebaute Werkseinstellung zurück', () => {
+    expect(resolvedSyncUrl('')).toBe(DEFAULT_SYNC_URL)
+    expect(resolvedSyncKey('')).toBe(DEFAULT_SYNC_KEY)
   })
 })

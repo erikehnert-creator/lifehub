@@ -2,20 +2,51 @@
  * HEUTE – die Morgenansicht.
  * Führt alle Bereiche für den heutigen Tag zusammen: Arbeit, Termine,
  * Aufgaben, Finanzen, Ernährung, Schlaf, Training, Ziele, Hinweise.
+ *
+ * Welche Karten zu sehen sind und in welcher Reihenfolge, legt jeder für
+ * sich über "Anpassen" fest (siehe ui/pageLayout.tsx) – die Liste unten
+ * (CARD_DEFS) ist nur die Werkseinstellung, kein Zwang.
  */
 import React, { useMemo, useState } from 'react'
 import { Card, Stat, Empty, StatusPill, ZonePill } from '../ui/components'
+import { usePageLayout, LayoutEditToggle, LayoutEditPanel } from '../ui/pageLayout'
+import type { LayoutCardDef } from '../core/layout'
 import { Meter, Sparkline, LineChart } from '../charts'
 import { useData, useMutations } from '../state/store'
-import { accountBalances, availableMoney, netWorth, monthTotals, budgetProgress, expectedIncomeRest, savingsRateView } from '../core/finance'
+import {
+  accountBalances, availableMoney, netWorth, monthTotals, budgetProgress,
+  expectedIncomeRest, savingsRateView, forecastMonth,
+} from '../core/finance'
 import { formatMoney } from '../core/money'
 import { todayString, formatDay, monthOf, monthEnd, weekdayLong, addDays, formatDuration, holidaysForState, relativeDay } from '../core/dates'
 import { tasksForDay, computeCapacity, isOverdue, toggleTaskPatch, progressPatch } from '../core/planner'
+import { generateFinanceDayChecklist, financeChecklistRoute } from '../core/financeDay'
 import { dayValue, targetFor, evaluateZone, dailySeries, formatMetricValue } from '../core/metrics'
 import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
 import { goalProgress } from '../core/goals'
 import { currentValueForGoal } from './goalHelpers'
 import { nextOccurrence } from '../core/recurrence'
+
+/** Werkseinstellung der Heute-Seite. Erik will hier vor allem: Aufgaben,
+ * Termine mit Uhrzeit, und einen kurzen Finanzblick – der Rest ist weiterhin
+ * da, steht aber nicht mehr im Weg, wenn er ihn nicht braucht. */
+const CARD_DEFS: LayoutCardDef[] = [
+  { id: 'aufgaben', title: 'Aufgaben heute' },
+  { id: 'termine', title: 'Termine heute' },
+  { id: 'finanzen_kurz', title: 'Finanzen: Kurzüberblick' },
+  // Die ausführliche Tagesleiste ist weiterhin da, aber nicht mehr erzwungen –
+  // wer nur Aufgaben und Termine sehen will, blendet sie einfach aus.
+  { id: 'dein_tag', title: 'Dein Tag', defaultVisible: false },
+  { id: 'hinweise', title: 'Hinweise' },
+  { id: 'budgets', title: 'Budgets' },
+  { id: 'kommende_zahlungen', title: 'Kommende Zahlungen' },
+  { id: 'finanzen_konten', title: 'Finanzen: Kontostände' },
+  { id: 'ernaehrung', title: 'Ernährung heute' },
+  { id: 'schlaf_gewicht', title: 'Schlaf & Gewicht' },
+  { id: 'training', title: 'Training' },
+  { id: 'ziele', title: 'Ziele' },
+  { id: 'finanztag_checkliste', title: 'Finanzen: was steht an' },
+]
 
 export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) => void; openQuickAdd: (kind?: any) => void }) {
   const data = useData()
@@ -41,13 +72,33 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
     [data.transactions, data.recurring, month, today],
   )
   const quote = useMemo(
-    () => savingsRateView(totals, offeneEinnahmen.cents, true, offeneEinnahmen.quelle),
+    () => savingsRateView(totals, offeneEinnahmen.cents, true, offeneEinnahmen.quelle, offeneEinnahmen.regel),
     [totals, offeneEinnahmen],
+  )
+  // Dieselbe gemischte Prognose wie auf Finanzen/Übersicht – ein Blick auf
+  // beide Seiten soll dieselbe Zahl zeigen, nicht zwei verschiedene Rechnungen.
+  const forecast = useMemo(
+    () => forecastMonth(data.transactions, month, today, offeneEinnahmen.cents),
+    [data.transactions, month, today, offeneEinnahmen],
   )
 
   const todayTasks = useMemo(() => tasksForDay(data.tasks, today), [data.tasks, today])
   const openTasks = todayTasks.filter((t) => t.status !== 'done')
-  const todayEvents = data.events.filter((e) => !e.deleted_at && e.day === today)
+  const todayEvents = useMemo(() => data.events.filter((e) => !e.deleted_at && e.day === today), [data.events, today])
+  const todayEventsSorted = useMemo(
+    () => [...todayEvents].sort((a, b) => (a.start_time ?? '99:99').localeCompare(b.start_time ?? '99:99')),
+    [todayEvents],
+  )
+
+  // Was der Finanztag anmerken würde – hier nur zum Draufschauen, nicht als
+  // eigene Aufgabe. Dieselbe Berechnung wie auf Finanzen/Finanztag, damit
+  // beide Stellen dieselbe Liste zeigen.
+  const financeChecklist = useMemo(() => generateFinanceDayChecklist({
+    accounts: data.accounts.filter((a) => !a.deleted_at && a.is_active),
+    transactions: data.transactions, budgets: data.budgets, categories: data.categories,
+    goals: data.goals, recurring: data.recurring, today,
+    lastRunOn: data.financeDayRuns.find((r: any) => !r.deleted_at)?.ran_on ?? null,
+  }), [data, today])
 
   const holidays = useMemo(() => holidaysForState(Number(today.slice(0, 4)), data.settings.state ?? 'SN'), [today, data.settings.state])
   const todayHoliday = holidays.find((h) => h.day === today)
@@ -80,133 +131,149 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
     return out.sort((a, b) => (a.day < b.day ? -1 : 1)).slice(0, 4)
   }, [data.recurring, today])
 
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">{greeting()}</h1>
-          <p className="page-sub">
-            {weekdayLong(today)}, {formatDay(today)}
-            {dayType && <> · <strong style={{ color: dayType.color ?? undefined }}>{dayType.name}</strong></>}
-            {todayHoliday && <> · 🎉 {todayHoliday.name}</>}
-          </p>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-primary" onClick={() => openQuickAdd()}>+ Erfassen</button>
-        </div>
-      </div>
+  const activeGoals = data.goals.filter((g) => !g.deleted_at && g.status === 'active')
 
-      {/* Ganz oben: Termine und Aufgaben – das ist zuerst wichtig, bevor irgendeine Zahl. */}
-      <div className="grid grid-2 mb16">
-        <Card title="Dein Tag" sub={dayType ? `${dayType.name}${dayType.default_start ? ` · ${assignment?.start_override ?? dayType.default_start}–${assignment?.end_override ?? dayType.default_end}` : ''}` : 'Kein Tagestyp gesetzt'}
-          action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/plan')}>Planer →</button>}>
-          <DayTimeline capacity={capacity} events={todayEvents} tasks={openTasks} dayType={dayType} assignment={assignment} />
-        </Card>
+  const layout = usePageLayout('heute', CARD_DEFS)
 
-        <Card title="Aufgaben heute" sub={`${openTasks.length} offen von ${todayTasks.length}`}
-          action={<button className="btn btn-sm" onClick={() => openQuickAdd('task')}>+</button>}>
-          {todayTasks.length === 0 ? (
-            <Empty icon="✅" title="Nichts für heute geplant" hint="Genieß den freien Kopf – oder hol dir etwas aus der Inbox." />
-          ) : (
-            <div className="list">
-              {todayTasks.slice(0, 8).map((t) => (
-                <div key={t.id} className={`list-row${t.status === 'done' ? ' task-done' : ''}`}>
-                  {t.progress_total && t.progress_total > 1 ? (
-                    <div className="row" style={{ gap: 4 }}>
-                      <button className="btn btn-sm btn-ghost" type="button" disabled={(t.progress_done ?? 0) <= 0}
-                        onClick={() => m.patch('tasks', t.id, progressPatch(t, -1))} aria-label="Ein Teil weniger fertig">−</button>
-                      <span className="mono small" style={{ minWidth: 34, textAlign: 'center' }}>{t.progress_done ?? 0}/{t.progress_total}</span>
-                      <button className="btn btn-sm btn-ghost" type="button" disabled={(t.progress_done ?? 0) >= t.progress_total}
-                        onClick={() => m.patch('tasks', t.id, progressPatch(t, 1))} aria-label="Ein Teil mehr fertig">+</button>
-                    </div>
-                  ) : (
-                    <button className={`checkbox${t.status === 'done' ? ' checked' : ''}`}
-                      onClick={() => m.patch('tasks', t.id, toggleTaskPatch(t))}>✓</button>
-                  )}
-                  <div className="list-main">
-                    <div className="list-title">{t.title}</div>
-                    <div className="list-sub">
-                      {t.duration_minutes ? formatDuration(t.duration_minutes) : 'ohne Dauer'}
-                      {t.priority === 3 && ' · hohe Priorität'}
-                      {isOverdue(t, today) && ' · überfällig'}
-                    </div>
-                  </div>
-                  {t.scheduled_time && <span className="small muted mono">{t.scheduled_time}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* Kennzahlen – jede Kachel führt dorthin, wo die Zahl herkommt. */}
-      <div className="grid grid-3 keep2 mb16">
-        <KennzahlKarte onClick={() => navigate('#/finanzen/buchungen')}>
-          <Stat label={`Ausgaben ${monthLabel(month)}`} value={formatMoney(totals.expense, { compact: true })}
-            sub={`Einnahmen ${formatMoney(quote.income, { compact: true })}${quote.expected ? ' · erwartet' : ''}`} />
-        </KennzahlKarte>
-        <KennzahlKarte onClick={() => navigate('#/finanzen')}>
-          <Stat label={quote.expected ? 'Sparquote · erwartet' : 'Sparquote'} value={quote.defined ? quote.text.replace(' erwartet', '') : '–'}
-            deltaKind={quote.savings >= 0 ? 'up' : 'down'}
-            delta={`${quote.savings >= 0 ? '↑' : '↓'} ${formatMoney(Math.abs(quote.savings), { compact: true })}`}
-            sub={quote.hint ?? undefined} />
-        </KennzahlKarte>
-        <KennzahlKarte onClick={() => navigate('#/plan')}>
-          <Stat label="Offene Aufgaben" value={String(openTasks.length)}
-            sub={capacity.freeMinutes > 0 ? `${formatDuration(capacity.freeMinutes)} frei` : 'Tag ist voll'} />
-        </KennzahlKarte>
-      </div>
-
-      <div className="grid grid-2">
-        <div>
-          {/* Hinweise – worauf achten, direkt nach den Zahlen, auf die sie sich beziehen */}
-          {insights.length > 0 && (
-            <Card title="Hinweise" sub="Aus deinen eigenen Daten berechnet">
-              {insights.slice(0, 4).map((ins, i) => (
-                <InsightRow key={i} insight={ins} />
-              ))}
-            </Card>
-          )}
-
-          {/* Budgets */}
-          {budgets.length > 0 && (
-            <Card title="Budgets" sub={monthLabel(month)}
-              action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/budgets')}>→</button>}>
-              {budgets.slice(0, 4).map((b) => (
-                <div key={b.budget.id} className="progress-row">
-                  <div className="progress-head">
-                    <span className="name">{b.categoryName}</span>
-                    <StatusPill status={b.status}>{Math.round(b.usedPercent)} %</StatusPill>
-                    <span className="val">{formatMoney(b.spent, { compact: true })} / {formatMoney(b.limit, { compact: true })}</span>
-                  </div>
-                  <Meter percent={b.usedPercent} status={b.status === 'red' ? 'critical' : b.status === 'amber' ? 'warning' : 'good'}
-                    markerPercent={b.paceExpectedPercent} />
-                </div>
-              ))}
-            </Card>
-          )}
-
-          {/* Kommende Zahlungen */}
-          {upcomingPayments.length > 0 && (
-            <Card title="Kommende Zahlungen" sub="Nächste 14 Tage">
+  /** Rendert eine Karte anhand ihrer ID – oder null, wenn es gerade nichts zu zeigen gibt. */
+  function renderCard(id: string): React.ReactNode {
+    switch (id) {
+      case 'aufgaben':
+        return (
+          <Card key={id} title="Aufgaben heute" sub={`${openTasks.length} offen von ${todayTasks.length}`}
+            action={<button className="btn btn-sm" onClick={() => openQuickAdd('task')}>+</button>}>
+            {todayTasks.length === 0 ? (
+              <Empty icon="✅" title="Nichts für heute geplant" hint="Genieß den freien Kopf – oder hol dir etwas aus der Inbox." />
+            ) : (
               <div className="list">
-                {upcomingPayments.map((p, i) => (
-                  <div key={i} className="list-row">
+                {todayTasks.slice(0, 8).map((t) => (
+                  <div key={t.id} className={`list-row${t.status === 'done' ? ' task-done' : ''}`}>
+                    {t.progress_total && t.progress_total > 1 ? (
+                      <div className="row" style={{ gap: 4 }}>
+                        <button className="btn btn-sm btn-ghost" type="button" disabled={(t.progress_done ?? 0) <= 0}
+                          onClick={() => m.patch('tasks', t.id, progressPatch(t, -1))} aria-label="Ein Teil weniger fertig">−</button>
+                        <span className="mono small" style={{ minWidth: 34, textAlign: 'center' }}>{t.progress_done ?? 0}/{t.progress_total}</span>
+                        <button className="btn btn-sm btn-ghost" type="button" disabled={(t.progress_done ?? 0) >= t.progress_total}
+                          onClick={() => m.patch('tasks', t.id, progressPatch(t, 1))} aria-label="Ein Teil mehr fertig">+</button>
+                      </div>
+                    ) : (
+                      <button className={`checkbox${t.status === 'done' ? ' checked' : ''}`}
+                        onClick={() => m.patch('tasks', t.id, toggleTaskPatch(t))}>✓</button>
+                    )}
                     <div className="list-main">
-                      <div className="list-title">{p.title}</div>
-                      <div className="list-sub">{relativeDay(p.day, today)} · {formatDay(p.day, 'short')}</div>
+                      <div className="list-title">{t.title}</div>
+                      <div className="list-sub">
+                        {t.duration_minutes ? formatDuration(t.duration_minutes) : 'ohne Dauer'}
+                        {t.priority === 3 && ' · hohe Priorität'}
+                        {isOverdue(t, today) && ' · überfällig'}
+                      </div>
                     </div>
-                    {p.amount !== null && <span className="list-amount">{formatMoney(p.amount)}</span>}
+                    {t.scheduled_time && <span className="small muted mono">{t.scheduled_time}</span>}
                   </div>
                 ))}
               </div>
-            </Card>
-          )}
-        </div>
+            )}
+          </Card>
+        )
 
-        <div>
-          {/* Finanzen – Verfügbar/Vermögen stehen hier im Kopf der Karte, nicht mehr ganz oben auf der Seite */}
-          <Card title="Finanzen"
+      case 'termine':
+        return (
+          <Card key={id} title="Termine heute" sub={todayEvents.length ? `${todayEvents.length} heute` : undefined}
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/plan/kalender')}>Kalender →</button>}>
+            {todayEvents.length === 0 ? (
+              <Empty icon="🗓️" title="Keine Termine heute" />
+            ) : (
+              <div className="list">
+                {todayEventsSorted.map((e) => (
+                  <div key={e.id} className="list-row">
+                    <div className="list-main">
+                      <div className="list-title">{e.title}</div>
+                      {e.location && <div className="list-sub">{e.location}</div>}
+                    </div>
+                    <span className="small muted mono">
+                      {e.all_day ? 'ganztägig' : e.start_time ? `${e.start_time}${e.end_time ? '–' + e.end_time : ''}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )
+
+      case 'finanzen_kurz':
+        return (
+          <Card key={id} title="Finanzen: Kurzüberblick" sub={monthLabel(month)}
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen')}>Alle →</button>}>
+            <div className="grid grid-2 keep2" style={{ gap: 10 }}>
+              <Stat small label="Verfügbar" value={formatMoney(availableMoney(data.accounts, balances), { compact: true })} />
+              <Stat small label={`Ausgaben ${monthLabel(month)}`} value={formatMoney(totals.expense, { compact: true })} />
+              <Stat small label="Monatsprognose" value={formatMoney(forecast.projectedSavings, { compact: true })}
+                sub="bleiben voraussichtlich übrig" />
+              <Stat small label={quote.expected ? 'Sparquote · erwartet' : 'Sparquote'}
+                value={quote.defined ? quote.text.replace(' erwartet', '') : '–'}
+                delta={`${quote.savings >= 0 ? '↑' : '↓'} ${formatMoney(Math.abs(quote.savings), { compact: true })}`}
+                deltaKind={quote.savings >= 0 ? 'up' : 'down'} />
+            </div>
+          </Card>
+        )
+
+      case 'dein_tag':
+        return (
+          <Card key={id} title="Dein Tag"
+            sub={dayType ? `${dayType.name}${dayType.default_start ? ` · ${assignment?.start_override ?? dayType.default_start}–${assignment?.end_override ?? dayType.default_end}` : ''}` : 'Kein Tagestyp gesetzt'}
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/plan')}>Planer →</button>}>
+            <DayTimeline capacity={capacity} events={todayEvents} tasks={openTasks} dayType={dayType} assignment={assignment} />
+          </Card>
+        )
+
+      case 'hinweise':
+        if (insights.length === 0) return null
+        return (
+          <Card key={id} title="Hinweise" sub="Aus deinen eigenen Daten berechnet">
+            {insights.slice(0, 4).map((ins, i) => <InsightRow key={i} insight={ins} />)}
+          </Card>
+        )
+
+      case 'budgets':
+        if (budgets.length === 0) return null
+        return (
+          <Card key={id} title="Budgets" sub={monthLabel(month)}
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/budgets')}>→</button>}>
+            {budgets.slice(0, 4).map((b) => (
+              <div key={b.budget.id} className="progress-row">
+                <div className="progress-head">
+                  <span className="name">{b.categoryName}</span>
+                  <StatusPill status={b.status}>{Math.round(b.usedPercent)} %</StatusPill>
+                  <span className="val">{formatMoney(b.spent, { compact: true })} / {formatMoney(b.limit, { compact: true })}</span>
+                </div>
+                <Meter percent={b.usedPercent} status={b.status === 'red' ? 'critical' : b.status === 'amber' ? 'warning' : 'good'}
+                  markerPercent={b.paceExpectedPercent} />
+              </div>
+            ))}
+          </Card>
+        )
+
+      case 'kommende_zahlungen':
+        if (upcomingPayments.length === 0) return null
+        return (
+          <Card key={id} title="Kommende Zahlungen" sub="Nächste 14 Tage">
+            <div className="list">
+              {upcomingPayments.map((p, i) => (
+                <div key={i} className="list-row">
+                  <div className="list-main">
+                    <div className="list-title">{p.title}</div>
+                    <div className="list-sub">{relativeDay(p.day, today)} · {formatDay(p.day, 'short')}</div>
+                  </div>
+                  {p.amount !== null && <span className="list-amount">{formatMoney(p.amount)}</span>}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )
+
+      case 'finanzen_konten':
+        return (
+          <Card key={id} title="Finanzen: Kontostände"
             sub={`Verfügbar ${formatMoney(availableMoney(data.accounts, balances), { compact: true })} · Vermögen ${formatMoney(netWorth(data.accounts, balances), { compact: true })}`}
             action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen')}>Alle →</button>}>
             <div className="list">
@@ -222,46 +289,52 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
               ))}
             </div>
           </Card>
+        )
 
-          {/* Ernährung */}
-          {nutritionMetrics.length > 0 && (
-            <Card title="Ernährung heute" action={<button className="btn btn-sm" onClick={() => navigate('#/tracking')}>Eintragen</button>}>
-              <div className="grid grid-2 keep2" style={{ gap: 10 }}>
-                {nutritionMetrics.slice(0, 4).map((metric) => {
-                  const v = dayValue(data.metricEntries, metric, today)
-                  const target = targetFor(data.metricTargets, metric.id, today)
-                  const zone = evaluateZone(v, target)
-                  return (
-                    <div key={metric.id}>
-                      <div className="small muted">{metric.name}</div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                        <span style={{ fontSize: 19, fontWeight: 700 }}>
-                          {v === null ? '–' : v.toLocaleString('de-DE', { maximumFractionDigits: metric.decimals })}
-                        </span>
-                        <span className="small muted">{metric.unit}</span>
-                      </div>
-                      {target?.target_value != null && (
-                        <>
-                          <Meter percent={v === null ? 0 : (v / (target.target_value || 1)) * 100}
-                            status={zone.status === 'optimal' ? 'good' : zone.status === 'tolerated' ? 'warning' : 'critical'} />
-                          <div className="small muted mt8">Ziel {target.target_value}{target.tolerance_plus ? ` ±${target.tolerance_plus}` : ''} {metric.unit}</div>
-                        </>
-                      )}
+      case 'ernaehrung':
+        if (nutritionMetrics.length === 0) return null
+        return (
+          <Card key={id} title="Ernährung heute" action={<button className="btn btn-sm" onClick={() => navigate('#/tracking')}>Eintragen</button>}>
+            <div className="grid grid-2 keep2" style={{ gap: 10 }}>
+              {nutritionMetrics.slice(0, 4).map((metric) => {
+                const v = dayValue(data.metricEntries, metric, today)
+                const target = targetFor(data.metricTargets, metric.id, today)
+                const zone = evaluateZone(v, target)
+                return (
+                  <div key={metric.id}>
+                    <div className="small muted">{metric.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span style={{ fontSize: 19, fontWeight: 700 }}>
+                        {v === null ? '–' : v.toLocaleString('de-DE', { maximumFractionDigits: metric.decimals })}
+                      </span>
+                      <span className="small muted">{metric.unit}</span>
                     </div>
-                  )
-                })}
-              </div>
-            </Card>
-          )}
+                    {target?.target_value != null && (
+                      <>
+                        <Meter percent={v === null ? 0 : (v / (target.target_value || 1)) * 100}
+                          status={zone.status === 'optimal' ? 'good' : zone.status === 'tolerated' ? 'warning' : 'critical'} />
+                        <div className="small muted mt8">Ziel {target.target_value}{target.tolerance_plus ? ` ±${target.tolerance_plus}` : ''} {metric.unit}</div>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )
 
-          {/* Schlaf + Gewicht */}
-          <div className="grid grid-2 keep2">
+      case 'schlaf_gewicht':
+        if (!sleepMetric && !weightMetric) return null
+        return (
+          <div key={id} className="grid grid-2 keep2">
             {sleepMetric && <MetricMiniCard metricKey="sleep_h" title="Schlaf letzte Nacht" />}
             {weightMetric && <MetricMiniCard metricKey="weight_kg" title="Gewicht" />}
           </div>
+        )
 
-          {/* Training */}
-          <Card title="Training" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/tracking/training')}>→</button>}>
+      case 'training':
+        return (
+          <Card key={id} title="Training" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/tracking/training')}>→</button>}>
             {todaySession ? (
               <div>
                 <div style={{ fontWeight: 600 }}>{todaySession.title}</div>
@@ -283,37 +356,83 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
               <div className="small muted">Heute kein Training im Plan.</div>
             )}
           </Card>
+        )
 
-          {/* Ziele */}
-          {data.goals.filter((g) => !g.deleted_at && g.status === 'active').length > 0 && (
-            <Card title="Ziele" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/ziele')}>→</button>}>
-              {data.goals.filter((g) => !g.deleted_at && g.status === 'active').slice(0, 3).map((g) => {
-                const cur = currentValueForGoal(g, data, balances)
-                const p = goalProgress(g, cur, today)
+      case 'ziele':
+        if (activeGoals.length === 0) return null
+        return (
+          <Card key={id} title="Ziele" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/ziele')}>→</button>}>
+            {activeGoals.slice(0, 3).map((g) => {
+              const cur = currentValueForGoal(g, data, balances)
+              const p = goalProgress(g, cur, today)
+              return (
+                <div key={g.id} className="progress-row">
+                  <div className="progress-head">
+                    <span className="name">{g.icon} {g.name}</span>
+                    <span className="val">{Math.round(p.percent)} %</span>
+                  </div>
+                  <Meter percent={p.percent} status={p.pace === 'behind' ? 'warning' : 'good'} />
+                </div>
+              )
+            })}
+          </Card>
+        )
+
+      case 'finanztag_checkliste':
+        if (financeChecklist.length === 0) return null
+        return (
+          <Card key={id} title="Finanzen: was steht an"
+            sub="Automatisch erkannt aus deinen Finanzdaten – keine eigenen Aufgaben"
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/finanztag')}>Finanztag →</button>}>
+            <div className="list">
+              {financeChecklist.slice(0, 4).map((i) => {
+                const route = financeChecklistRoute(i.action)
                 return (
-                  <div key={g.id} className="progress-row">
-                    <div className="progress-head">
-                      <span className="name">{g.icon} {g.name}</span>
-                      <span className="val">{Math.round(p.percent)} %</span>
+                  <div key={i.key} className="list-row">
+                    <div className="list-main">
+                      <div className="list-title">{i.title}</div>
+                      <div className="list-sub">{i.detail}</div>
                     </div>
-                    <Meter percent={p.percent} status={p.pace === 'behind' ? 'warning' : 'good'} />
+                    {route && <button className="btn btn-sm" onClick={() => navigate(route)}>Öffnen</button>}
                   </div>
                 )
               })}
-            </Card>
-          )}
+            </div>
+          </Card>
+        )
+
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">{greeting()}</h1>
+          <p className="page-sub">
+            {weekdayLong(today)}, {formatDay(today)}
+            {dayType && <> · <strong style={{ color: dayType.color ?? undefined }}>{dayType.name}</strong></>}
+            {todayHoliday && <> · 🎉 {todayHoliday.name}</>}
+          </p>
+        </div>
+        <div className="page-actions">
+          <LayoutEditToggle editMode={layout.editMode} onToggle={() => layout.setEditMode(!layout.editMode)} />
+          <button className="btn btn-primary" onClick={() => openQuickAdd()}>+ Erfassen</button>
         </div>
       </div>
-    </div>
-  )
-}
 
-/** Kennzahl-Kachel, die sich anfassen lässt und dorthin führt, wo die Zahl herkommt. */
-function KennzahlKarte({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button className="card card-link" onClick={onClick} style={{ textAlign: 'left', display: 'block', width: '100%' }}>
-      {children}
-    </button>
+      {layout.editMode && (
+        <LayoutEditPanel cards={layout.allCards}
+          onToggleVisible={layout.toggleVisible} onMoveUp={layout.moveUp} onMoveDown={layout.moveDown}
+          onReset={layout.resetLayout} />
+      )}
+
+      <div className="grid grid-2">
+        {layout.visibleCards.map((c) => renderCard(c.id))}
+      </div>
+    </div>
   )
 }
 

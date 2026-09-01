@@ -15,10 +15,11 @@ import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
-  ShoppingItem,
+  ShoppingItem, DayNote, Investment, InvestmentMove,
 } from '../core/types'
 import { uuidv7, shortId } from '../core/ids'
 import { todayString } from '../core/dates'
+import type { LayoutPref } from '../core/layout'
 
 /* ----------------------------------------------------------- Einstellungen */
 
@@ -31,7 +32,15 @@ export interface AppSettings {
   default_account_id: string | null
   month_start_day: number
   user_name: string
-  dashboard_cards: string[]
+  /**
+   * Frei anpassbare Seiten: je Seiten-ID (z. B. "heute"), welche Karten
+   * sichtbar sind und in welcher Reihenfolge. Eine ganz normale Einstellung
+   * wie sync_url auch – läuft über denselben Schlüssel/Wert-Speicher und
+   * damit ganz von selbst über den normalen Abgleich mit, damit Handy und
+   * PC dieselbe Ansicht zeigen. Fehlt ein Eintrag für eine Seite, gilt die
+   * Standardanordnung dieser Seite (siehe resolveLayout in core/layout.ts).
+   */
+  layout_prefs: Record<string, LayoutPref>
   finance_day_interval: 'weekly' | 'monthly'
   sync_url: string
   sync_key: string
@@ -53,7 +62,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   default_account_id: null,
   month_start_day: 1,
   user_name: '',
-  dashboard_cards: ['day', 'tasks', 'finance', 'budgets', 'tracking', 'training', 'goals', 'insights'],
+  layout_prefs: {},
   finance_day_interval: 'monthly',
   sync_url: '',
   sync_key: '',
@@ -91,6 +100,9 @@ export interface AppData {
   workoutSessions: WorkoutSession[]
   workoutSets: WorkoutSet[]
   bodyMeasurements: BodyMeasurement[]
+  dayNotes: DayNote[]
+  investments: Investment[]
+  investmentMoves: InvestmentMove[]
   goals: Goal[]
   goalContributions: any[]
   taskTemplates: any[]
@@ -111,6 +123,8 @@ const EMPTY: AppData = {
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
+  dayNotes: [],
+  investments: [], investmentMoves: [],
   goals: [], goalContributions: [], taskTemplates: [], accountChecks: [], notes: [], insights: [], financeDayRuns: [],
   monthlyClosings: [], attachments: [], importBatches: [], shopping: [],
 }
@@ -146,6 +160,9 @@ function loadAll(): AppData {
     workoutSessions: list<WorkoutSession>('workout_sessions', { orderBy: 'day DESC' }),
     workoutSets: list<WorkoutSet>('workout_sets', { orderBy: 'set_index' }),
     bodyMeasurements: list<BodyMeasurement>('body_measurements', { orderBy: 'day DESC' }),
+    dayNotes: list<DayNote>('day_notes', { orderBy: 'day DESC' }),
+    investments: list<Investment>('investments', { orderBy: 'name' }),
+    investmentMoves: list<InvestmentMove>('investment_moves', { orderBy: 'day DESC' }),
     goals: list<Goal>('goals'),
     goalContributions: list('goal_contributions', { orderBy: 'day DESC' }),
     taskTemplates: list('task_templates', { orderBy: 'weekday, title' }),

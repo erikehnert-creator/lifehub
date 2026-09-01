@@ -23,8 +23,9 @@ import { exportFullJson, download, timestampSuffix } from './io/exporters'
 import { verifyPin, markUnlocked, isUnlockedInSession, clearUnlocked } from './core/lock'
 import { isSignedIn, syncRolle, currentSession } from './sync/auth'
 import { pendingChangeCount, hasRemoteChanges } from './sync/engine'
+import { resolvedSyncUrl, resolvedSyncKey } from './sync/config'
 
-interface Route { area: string; sub: string }
+interface Route { area: string; sub: string; params: Record<string, string> }
 
 /** Wie lange der letzte Abgleich her ist – damit sichtbar ist, dass es von selbst läuft. */
 function abgeglichenText(zeitpunkt: number | null): string {
@@ -37,10 +38,26 @@ function abgeglichenText(zeitpunkt: number | null): string {
   return std === 1 ? 'abgeglichen vor 1 Stunde' : `abgeglichen vor ${std} Stunden`
 }
 
+/**
+ * Manche Verlinkungen (etwa vom Finanztag-Punkt zu genau den betroffenen
+ * Buchungen) brauchen mehr als Bereich + Unterseite – deshalb trägt die
+ * Route auch eine simple Query („?uncategorised=1", „?account=xyz").
+ * Bewusst schlicht gehalten: kein URL-Encoding-Schnickschnack, nur was die
+ * paar Verlinkungen tatsächlich brauchen.
+ */
 function parseHash(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '')
-  const [area = 'heute', sub = ''] = raw.split('/')
-  return { area: area || 'heute', sub }
+  const [path, queryString = ''] = raw.split('?')
+  const [area = 'heute', sub = ''] = path.split('/')
+  const params: Record<string, string> = {}
+  if (queryString) {
+    for (const pair of queryString.split('&')) {
+      if (!pair) continue
+      const [k, v = ''] = pair.split('=')
+      params[decodeURIComponent(k)] = decodeURIComponent(v)
+    }
+  }
+  return { area: area || 'heute', sub, params }
 }
 
 const NAV = [
@@ -67,6 +84,7 @@ const SUBNAV: Record<string, { route: string; label: string }[]> = {
     { route: '#/finanzen/budgets', label: 'Budgets' },
     { route: '#/finanzen/wiederkehrend', label: 'Wiederkehrend' },
     { route: '#/finanzen/finanztag', label: 'Finanztag' },
+    { route: '#/finanzen/investments', label: 'Investments' },
   ],
   plan: [
     { route: '#/plan', label: 'Heute' },
@@ -185,8 +203,15 @@ function Shell() {
   const [syncFehler, setSyncFehler] = useState<string | null>(null)
   const letzterFehlerRef = useRef<string | null>(null)
 
+  // Von Hand eingetragen geht vor, sonst greift die eingebaute
+  // Werkseinstellung (src/sync/config.ts) – so reicht auf einem neuen Gerät
+  // die Anmeldung mit E-Mail/Passwort, ohne Projekt-URL und Schlüssel erneut
+  // abzutippen.
+  const syncUrl = resolvedSyncUrl(data.settings.sync_url)
+  const syncKey = resolvedSyncKey(data.settings.sync_key)
+
   useEffect(() => {
-    if (!ready || !data.settings.sync_url || !data.settings.sync_key) return
+    if (!ready || !syncUrl || !syncKey) return
     if (!isSignedIn() || !syncRolle()) return
 
     let cancelled = false
@@ -197,7 +222,7 @@ function Shell() {
       if (cancelled || busy || !navigator.onLine) return
       busy = true
       try {
-        const res = await runSync(data.settings.sync_url, data.settings.sync_key)
+        const res = await runSync(syncUrl, syncKey)
         if (!cancelled) {
           if (res.ok) {
             setLastSync(Date.now())
@@ -240,7 +265,7 @@ function Shell() {
     // vierzig Tabellen abzufragen.
     const nachfragen = async () => {
       if (cancelled || busy || document.hidden) return
-      if (await hasRemoteChanges(data.settings.sync_url, data.settings.sync_key)) void tick()
+      if (await hasRemoteChanges(syncUrl, syncKey)) void tick()
     }
 
     void tick()
@@ -258,10 +283,10 @@ function Shell() {
       window.removeEventListener('focus', beiSichtbar)
       document.removeEventListener('visibilitychange', beiSichtbar)
     }
-  }, [ready, data.settings.sync_url, data.settings.sync_key, syncEpoche])
+  }, [ready, syncUrl, syncKey, syncEpoche])
 
   const storageMode = ready ? getStorageMode() : 'idb'
-  const syncKonfiguriert = !!data.settings.sync_url && !!data.settings.sync_key
+  const syncKonfiguriert = !!syncUrl && !!syncKey
   const syncAktiv = syncKonfiguriert && isSignedIn() && !!syncRolle()
   // Ohne diesen Hinweis sah ein Gerät, auf dem Server-Zugang eingetragen, aber
   // Anmeldung oder Rolle noch nicht abgeschlossen ist, GENAUSO aus wie eines,
@@ -326,7 +351,7 @@ function Shell() {
   const currentScreen = () => {
     switch (route.area) {
       case 'heute': return <TodayScreen navigate={navigate} openQuickAdd={openQuickAdd} />
-      case 'finanzen': return <FinanceScreen sub={route.sub} navigate={navigate} openQuickAdd={openQuickAdd} />
+      case 'finanzen': return <FinanceScreen sub={route.sub} params={route.params} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'plan': return <PlannerScreen sub={route.sub} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'tracking': return <TrackingScreen sub={route.sub} navigate={navigate} />
       case 'einkauf': return <ShoppingScreen />
@@ -339,6 +364,10 @@ function Shell() {
   }
 
   const subnav = SUBNAV[route.area]
+  // Für die Hervorhebung zählt nur Bereich + Unterseite, nicht eine angehängte
+  // Filter-Query (z. B. „?uncategorised=1") – sonst würde der Tab bei einer
+  // gefilterten Verlinkung fälschlich als „nicht aktiv" erscheinen.
+  const currentPath = `#/${route.area}${route.sub ? '/' + route.sub : ''}`
 
   return (
     <div className="app">
@@ -355,7 +384,7 @@ function Shell() {
                 <div style={{ marginLeft: 26, marginBottom: 6 }}>
                   {subnav.map((s) => (
                     <button key={s.route}
-                      className={`nav-item ${window.location.hash === s.route || (route.sub === '' && s.route === n.route) ? 'active' : ''}`}
+                      className={`nav-item ${currentPath === s.route || (route.sub === '' && s.route === n.route) ? 'active' : ''}`}
                       style={{ fontSize: 13, padding: '5px 10px' }}
                       onClick={() => navigate(s.route)}>
                       {s.label}
@@ -394,11 +423,11 @@ function Shell() {
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{syncFehler}</span>
             </div>
           )}
-          {syncAktiv && data.settings.sync_url && (
+          {syncAktiv && syncUrl && (
             <div className="row" style={{ gap: 7, marginTop: 4, opacity: .55 }} title="Projekt-URL, mit der dieses Gerät synchronisiert – auf beiden Geräten muss hier dasselbe stehen">
               <span style={{ width: 8, height: 8 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {String(data.settings.sync_url).replace(/^https?:\/\//, '')}
+                {String(syncUrl).replace(/^https?:\/\//, '')}
               </span>
             </div>
           )}

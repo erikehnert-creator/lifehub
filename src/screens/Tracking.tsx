@@ -113,6 +113,8 @@ function DailyEntry() {
         }}>Von gestern übernehmen</button>
       </div>
 
+      <DayNoteCard day={day} />
+
       <div className="grid grid-2">
         {groups.map(([groupKey, list]) => (
           <Card key={groupKey} title={GROUP_LABELS[groupKey] ?? groupKey}>
@@ -123,6 +125,39 @@ function DailyEntry() {
         <ActivityCard day={day} />
       </div>
     </>
+  )
+}
+
+/**
+ * Freitext-Notiz zum ganzen Tag – für Dinge, die zu keinem einzelnen Messwert
+ * gehören (z. B. "Mopedsturz, Schürfwunde am Knie"). Ein Tag hat höchstens
+ * eine Notiz; ist sie leer, existiert einfach keine Zeile.
+ */
+function DayNoteCard({ day }: { day: string }) {
+  const data = useData()
+  const m = useMutations()
+  const entry = data.dayNotes.find((n) => !n.deleted_at && n.day === day) ?? null
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const commit = (text: string) => {
+    setDraft(null)
+    const value = text.trim()
+    if (!value) {
+      if (entry) m.remove('day_notes', entry.id)
+      return
+    }
+    if (entry) m.patch('day_notes', entry.id, { note: value })
+    else m.create('day_notes', { day, note: value })
+  }
+
+  return (
+    <Card className="mb16" title="Tagesnotiz" sub="Was an diesem Tag sonst noch wichtig war.">
+      <textarea className="textarea" style={{ minHeight: 60 }}
+        placeholder="z. B. Mopedsturz, Schwierigkeiten beim Auftreten mit rechtem Fuß + Schürfwunde am rechten Knie"
+        value={draft ?? entry?.note ?? ''}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={(e) => commit(e.target.value)} />
+    </Card>
   )
 }
 

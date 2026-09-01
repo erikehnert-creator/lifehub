@@ -162,7 +162,10 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+/* Nur senkrecht scrollen: ohne overflow-x/width hier reicht schon ein einziges
+   Element, das 1px zu breit ist (z. B. eine lange Chip-Zeile), damit sich die
+   ganze Seite auf dem Handy seitlich wegziehen lässt. */
+html, body, #root { height: 100%; margin: 0; width: 100%; overflow-x: hidden; }
 
 body {
   font-family: var(--font);
@@ -172,6 +175,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
