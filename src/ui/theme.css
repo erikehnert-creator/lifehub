@@ -162,12 +162,15 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-/* Nur senkrecht scrollen: ohne overflow-x/width hier reicht schon ein einziges
-   Element, das 1px zu breit ist (z. B. eine lange Chip-Zeile), damit sich die
-   ganze Seite auf dem Handy seitlich wegziehen lässt. touch-action sperrt die
-   Wisch-Geste selbst zusätzlich auf die Hochachse – iOS Safari lässt sonst in
-   manchen Fällen seitliches Ziehen zu, obwohl überall overflow-x: hidden steht. */
-html, body, #root { height: 100%; margin: 0; width: 100%; overflow-x: hidden; touch-action: pan-y; }
+/* Nur senkrecht scrollen: die äußerste Ebene reicht allein nicht - jeder innere
+   Container mit eigenem overflow-y (.sidebar, .content, .modal-body, .kal-gitter)
+   bekommt vom Browser sonst automatisch overflow-x: auto verpasst, sobald overflow-x
+   dort nicht explizit gesetzt ist. Deshalb hier UND bei jedem dieser Container
+   overflow-x: hidden setzen.
+   (Absichtlich KEIN touch-action: pan-y hier: das würde per Spec mit allen
+   Vorfahren geschnitten und damit auch .tabs/.chart-zoom/.scroll-x das seitliche
+   Wischen kaputt machen, die absichtlich horizontal scrollen sollen.) */
+html, body, #root { height: 100%; margin: 0; width: 100%; overflow-x: hidden; }
 
 body {
   font-family: var(--font);
@@ -232,7 +235,7 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.012em; }
   display: flex; align-items: center; gap: 12px; flex: 0 0 auto;
   padding: 12px 22px; border-bottom: 1px solid var(--border); background: var(--surface-1);
 }
-.content { flex: 1; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
+.content { flex: 1; overflow-y: auto; overflow-x: hidden; }
 .page { padding: 22px; max-width: 1280px; }
 .page-head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
 .page-title { font-size: 22px; font-weight: 680; letter-spacing: -.02em; }
