@@ -11,8 +11,8 @@
  *
  * Einmalig ausfüllen (Supabase-Projekt → Project Settings → API):
  */
-export const DEFAULT_SYNC_URL = ''
-export const DEFAULT_SYNC_KEY = ''
+export const DEFAULT_SYNC_URL = 'https://smlmywkagudkkbrijpld.supabase.co'
+export const DEFAULT_SYNC_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNtbG15d2thZ3Vka2ticmlqcGxkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2MzE5MzMsImV4cCI6MjEwMzIwNzkzM30.obyaIVYA-E6aTwEtlIvn6uRyUs0p7yYM5Zer_qNGw9I'
 
 /** true, sobald oben eine feste Server-Verbindung hinterlegt wurde. */
 export function hasBuiltinSyncDefaults(): boolean {

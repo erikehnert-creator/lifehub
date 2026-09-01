@@ -8,7 +8,7 @@
  *   - Navigationsanfragen fallen immer auf index.html zurück
  * Die Nutzdaten liegen NICHT hier, sondern in der lokalen SQLite-Datenbank.
  */
-const CACHE = 'lifehub-v4'
+const CACHE = 'lifehub-v5'
 const CORE = ['./', './index.html', './manifest.webmanifest', './sql-wasm.wasm', './sql-wasm-browser.wasm', './icon-192.png']
 
 /**

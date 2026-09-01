@@ -164,8 +164,10 @@
 *, *::before, *::after { box-sizing: border-box; }
 /* Nur senkrecht scrollen: ohne overflow-x/width hier reicht schon ein einziges
    Element, das 1px zu breit ist (z. B. eine lange Chip-Zeile), damit sich die
-   ganze Seite auf dem Handy seitlich wegziehen lässt. */
-html, body, #root { height: 100%; margin: 0; width: 100%; overflow-x: hidden; }
+   ganze Seite auf dem Handy seitlich wegziehen lässt. touch-action sperrt die
+   Wisch-Geste selbst zusätzlich auf die Hochachse – iOS Safari lässt sonst in
+   manchen Fällen seitliches Ziehen zu, obwohl überall overflow-x: hidden steht. */
+html, body, #root { height: 100%; margin: 0; width: 100%; overflow-x: hidden; touch-action: pan-y; }
 
 body {
   font-family: var(--font);
