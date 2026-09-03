@@ -282,3 +282,23 @@ export function durationToInput(minutes: number | null): string {
   if (minutes < 60) return String(minutes)
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
 }
+
+/**
+ * Live-Vorschau fürs Dauer-Eingabefeld, während noch getippt wird (reine
+ * Ziffern, z. B. "63", "630", "1230").
+ *
+ * Setzt NUR strukturell einen Doppelpunkt vor die letzten zwei Ziffern, ohne
+ * die Ziffernfolge über parseDuration/durationToInput umzudeuten. Das ist
+ * wichtig: „63" als 63 Minuten zu lesen und live zu „1:03" umzurechnen würde
+ * beim Weitertippen der dritten Ziffer plötzlich Ziffern ins Feld bringen,
+ * die niemand eingetippt hat (aus „630" würde über „1:03" + „0" am Ende
+ * „10:30" statt der gemeinten 6:30). Der Doppelpunkt hier lässt sich beim
+ * nächsten Tastendruck rückstandslos wieder herausstreichen (colon raus →
+ * exakt dieselbe Ziffernfolge), genau wie parseDuration die fertige Eingabe
+ * beim Verlassen des Felds ohnehin liest.
+ */
+export function liveDurationPreview(rawDigits: string): string {
+  if (!rawDigits) return ''
+  if (rawDigits.length <= 2) return rawDigits
+  return `${rawDigits.slice(0, -2)}:${rawDigits.slice(-2)}`
+}

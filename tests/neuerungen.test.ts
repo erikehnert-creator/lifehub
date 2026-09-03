@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { registerInput, centsToInput, parseAmountToCents } from '../src/core/money'
-import { parseDuration, durationToInput, formatHoursMinutes } from '../src/core/dates'
+import { parseDuration, durationToInput, formatHoursMinutes, liveDurationPreview } from '../src/core/dates'
 import {
   expectedRecurring, dueRecurringBookings, savingsRateView, forecastStatus,
   periodTotals, forecastMonth, monthTotalsErwartet, topMerchants, transactionsForAccount,
@@ -97,6 +97,32 @@ describe('Dauer in einem Feld', () => {
 
   it('deckelt bei 24 Stunden', () => {
     expect(parseDuration('99h')).toBe(24 * 60)
+  })
+
+  it('verfälscht beim Weitertippen nicht die Ziffern (Regression: 630 wurde zu 10:30 statt 6:30)', () => {
+    // Simuliert genau das, was DurationInput beim Tippen im Feld selbst tut:
+    // nach jeder Ziffer wird der Doppelpunkt aus der bisherigen Anzeige
+    // entfernt und die Live-Vorschau (liveDurationPreview) neu berechnet -
+    // das Ergebnis ist, was im Feld angezeigt und beim nächsten Tastendruck
+    // fortgeschrieben wird.
+    const tippen = (ziffern: string) => {
+      let angezeigt = ''
+      for (const ziffer of ziffern) {
+        const bisherigeZiffern = angezeigt.replace(/:/g, '')
+        angezeigt = liveDurationPreview(bisherigeZiffern + ziffer)
+      }
+      return angezeigt
+    }
+
+    expect(tippen('630')).toBe('6:30')
+    expect(parseDuration(tippen('630'))).toBe(6 * 60 + 30)
+
+    // Weitere Fälle aus der Dokumentation von DurationInput, zur Sicherheit
+    // mit derselben Tipp-Simulation.
+    expect(tippen('115')).toBe('1:15')
+    expect(tippen('200')).toBe('2:00')
+    expect(tippen('1230')).toBe('12:30')
+    expect(tippen('45')).toBe('45')
   })
 })
 

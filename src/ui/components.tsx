@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { registerInput } from '../core/money'
-import { parseDuration, durationToInput, formatDuration } from '../core/dates'
+import { parseDuration, durationToInput, formatDuration, liveDurationPreview } from '../core/dates'
 
 export function Card({ title, sub, action, children, className = '' }: {
   title?: React.ReactNode; sub?: React.ReactNode; action?: React.ReactNode
@@ -215,10 +215,13 @@ export function DurationInput({ minutes, onChange, allowEmpty = true }: {
   // Komma (z. B. „1h30", „1,5 h") bleibt stehen, was eingetippt wurde, bis man
   // das Feld verlässt – die ließen sich sonst beim Tippen nicht zu Ende
   // schreiben, weil jeder Tastendruck das Feld sofort umformatiert hätte.
+  // Die Live-Vorschau nutzt bewusst liveDurationPreview (rein strukturell,
+  // siehe dort) statt parseDuration/durationToInput – sonst verfälscht das
+  // Umformatieren beim Weitertippen die eigentlich eingetippten Ziffern.
   const nurZiffern = draft?.replace(/:/g, '') ?? ''
   const istZiffernEingabe = draft === null || /^\d*$/.test(nurZiffern)
   const liveFormatiert = istZiffernEingabe && draft !== null
-    ? durationToInput(parseDuration(nurZiffern))
+    ? liveDurationPreview(nurZiffern)
     : ''
   const text = draft === null
     ? durationToInput(minutes)
