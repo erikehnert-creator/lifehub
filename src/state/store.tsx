@@ -8,14 +8,14 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { initDatabase, onSaveStateChange, saveNow } from '../db/sqlite'
-import { list, setDeviceId, insert, update, softDelete, restore, upsertByKey, byId, hardDelete } from '../db/repo'
+import { list, setDeviceId, insert, update, softDelete, restore, upsertByKey, byId, hardDelete, existsById } from '../db/repo'
 import { seedIfEmpty, ensureBuiltinMetrics, ensureCategoryColors } from '../db/seed'
 import type { SyncedTable } from '../db/schema'
 import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
-  ShoppingItem, DayNote, Investment, InvestmentMove,
+  ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
 } from '../core/types'
 import { uuidv7, shortId } from '../core/ids'
 import { todayString } from '../core/dates'
@@ -51,6 +51,8 @@ export interface AppSettings {
   auto_book_recurring: boolean
   /** Offene Aufgaben von gestern auf heute mitnehmen. */
   carry_over_tasks: boolean
+  /** Aufgaben aus Vorlagen von selbst einplanen (vier Wochen im Voraus). */
+  auto_plan_templates: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lock_after_minutes: 0,
   auto_book_recurring: true,
   carry_over_tasks: true,
+  auto_plan_templates: true,
 }
 
 /* --------------------------------------------------------------- Datenbild */
@@ -114,6 +117,8 @@ export interface AppData {
   attachments: any[]
   importBatches: any[]
   shopping: ShoppingItem[]
+  /** Einzelne gegessene Lebensmittel – die Begründung hinter den Tageswerten. */
+  foodEntries: FoodEntry[]
 }
 
 const EMPTY: AppData = {
@@ -126,7 +131,7 @@ const EMPTY: AppData = {
   dayNotes: [],
   investments: [], investmentMoves: [],
   goals: [], goalContributions: [], taskTemplates: [], accountChecks: [], notes: [], insights: [], financeDayRuns: [],
-  monthlyClosings: [], attachments: [], importBatches: [], shopping: [],
+  monthlyClosings: [], attachments: [], importBatches: [], shopping: [], foodEntries: [],
 }
 
 function loadAll(): AppData {
@@ -174,6 +179,7 @@ function loadAll(): AppData {
     attachments: list('attachments'),
     importBatches: list('import_batches', { orderBy: 'imported_at DESC' }),
     shopping: list<ShoppingItem>('shopping_items', { orderBy: 'is_checked, sort_order, name' }),
+    foodEntries: list<FoodEntry>('food_entries', { orderBy: 'day DESC, meal, sort_order' }),
   }
 }
 
@@ -185,8 +191,17 @@ export interface Mutations {
   create: (table: SyncedTable, data: Record<string, any>, toastText?: string) => string
   patch: (table: SyncedTable, id: string, patch: Record<string, any>, toastText?: string) => void
   remove: (table: SyncedTable, id: string, toastText?: string) => void
+  /**
+   * Löschen ohne Meldung und ohne Rückgängig-Knopf.
+   * Für die Automatik: Räumt sie zwölf Aufgaben einer gelöschten Vorlage ab,
+   * will niemand zwölf Hinweise dazu sehen. Die eine zusammenfassende Meldung
+   * kommt vom Aufrufer.
+   */
+  removeQuiet: (table: SyncedTable, id: string) => void
   restoreRow: (table: SyncedTable, id: string, toastText?: string) => void
   purge: (table: SyncedTable, id: string) => void
+  /** Gibt es diese Zeile schon – auch als gelöschte? Siehe db/repo.ts. */
+  exists: (table: SyncedTable, id: string) => boolean
   setSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void
   reload: () => void
   toast: (text: string, undo?: () => void) => void
@@ -256,6 +271,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setData(loadAll())
       toast(toastText ?? 'Gelöscht', () => { restore(table, id); setData(loadAll()) })
     },
+    removeQuiet(table, id) {
+      softDelete(table, id)
+      setData(loadAll())
+    },
     restoreRow(table, id, toastText) {
       restore(table, id)
       setData(loadAll())
@@ -265,6 +284,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       hardDelete(table, id)
       setData(loadAll())
     },
+    exists: existsById,
     setSetting(key, value) {
       upsertByKey('settings', 'key', key as string, { value_json: JSON.stringify(value) })
       setData(loadAll())

@@ -15,10 +15,11 @@ import {
 } from '../core/dates'
 import {
   tasksForDay, computeCapacity, isOverdue, freeSlots, suggestTasksForDay, wakingWindow,
-  planTasksFromTemplates, taskArt, defaultShowFrom, dringlichkeit, effectiveShowFrom,
+  taskArt, defaultShowFrom, dringlichkeit, effectiveShowFrom,
   toggleTaskPatch, progressPatch,
   type TaskArt,
 } from '../core/planner'
+import { VORPLANUNG_TAGE } from '../core/automation'
 import type { Task, CalendarEvent, DayType } from '../core/types'
 
 const PRIORITIES = [
@@ -880,41 +881,32 @@ function TemplatesView() {
   const typeById = new Map(data.dayTypes.map((t) => [t.id, t]))
   const WEEK = ['', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 
-  const preview = useMemo(
-    () => planTasksFromTemplates(
-      templates as any,
-      data.dayAssignments.filter((a) => !a.deleted_at).map((a) => ({ day: a.day, day_type_id: a.day_type_id })),
-      data.tasks.filter((t) => !t.deleted_at) as any,
-      today, addDays(today, 27),
-    ),
-    [templates, data.dayAssignments, data.tasks, today],
+  // Was die Automatik aus diesen Vorlagen bereits eingeplant HAT. Früher stand
+  // hier eine Vorschau auf das, was ein Knopfdruck erzeugen wuerde – den Knopf
+  // gibt es nicht mehr, also ist die ehrlichere Auskunft der tatsächliche Plan.
+  const horizont = addDays(today, VORPLANUNG_TAGE)
+  const eingeplant = useMemo(
+    () => data.tasks
+      .filter((t) => !t.deleted_at && t.template_id && t.scheduled_on
+        && t.scheduled_on >= today && t.scheduled_on <= horizont)
+      .sort((a, b) => (a.scheduled_on! < b.scheduled_on! ? -1 : a.scheduled_on! > b.scheduled_on! ? 1
+        : (a.scheduled_time ?? '99:99').localeCompare(b.scheduled_time ?? '99:99'))),
+    [data.tasks, today, horizont],
   )
-
-  const generate = () => {
-    let n = 0
-    for (const p of preview) {
-      m.create('tasks', {
-        title: p.title, description: p.description, status: 'open', bucket: 'scheduled',
-        scheduled_on: p.day, duration_minutes: p.duration_minutes, priority: p.priority,
-        template_id: p.templateId, sort_order: 0,
-      })
-      n++
-    }
-    m.toast(n ? `${n} Aufgaben eingeplant` : 'Nichts Neues einzuplanen')
-  }
 
   return (
     <>
       <Card className="mb16" title="Aufgabenvorlagen"
-        sub={'Wiederkehrende Aufgaben, die an deinen Plan gekoppelt sind – etwa „immer dienstags, wenn Spätschicht ist: Auto putzen“.'}
+        sub={'Wiederkehrende Aufgaben, die an deinen Plan gekoppelt sind – etwa „immer dienstags, wenn Spätschicht ist: Auto putzen“. Was hier steht, plant LifeHub von selbst ein.'}
         action={<button className="btn btn-sm btn-primary" onClick={() => setEditing('new')}>+ Vorlage</button>}>
         <div className="row">
-          <Stat small label="Vorlagen" value={String(templates.length)} />
-          <Stat small label="Einplanbar (4 Wochen)" value={String(preview.length)} />
-          <span style={{ flex: 1 }} />
-          <button className="btn btn-primary" disabled={!preview.length} onClick={generate}>
-            {preview.length ? `${preview.length} Aufgaben einplanen` : 'Alles eingeplant'}
-          </button>
+          <Stat small label="Vorlagen" value={String(templates.filter((t: any) => t.is_active).length)} />
+          <Stat small label="Eingeplant (4 Wochen)" value={String(eingeplant.length)} />
+        </div>
+        <div className="hint-box mt12 small">
+          Es gibt keinen Knopf mehr zum Einplanen – das läuft automatisch, auf jedem Gerät,
+          und legt nichts doppelt an. Änderst du eine Vorlage, ziehen alle noch bevorstehenden
+          Aufgaben daraus nach; erledigte und vergangene bleiben unangetastet.
         </div>
       </Card>
 
@@ -944,14 +936,18 @@ function TemplatesView() {
         </Card>
       )}
 
-      {preview.length > 0 && (
-        <Card title="Nächste Termine dieser Vorlagen" sub="Vorschau der nächsten vier Wochen">
+      {eingeplant.length > 0 && (
+        <Card title="Schon eingeplant" sub="Die nächsten vier Wochen">
           <div className="list">
-            {preview.slice(0, 20).map((p, i) => (
-              <div className="list-row" key={i} style={{ paddingLeft: 0, paddingRight: 0 }}>
+            {eingeplant.slice(0, 20).map((p) => (
+              <div className="list-row" key={p.id} style={{ paddingLeft: 0, paddingRight: 0 }}>
                 <span className="list-main">
                   <span className="list-title">{p.title}</span>
-                  <span className="list-sub">{weekdayShort(p.day)} {formatDay(p.day)}</span>
+                  <span className="list-sub">
+                    {weekdayShort(p.scheduled_on!)} {formatDay(p.scheduled_on!)}
+                    {p.scheduled_time ? ` · ${p.scheduled_time}` : ''}
+                    {p.status === 'done' ? ' · erledigt' : ''}
+                  </span>
                 </span>
                 {p.duration_minutes && <span className="list-amount">{formatDuration(p.duration_minutes)}</span>}
               </div>
@@ -971,6 +967,7 @@ function TemplateEditor({ template, onClose }: { template: any | null; onClose: 
   const [title, setTitle] = useState(template?.title ?? '')
   const [description, setDescription] = useState(template?.description ?? '')
   const [duration, setDuration] = useState<number | null>(template?.duration_minutes ?? null)
+  const [time, setTime] = useState<string>(template?.scheduled_time ?? '')
   const [priority, setPriority] = useState(template?.priority ?? 2)
   const [weekday, setWeekday] = useState<number>(template?.weekday ?? 0)
   const [dayTypeId, setDayTypeId] = useState(template?.day_type_id ?? '')
@@ -982,7 +979,7 @@ function TemplateEditor({ template, onClose }: { template: any | null; onClose: 
     if (!title.trim()) return
     const payload = {
       title: title.trim(), description: description || null,
-      duration_minutes: duration, priority,
+      duration_minutes: duration, priority, scheduled_time: time || null,
       weekday: weekday || null, day_type_id: dayTypeId || null,
       interval_weeks: intervalWeeks, anchor_date: template?.anchor_date ?? todayString(),
       is_active: active ? 1 : 0, last_generated_on: null,
@@ -1021,6 +1018,9 @@ function TemplateEditor({ template, onClose }: { template: any | null; onClose: 
           { value: 3, label: 'alle 3 Wochen' }, { value: 4, label: 'alle 4 Wochen' },
         ]} value={intervalWeeks} onChange={setIntervalWeeks} />
       </Field>
+      <Field label="Uhrzeit" hint="Ändert sie sich später, wandern alle noch bevorstehenden Aufgaben aus dieser Vorlage mit.">
+        <input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+      </Field>
       <Field label="Dauer"><DurationInput minutes={duration} onChange={setDuration} /></Field>
       <Field label="Priorität">
         <Chips options={[{ value: 1, label: 'Niedrig' }, { value: 2, label: 'Normal' }, { value: 3, label: 'Hoch' }]}
@@ -1028,7 +1028,8 @@ function TemplateEditor({ template, onClose }: { template: any | null; onClose: 
       </Field>
       <Field label="Beschreibung"><textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <label className="row small"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Aktiv</label>
-      <Confirm open={confirmDelete} title="Vorlage löschen?" message="Bereits eingeplante Aufgaben bleiben bestehen." danger
+      <Confirm open={confirmDelete} title="Vorlage löschen?"
+        message="Noch bevorstehende Aufgaben aus dieser Vorlage verschwinden mit. Erledigte und vergangene bleiben als Historie erhalten." danger
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => { m.remove('task_templates', template.id, 'Vorlage gelöscht'); setConfirmDelete(false); onClose() }} />
     </Modal>

@@ -253,6 +253,39 @@ export interface TaskTemplate extends BaseEntity {
   anchor_date: DayString | null
   is_active: number
   last_generated_on: DayString | null
+  /** Feste Uhrzeit der Aufgabe, z. B. „18:00" beim Training. Leer = ohne Uhrzeit. */
+  scheduled_time: string | null
+}
+
+/**
+ * Ein einzelnes gegessenes Lebensmittel.
+ *
+ * Die Tageswerte für Kalorien und Makros stehen weiterhin als `MetricEntry`
+ * da – nur so greifen Zielbereiche, Verlauf und Auswertungen darauf zu, wie
+ * sie es immer getan haben. Diese Zeile ist die Begründung dahinter: woraus
+ * die Tageswerte entstanden sind.
+ */
+export interface FoodEntry extends BaseEntity {
+  day: DayString
+  meal: 'breakfast' | 'lunch' | 'dinner' | 'other'
+  name: string
+  serving_description: string | null
+  number_of_units: number | null
+  calories: number | null
+  protein_g: number | null
+  carbs_g: number | null
+  fat_g: number | null
+  fiber_g: number | null
+  sugar_g: number | null
+  saturated_fat_g: number | null
+  sodium_mg: number | null
+  /** 'fatsecret' oder 'manual'. */
+  source: string
+  /** Die food_entry_id von FatSecret – der Anker gegen Doppelte. */
+  external_id: string | null
+  external_food_id: string | null
+  synced_at: Instant | null
+  sort_order: number
 }
 
 export interface RecurringRule extends BaseEntity {

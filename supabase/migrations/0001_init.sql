@@ -676,6 +676,37 @@ CREATE TABLE IF NOT EXISTS investment_moves (
 
 CREATE INDEX IF NOT EXISTS ix_investment_moves_investment ON investment_moves(user_id, investment_id);
 
+CREATE TABLE IF NOT EXISTS food_entries (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      day text NOT NULL,
+      meal text NOT NULL DEFAULT 'other',
+      name text NOT NULL,
+      serving_description text,
+      number_of_units double precision,
+      calories double precision,
+      protein_g double precision,
+      carbs_g double precision,
+      fat_g double precision,
+      fiber_g double precision,
+      sugar_g double precision,
+      saturated_fat_g double precision,
+      sodium_mg double precision,
+      source text NOT NULL DEFAULT 'fatsecret',
+      external_id text,
+      external_food_id text,
+      synced_at text,
+      sort_order integer NOT NULL DEFAULT 0,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_food_entries_day ON food_entries(user_id, day);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -691,6 +722,7 @@ ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS reminder_minutes integer;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scheduled_end_on text;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_total integer;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_done integer;
+ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS scheduled_time text;
 
 
 -- server_rev: Sequenz, Index und Trigger je Tabelle
@@ -959,6 +991,12 @@ DROP TRIGGER IF EXISTS trg_investment_moves_rev ON investment_moves;
 CREATE TRIGGER trg_investment_moves_rev BEFORE INSERT OR UPDATE ON investment_moves
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE food_entries ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_food_entries_rev ON food_entries(server_rev);
+DROP TRIGGER IF EXISTS trg_food_entries_rev ON food_entries;
+CREATE TRIGGER trg_food_entries_rev BEFORE INSERT OR UPDATE ON food_entries
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1105,6 +1143,9 @@ REVOKE ALL ON investments FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON investment_moves TO authenticated;
 REVOKE ALL ON investment_moves FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON food_entries TO authenticated;
+REVOKE ALL ON food_entries FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1332,10 +1373,15 @@ DROP POLICY IF EXISTS investment_moves_own ON investment_moves;
 CREATE POLICY investment_moves_own ON investment_moves FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE food_entries ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS food_entries_own ON food_entries;
+CREATE POLICY food_entries_own ON food_entries FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 44 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 45 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1432,6 +1478,8 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM investments
   UNION ALL
   SELECT max(server_rev) AS rev FROM investment_moves
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM food_entries
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;

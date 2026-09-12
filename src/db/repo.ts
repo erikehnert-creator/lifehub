@@ -119,6 +119,19 @@ export function byId<T = Record<string, any>>(table: SyncedTable, id: string): T
   return one<T>(`SELECT * FROM ${table} WHERE id = ?`, [id])
 }
 
+/**
+ * Gibt es diese Zeile – auch als gelöschte?
+ *
+ * Für die Automatik unverzichtbar. Deren IDs sind aus ihrem Inhalt abgeleitet
+ * (siehe core/ids.ts), sie könnte also versuchen, eine Zeile anzulegen, die
+ * als gelöschte längst existiert. Das hätte zwei Folgen, beide schlecht: der
+ * Primärschlüssel kollidiert, und eine von Hand entfernte Aufgabe stünde
+ * wieder da. `list()` blendet gelöschte Zeilen aus und taugt dafür nicht.
+ */
+export function existsById(table: SyncedTable, id: string): boolean {
+  return one<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]) !== null
+}
+
 /** Legt an oder aktualisiert – anhand eines eindeutigen Schlüsselfeldes. */
 export function upsertByKey(table: SyncedTable, keyField: string, keyValue: any, data: Record<string, any>): string {
   const existing = one<Record<string, any>>(

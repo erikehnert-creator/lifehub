@@ -1,0 +1,14 @@
+# Supabase-Projekteinstellungen für die Edge Functions.
+#
+# verify_jwt = false ist hier notwendig und kein nachlässiger Schnellschuss:
+# FatSecret schickt den Nutzer nach der Freigabe auf /callback zurück – das ist
+# ein gewöhnlicher Browser-Aufruf ohne Anmeldetoken. Würde Supabase das Token
+# erzwingen, käme die Freigabe nie an.
+#
+# Jede andere Route der Funktion prüft die Anmeldung selbst (siehe `nutzer()`
+# in functions/fatsecret/index.ts) und arbeitet ausschließlich auf den Daten
+# des so ermittelten Kontos. Der Callback ordnet sich über den einmaligen,
+# zufälligen oauth_token zu, der nur für diesen einen Vorgang gilt.
+
+[functions.fatsecret]
+verify_jwt = false

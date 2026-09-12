@@ -1,10 +1,10 @@
 /**
  * Tagesplanung: Kapazität, Zeitblöcke, Auswahl der heutigen Aufgaben.
  */
-import type { Task, TimeBlock, DayType, DayAssignment, CalendarEvent, TaskTemplate } from './types'
+import type { Task, TimeBlock, DayType, DayAssignment, CalendarEvent } from './types'
 import {
   type DayString, timeToMinutes, minutesToTime, todayString, addDays, startOfWeek,
-  daysInRange, diffDays, weekdayIndex,
+  diffDays,
 } from './dates'
 
 export interface DayCapacity {
@@ -346,59 +346,11 @@ export function shiftCodeForDay(
   return code && code !== '-' ? code : null
 }
 
-/* ------------------------------------------------------------- Vorlagen */
-
-export interface PlannedTask {
-  templateId: string
-  day: DayString
-  title: string
-  description: string | null
-  duration_minutes: number | null
-  priority: number
-}
-
-/**
- * Erzeugt aus Aufgabenvorlagen die anstehenden Aufgaben.
+/* ------------------------------------------------------------- Vorlagen
  *
- * Eine Vorlage beschreibt eine wiederkehrende Verabredung mit sich selbst,
- * die an Bedingungen hängt: "immer dienstags, wenn Spätschicht ist, Auto putzen".
- * Erzeugt wird nur, was noch nicht existiert – zweimal ausführen ändert nichts.
+ * Die Auswertung von Aufgabenvorlagen ist nach core/automation.ts gewandert.
+ * Der Grund: Sie beantwortet nicht mehr nur „was fehlt noch?", sondern auch
+ * „was muss nachgezogen und was weggeräumt werden?" – und das gehört fachlich
+ * zu den wiederkehrenden Zahlungen, die genau dieselbe Frage stellen (mit
+ * absichtlich anderer Antwort für die Vergangenheit).
  */
-export function planTasksFromTemplates(
-  templates: TaskTemplate[],
-  assignments: { day: DayString; day_type_id: string }[],
-  existingTasks: { template_id?: string | null; scheduled_on: DayString | null; deleted_at: string | null }[],
-  from: DayString,
-  to: DayString,
-): PlannedTask[] {
-  const dayTypeOf = new Map(assignments.map((a) => [a.day, a.day_type_id]))
-  const already = new Set(
-    existingTasks
-      .filter((t) => t.template_id && t.scheduled_on)
-      .map((t) => `${t.template_id}|${t.scheduled_on}`),
-  )
-  const out: PlannedTask[] = []
-
-  for (const tpl of templates) {
-    if (tpl.deleted_at || !tpl.is_active) continue
-    for (const day of daysInRange(from, to)) {
-      if (tpl.weekday && weekdayIndex(day) !== tpl.weekday) continue
-      if (tpl.day_type_id && dayTypeOf.get(day) !== tpl.day_type_id) continue
-      if (tpl.interval_weeks > 1) {
-        const anchor = tpl.anchor_date ?? from
-        const weeks = Math.floor(diffDays(anchor, day) / 7)
-        if (((weeks % tpl.interval_weeks) + tpl.interval_weeks) % tpl.interval_weeks !== 0) continue
-      }
-      if (already.has(`${tpl.id}|${day}`)) continue
-      out.push({
-        templateId: tpl.id,
-        day,
-        title: tpl.title,
-        description: tpl.description,
-        duration_minutes: tpl.duration_minutes,
-        priority: tpl.priority,
-      })
-    }
-  }
-  return out
-}

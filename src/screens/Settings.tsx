@@ -16,6 +16,7 @@ import {
   undoImport, importFullJson, type ImportPreview,
 } from '../io/importer'
 import { seedDemoData, KATEGORIE_FARBEN } from '../db/seed'
+import { useFatSecret } from '../state/ernaehrung'
 import {
   folderBackupSupported, folderState, chooseFolder, forgetFolder,
   reconfirmPermission, writeBackup, lastBackupAt, type FolderState,
@@ -47,6 +48,7 @@ export function SettingsScreen({ sub, navigate }: { sub: string; navigate: (r: s
     { key: 'konten', label: 'Konten' },
     { key: 'kategorien', label: 'Kategorien' },
     { key: 'tracking', label: 'Trackingwerte' },
+    { key: 'ernaehrung', label: 'Ernährung' },
     { key: 'daten', label: 'Daten & Backup' },
     { key: 'sicherheit', label: 'Sicherheit' },
     { key: 'import', label: 'Import' },
@@ -67,6 +69,7 @@ export function SettingsScreen({ sub, navigate }: { sub: string; navigate: (r: s
       {sub === 'konten' && <AccountsSettings />}
       {sub === 'kategorien' && <CategoriesTab />}
       {sub === 'tracking' && <MetricsSettings />}
+      {sub === 'ernaehrung' && <ErnaehrungTab />}
       {sub === 'daten' && <DataTab />}
       {sub === 'sicherheit' && <SecurityTab />}
       {sub === 'import' && <ImportTab />}
@@ -163,6 +166,18 @@ function GeneralTab() {
             <span className="small muted" style={{ display: 'block' }}>
               Was liegengeblieben ist, steht am nächsten Morgen wieder im Plan.
               Aufgaben, die du als festen Termin markiert hast, bleiben an ihrem Tag.
+            </span>
+          </span>
+        </label>
+        <label className="row mt12" style={{ alignItems: 'flex-start', gap: 9 }}>
+          <input type="checkbox" style={{ marginTop: 4 }}
+            checked={s.auto_plan_templates !== false}
+            onChange={(e) => m.setSetting('auto_plan_templates', e.target.checked)} />
+          <span>
+            <strong>Aufgaben aus Vorlagen einplanen</strong>
+            <span className="small muted" style={{ display: 'block' }}>
+              Vier Wochen im Voraus. Es entsteht nur, was an dem Tag noch nicht aus
+              derselben Vorlage da ist – zweimal öffnen legt nichts doppelt an.
             </span>
           </span>
         </label>
@@ -1388,6 +1403,141 @@ function SecurityTab() {
         <div className="hint-box small">
           Unabhängig davon fragt LifeHub bei jedem neuen Tab bzw. Neustart nach der PIN,
           sobald eine eingerichtet ist.
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------- Ernährung */
+
+/**
+ * FatSecret verbinden und abgleichen.
+ *
+ * Die Seite muss zwei Dinge ehrlich beantworten, sonst sucht man den Fehler
+ * an der falschen Stelle: ob die Verbindung steht, und was LifeHub überhaupt
+ * holen kann. Beides steht deshalb im Klartext hier, nicht in einer Datei,
+ * die niemand liest.
+ */
+function ErnaehrungTab() {
+  const data = useData()
+  const m = useMutations()
+  const fs = useFatSecret()
+  const [ergebnis, setErgebnis] = useState<string | null>(null)
+
+  // Der Rückweg von FatSecret landet auf genau dieser Seite und hängt seine
+  // Antwort an den Hash an.
+  const rueckmeldung = useMemo(() => {
+    const q = window.location.hash.split('?')[1] ?? ''
+    const p = new URLSearchParams(q)
+    return { zustand: p.get('fatsecret'), grund: p.get('grund') }
+  }, [])
+
+  useEffect(() => { void fs.statusLaden() }, [])
+
+  // Kommt man frisch von der Freigabe zurück, ist das erste, was man sehen
+  // will, der eigene gestrige Tag – nicht ein leerer Bildschirm mit einem
+  // weiteren Knopf darauf.
+  useEffect(() => {
+    if (rueckmeldung.zustand !== 'ok') return
+    void fs.abgleichen().then((r) => setErgebnis(r.meldung))
+  }, [rueckmeldung.zustand])
+
+  const verbunden = !!fs.status?.connected
+  const importierteTage = useMemo(() => {
+    const tage = new Set(data.foodEntries.filter((f) => !f.deleted_at).map((f) => f.day))
+    return tage.size
+  }, [data.foodEntries])
+
+  const abgleich = async (tage: number) => {
+    const r = await fs.abgleichen(tage)
+    setErgebnis(r.meldung)
+    if (r.ok) m.toast(r.meldung)
+  }
+
+  return (
+    <div className="grid grid-2">
+      <Card title="FatSecret" sub="Ernährungstagebuch automatisch übernehmen">
+        {rueckmeldung.zustand === 'fehler' && (
+          <div className="hint-box crit mb12 small">
+            Die Freigabe hat nicht geklappt{rueckmeldung.grund ? `: ${rueckmeldung.grund}` : '.'}
+          </div>
+        )}
+
+        <div className="row mb12">
+          <Stat small label="Verbindung" value={verbunden ? 'verbunden' : 'getrennt'} />
+          <Stat small label="Importierte Tage" value={String(importierteTage)} />
+        </div>
+
+        {fs.status?.last_sync_at && (
+          <div className="small muted mb12">
+            Zuletzt abgeglichen: {new Date(fs.status.last_sync_at).toLocaleString('de-DE')}
+          </div>
+        )}
+
+        {fs.fehler && <div className="hint-box crit mb12 small">{fs.fehler}</div>}
+        {ergebnis && <div className="hint-box mb12 small">{ergebnis}</div>}
+
+        <div className="row">
+          {verbunden ? (
+            <>
+              <button className="btn btn-primary" disabled={fs.laeuft} onClick={() => void abgleich(7)}>
+                {fs.laeuft ? 'Wird geholt …' : 'Jetzt abgleichen (7 Tage)'}
+              </button>
+              <button className="btn" disabled={fs.laeuft} onClick={() => void abgleich(30)}>Letzte 30 Tage</button>
+              <span style={{ flex: 1 }} />
+              <button className="btn btn-danger" disabled={fs.laeuft} onClick={() => void fs.trennen()}>Trennen</button>
+            </>
+          ) : (
+            <button className="btn btn-primary" onClick={() => void fs.verbinden()}>Mit FatSecret verbinden</button>
+          )}
+        </div>
+
+        <div className="hint-box small mt12">
+          Die Freigabe erteilst du bei FatSecret selbst – LifeHub fragt dein FatSecret-Passwort
+          nie ab und speichert es auch nicht. Der Zugriff läuft über den eigenen Server; auf
+          diesem Gerät liegt kein Zugangstoken.
+        </div>
+      </Card>
+
+      <Card title="Was übernommen wird">
+        <div className="small">
+          Aus jedem abgeglichenen Tag übernimmt LifeHub die einzelnen Lebensmittel – mit
+          Mahlzeit, Portion und Nährwerten – und rechnet daraus die Tageswerte für
+          <strong> Kalorien, Protein, Kohlenhydrate, Fett und Ballaststoffe</strong> (Zucker
+          ebenfalls, sofern die Angabe vorliegt).
+          <div className="mt8">
+            Die Tageswerte landen bei den gewohnten Trackingwerten. Zielbereiche, Verlauf und
+            Auswertungen funktionieren dadurch unverändert weiter – es gibt kein zweites
+            Ernährungssystem daneben.
+          </div>
+          <div className="mt8">
+            Ein Abgleich holt immer die letzten Tage mit, nicht nur heute: Nachträge und
+            Korrekturen in FatSecret kommen so noch an. Mehrfaches Abgleichen legt nichts
+            doppelt an.
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Grenzen der FatSecret-Schnittstelle">
+        <div className="small">
+          <strong>Nur lesen.</strong> LifeHub kann Einträge holen, aber keine nach FatSecret
+          zurückschreiben. Erfasst wird weiterhin dort.
+          <div className="mt8">
+            <strong>Kein Anstoß von außen.</strong> FatSecret meldet sich nicht, wenn sich
+            etwas ändert. Abgeglichen wird deshalb, wenn du diese Seite öffnest oder den Knopf
+            drückst – nicht in dem Moment, in dem du in FatSecret etwas einträgst.
+          </div>
+          <div className="mt8">
+            <strong>Keine Wasseraufnahme.</strong> Das Tagebuch liefert Nährwerte, keine
+            Getränkemenge. Wasser trägst du wie bisher selbst ein.
+          </div>
+          <div className="mt8">
+            <strong>FatSecret hat Vorrang.</strong> Für einen Tag, den FatSecret liefert, gilt
+            dessen Zahl. Ein für denselben Tag von Hand eingetragener Kalorienwert wird in den
+            Papierkorb verschoben, damit nicht beide Werte zusammengezählt werden – die Meldung
+            nach dem Abgleich sagt, wenn das passiert ist.
+          </div>
         </div>
       </Card>
     </div>

@@ -26,6 +26,10 @@ import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
 import { goalProgress } from '../core/goals'
 import { currentValueForGoal } from './goalHelpers'
 import { nextOccurrence } from '../core/recurrence'
+import { TaskEditor } from './Planner'
+import { TerminEditor } from './Calendar'
+import { TaskDetail, TerminDetail } from '../ui/detailSheet'
+import type { CalendarEvent, Task } from '../core/types'
 
 /** Werkseinstellung der Heute-Seite. Erik will hier vor allem: Aufgaben,
  * Termine mit Uhrzeit, und einen kurzen Finanzblick – der Rest ist weiterhin
@@ -135,6 +139,19 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
 
   const layout = usePageLayout('heute', CARD_DEFS)
 
+  // Antippen zeigt erst die Vorschau – dort steht die Beschreibung, die in der
+  // knappen Zeile keinen Platz hat. Erst von dort geht es in den Editor.
+  // Aufgaben und Termine verhalten sich dabei absichtlich gleich.
+  const [detailTask, setDetailTask] = useState<Task | null>(null)
+  const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null)
+
+  // Nach einer Änderung zeigt die Vorschau sonst den Stand von vorhin. Die
+  // Aufgabe wird deshalb bei jedem Bild frisch aus dem Bestand geholt.
+  const detailTaskAktuell = detailTask ? data.tasks.find((t) => t.id === detailTask.id) ?? detailTask : null
+  const detailEventAktuell = detailEvent ? data.events.find((e) => e.id === detailEvent.id) ?? detailEvent : null
+
   /** Rendert eine Karte anhand ihrer ID – oder null, wenn es gerade nichts zu zeigen gibt. */
   function renderCard(id: string): React.ReactNode {
     switch (id) {
@@ -160,14 +177,18 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
                       <button className={`checkbox${t.status === 'done' ? ' checked' : ''}`}
                         onClick={() => m.patch('tasks', t.id, toggleTaskPatch(t))}>✓</button>
                     )}
-                    <div className="list-main">
+                    <button className="list-main" style={{ textAlign: 'left' }} onClick={() => setDetailTask(t)}
+                      title="Aufgabe öffnen">
                       <div className="list-title">{t.title}</div>
                       <div className="list-sub">
                         {t.duration_minutes ? formatDuration(t.duration_minutes) : 'ohne Dauer'}
                         {t.priority === 3 && ' · hohe Priorität'}
                         {isOverdue(t, today) && ' · überfällig'}
+                        {/* Ein Zeichen dafür, dass hinter dem Antippen mehr steckt
+                            als der Titel – sonst probiert es niemand aus. */}
+                        {t.description && ' · 📝 Beschreibung'}
                       </div>
-                    </div>
+                    </button>
                     {t.scheduled_time && <span className="small muted mono">{t.scheduled_time}</span>}
                   </div>
                 ))}
@@ -177,6 +198,9 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
         )
 
       case 'termine':
+        // Sind Termine da, stehen sie schon ganz oben im hervorgehobenen Band –
+        // dann hier nicht noch einmal, sonst steht dasselbe zweimal auf der Seite.
+        if (todayEvents.length > 0) return null
         return (
           <Card key={id} title="Termine heute" sub={todayEvents.length ? `${todayEvents.length} heute` : undefined}
             action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/plan/kalender')}>Kalender →</button>}>
@@ -296,7 +320,9 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
         return (
           <Card key={id} title="Ernährung heute" action={<button className="btn btn-sm" onClick={() => navigate('#/tracking')}>Eintragen</button>}>
             <div className="grid grid-2 keep2" style={{ gap: 10 }}>
-              {nutritionMetrics.slice(0, 4).map((metric) => {
+              {/* Sechs statt vier: Kalorien, die drei Makros, Ballaststoffe und Wasser
+                  sind genau die Werte, um die es beim Nachschauen geht. */}
+              {nutritionMetrics.slice(0, 6).map((metric) => {
                 const v = dayValue(data.metricEntries, metric, today)
                 const target = targetFor(data.metricTargets, metric.id, today)
                 const zone = evaluateZone(v, target)
@@ -429,10 +455,82 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
           onReset={layout.resetLayout} />
       )}
 
+      {/* Termine stehen bewusst VOR dem Kartenraster und außerhalb der frei
+          sortierbaren Karten: Ein verpasster Termin ist der teuerste Fehler,
+          den diese Seite machen kann. So sind sie auf dem Handy ohne Scrollen
+          da – egal, wie die Karten sonst angeordnet sind. */}
+      <TermineBanner events={todayEventsSorted} onOpen={setDetailEvent}
+        onCalendar={() => navigate('#/plan/kalender')} />
+
       <div className="grid grid-2">
         {layout.visibleCards.map((c) => renderCard(c.id))}
       </div>
+
+      {detailTaskAktuell && !editingTask && (
+        <TaskDetail task={detailTaskAktuell} today={today}
+          onClose={() => setDetailTask(null)}
+          onToggle={() => m.patch('tasks', detailTaskAktuell.id, toggleTaskPatch(detailTaskAktuell))}
+          onEdit={() => setEditingTask(detailTaskAktuell)} />
+      )}
+      {detailEventAktuell && !editingEvent && (
+        <TerminDetail event={detailEventAktuell} today={today}
+          onClose={() => setDetailEvent(null)}
+          onEdit={() => setEditingEvent(detailEventAktuell)} />
+      )}
+
+      {editingTask && (
+        <TaskEditor task={editingTask} onClose={() => { setEditingTask(null); setDetailTask(null) }} />
+      )}
+      {editingEvent && (
+        <TerminEditor event={editingEvent} onClose={() => { setEditingEvent(null); setDetailEvent(null) }} />
+      )}
     </div>
+  )
+}
+
+/**
+ * Die Termine des Tages, unübersehbar.
+ *
+ * Bewusst kein `Card`: Eine Karte unter vielen wird überlesen, und genau das
+ * ist bei einem Termin der Fehler, der wehtut. Deshalb ein eigenes Band mit
+ * kräftiger Farbkante, großer Uhrzeit und Antippen zum Öffnen.
+ */
+function TermineBanner({ events, onOpen, onCalendar }: {
+  events: CalendarEvent[]
+  onOpen: (e: CalendarEvent) => void
+  onCalendar: () => void
+}) {
+  if (events.length === 0) return null
+  return (
+    <section className="termin-band mb16" aria-label="Termine heute">
+      <div className="termin-band-kopf">
+        <span className="termin-band-titel">📅 {events.length === 1 ? 'Termin heute' : `${events.length} Termine heute`}</span>
+        <button className="btn btn-sm btn-ghost" onClick={onCalendar}>Kalender →</button>
+      </div>
+      <div className="termin-band-liste">
+        {events.map((e) => (
+          <button key={e.id} className="termin-zeile" onClick={() => onOpen(e)} title={`${e.title} öffnen`}>
+            {/* Ohne Uhrzeit bleibt die Spalte weg – ein großes „–" sagt nichts
+                und nimmt dem Titel nur den Platz. */}
+            {(e.all_day || e.start_time) && (
+              <span className="termin-zeit">
+                {e.all_day ? 'ganztägig' : e.start_time}
+                {!e.all_day && e.end_time && <span className="termin-zeit-ende">bis {e.end_time}</span>}
+              </span>
+            )}
+            <span className="termin-text">
+              <span className="termin-titel">{e.title}</span>
+              {(e.location || e.description) && (
+                <span className="termin-ort">{[e.location, e.description].filter(Boolean).join(' · ')}</span>
+              )}
+            </span>
+            {/* Ohne dieses Zeichen probiert niemand aus, dass hinter der Zeile
+                noch etwas steckt. */}
+            <span className="termin-pfeil" aria-hidden="true">›</span>
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 

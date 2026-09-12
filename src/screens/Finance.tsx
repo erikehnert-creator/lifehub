@@ -12,7 +12,7 @@ import {
   accountBalances, accountBalance, effectOnAccount, netWorth, availableMoney, savingsBalance, monthTotals,
   totalsByCategory, totalsByAccount, budgetProgress, forecastMonth,
   monthlySeries, netWorthSeries, isCounted, formatSavingsRate,
-  expectedRecurring, expectedIncomeRest, savingsRateView, forecastStatus, dueRecurringBookings,
+  expectedRecurring, expectedIncomeRest, savingsRateView, forecastStatus,
   transactionsForAccount,
 } from '../core/finance'
 import {
@@ -24,6 +24,7 @@ import {
   addMonthsToYearMonth, monthStart, monthEnd, addDays, relativeDay,
 } from '../core/dates'
 import { describeRRule, nextOccurrence, buildRRule, occurrences } from '../core/recurrence'
+import { duePayments } from '../core/automation'
 import { generateFinanceDayChecklist, financeChecklistRoute } from '../core/financeDay'
 import type { Account, Transaction, Category, Budget, Investment, InvestmentMove } from '../core/types'
 import { TransactionForm } from './QuickAdd'
@@ -943,54 +944,37 @@ function RecurringTab() {
   const rules = data.recurring.filter((r) => !r.deleted_at && r.kind === 'transaction')
 
   /**
-   * Fällige Zahlungen als echte Buchungen anlegen.
-   * Jede Buchung ist danach eigenständig – ändert sich später der Betrag der
-   * Regel, bleiben die bereits gebuchten Beträge, wie sie waren.
+   * Was gerade fällig ist und gleich von selbst gebucht wird.
+   *
+   * Reine Anzeige. Gebucht wird in state/automatik.ts, kurz nach dem Öffnen –
+   * es gibt hier bewusst keinen Knopf mehr dafür. Zwei Stellen, die dieselbe
+   * Buchung anlegen können, waren genau die Sorte doppelter Logik, an der man
+   * sich später die Finger verbrennt.
+   *
+   * Jede entstandene Buchung ist danach eigenständig: Ändert sich später der
+   * Betrag der Regel, bleiben die bereits gebuchten Beträge, wie sie waren.
    */
   const due = useMemo(
-    () => dueRecurringBookings(data.recurring, data.transactions, today),
+    () => duePayments({ rules: data.recurring, transactions: data.transactions, today }),
     [data.recurring, data.transactions, today],
   )
-
-  // Normalerweise bucht die App fällige Zahlungen beim Öffnen von selbst
-  // (siehe automatik.ts). Dieser Knopf ist der Notnagel für den Moment
-  // dazwischen – z. B. eine Regel, die gerade erst angelegt wurde.
-  const bookDue = () => {
-    for (const d of due) {
-      m.create('transactions', {
-        type: d.template.type ?? 'expense', booked_on: d.day, value_on: null,
-        amount_cents: d.template.amount_cents ?? 0, currency: 'EUR',
-        account_id: d.template.account_id, to_account_id: d.template.to_account_id ?? null,
-        category_id: d.template.category_id ?? null,
-        merchant: d.rule.title, description: d.template.description ?? null,
-        note: d.template.note ?? 'Automatisch aus einer wiederkehrenden Zahlung gebucht',
-        status: 'booked', recurring_id: d.rule.id,
-      })
-      m.patch('recurring_rules', d.rule.id, { last_generated_on: d.day })
-    }
-    m.toast(`${due.length} Zahlungen gebucht`)
-  }
   const accById = new Map(data.accounts.map((a) => [a.id, a]))
   const catById = new Map(data.categories.map((c) => [c.id, c]))
 
   return (
     <>
       <Card className="mb16" title="Wiederkehrende Zahlungen"
-        sub="Gehalt, Miete, Abos. Fällige Zahlungen bucht die App beim Öffnen von selbst; der Betrag gilt immer ab jetzt – gebuchte Zahlungen bleiben unangetastet."
+        sub="Gehalt, Miete, Abos. Fällige Zahlungen bucht LifeHub von selbst, ohne Nachfrage. Ein geänderter Betrag gilt ab jetzt: Schon gebuchte Zahlungen behalten ihren alten Betrag – sie sind ein Beleg über etwas, das passiert ist."
         action={<button className="btn btn-sm btn-primary" onClick={() => setEditing('new')}>+ Zahlung</button>}>
         <div className="row">
           <Stat small label="Aktive Regeln" value={String(rules.filter((r) => r.is_active).length)} />
-          <Stat small label="Fällig, noch nicht gebucht" value={String(due.length)} />
-          <span style={{ flex: 1 }} />
-          <button className="btn btn-primary" disabled={!due.length} onClick={bookDue}>
-            {due.length ? `${due.length} fällige Zahlungen buchen` : 'Alles gebucht'}
-          </button>
+          <Stat small label="Wird gerade gebucht" value={String(due.length)} />
         </div>
         {due.length > 0 && (
           <div className="hint-box mt12 small">
-            {due.slice(0, 5).map((d) => `${formatDay(d.day, 'short')} ${d.rule.title}`).join(' · ')}
+            {due.slice(0, 5).map((d) => `${formatDay(d.day, 'short')} ${d.titel}`).join(' · ')}
             {due.length > 5 ? ` … und ${due.length - 5} weitere` : ''}
-            <div className="mt8">Diese werden beim nächsten Öffnen ohnehin automatisch gebucht.</div>
+            <div className="mt8">Diese bucht LifeHub gleich von selbst – einen Moment.</div>
           </div>
         )}
       </Card>

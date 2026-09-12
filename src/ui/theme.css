@@ -185,6 +185,13 @@ body {
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
+/* Seit Listenzeilen antippbar sind, sind sie Schaltflächen – und bekommen
+   damit den schwarzen Standardrahmen des Browsers, sobald sie den Fokus haben
+   (z. B. nach dem Schließen der Vorschau). Ein Rahmen in der Akzentfarbe sagt
+   dasselbe, passt aber zum Rest und stört nicht mitten in einer Liste. */
+button:focus-visible, [role=button]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm);
+}
 a { color: var(--accent); text-decoration: none; }
 h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.012em; }
 
@@ -499,6 +506,13 @@ table.data tbody tr:hover { background: var(--surface-2); }
   }
   .page-title { font-size: 19px; }
   .toasts { bottom: calc(86px + var(--safe-b)); }
+
+  /* Jeder Millimeter über dem Terminband ist einer, der ihn nach unten
+     schiebt. Auf dem Handy zählt allein, dass die Termine von selbst im
+     Blick sind – die Begrüßung darf dafür enger stehen. */
+  .page-head { margin-bottom: 12px; gap: 8px; }
+  .page-sub { font-size: 12.5px; }
+
 }
 
 @media print {
@@ -539,6 +553,88 @@ table.data tbody tr:hover { background: var(--surface-2); }
 /* Kontokarte: die ganze Kopfzeile führt in die Kontoansicht. */
 .konto-kopf { cursor: pointer; border-radius: var(--r-sm); padding: 2px; }
 .konto-kopf:hover { background: var(--surface-2); }
+
+/* ------------------------------------------------------- Termine des Tages
+   Ein verpasster Termin ist der teuerste Fehler dieser Seite. Deshalb steht
+   er nicht in einer Karte unter vielen, sondern in einem eigenen Band mit
+   Farbkante und großer Uhrzeit – auf dem Handy die erste Sache nach der
+   Begrüßung, ohne Scrollen.
+
+   Die Uhrzeit ist bewusst das größte Element der Zeile: Beim Blick aufs Handy
+   ist „wann" die Frage, nicht „was". Den Titel erkennt man ohnehin wieder. */
+.termin-band {
+  border: 1px solid var(--accent); border-left: 4px solid var(--accent);
+  border-radius: var(--r); background: var(--accent-soft);
+  padding: 12px 14px;
+}
+.termin-band-kopf {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.termin-band-titel {
+  font-size: 14.5px; font-weight: 700; color: var(--accent); letter-spacing: -.01em;
+}
+.termin-band-kopf .btn { margin-left: auto; }
+.termin-band-liste { display: flex; flex-direction: column; gap: 6px; }
+.termin-zeile {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 10px 12px;
+  min-height: 48px;                 /* sicher treffbar mit dem Daumen */
+}
+.termin-zeile:hover { border-color: var(--accent); }
+.termin-zeit {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 17px; color: var(--accent);
+  line-height: 1.15;
+}
+.termin-zeit-ende { font-size: 11.5px; font-weight: 550; color: var(--text-muted); }
+.termin-text { min-width: 0; display: flex; flex-direction: column; flex: 1; }
+.termin-titel {
+  font-size: 15px; font-weight: 620;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.termin-ort {
+  font-size: 12.5px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.termin-pfeil { flex: 0 0 auto; color: var(--text-muted); font-size: 15px; }
+
+/* ------------------------------------------------------------ Kurzvorschau
+   Der Zwischenschritt zwischen Listenzeile und Editor: lesen, nicht ändern.
+   Deshalb Beschriftungen links, Werte rechts – wie ein Beipackzettel, nicht
+   wie ein Formular. */
+.detail { display: flex; flex-direction: column; }
+.detail-text {
+  white-space: pre-wrap; font-size: 14px; line-height: 1.5;
+  background: var(--surface-2); border-radius: var(--r-sm);
+  padding: 10px 12px; margin-bottom: 12px;
+}
+.detail-zeile {
+  display: flex; gap: 12px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.detail-zeile:last-child { border-bottom: none; }
+.detail-label {
+  flex: 0 0 96px; font-size: 12.5px; color: var(--text-muted); font-weight: 600;
+}
+.detail-wert { flex: 1; min-width: 0; font-size: 14px; }
+
+/* Handyanpassungen für Terminband und Kurzvorschau.
+   Muss NACH den Grundregeln oben stehen: Bei gleicher Spezifität entscheidet
+   die Reihenfolge, und im Medienblock weiter oben in dieser Datei wären diese
+   Regeln wirkungslos. */
+@media (max-width: 820px) {
+  .termin-band { padding: 10px 11px; }
+  .termin-zeile { padding: 9px 10px; gap: 10px; }
+  .termin-zeit { font-size: 19px; }
+  .termin-zeit-ende { font-size: 11px; }
+  .termin-titel { font-size: 15.5px; }
+
+  /* Beschriftung über den Wert statt daneben: bei 360 px Breite bleibt sonst
+     für den Wert selbst kaum etwas übrig. */
+  .detail-zeile { flex-direction: column; gap: 2px; padding: 8px 0; }
+  .detail-label { flex: none; }
+}
 
 /* Aufgaben: Dringlichkeit als Streifen links – sie wächst zur Frist hin von allein. */
 .aufgabe { position: relative; padding-left: 12px; }

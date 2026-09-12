@@ -460,6 +460,55 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_investment_moves_investment ON investment_moves(investment_id);
     `,
   },
+  {
+    id: 8,
+    name: 'vorlagenzeit_und_ernaehrungstagebuch',
+    sql: `
+    ---------------------------------------------------------------- Aufgaben
+    -- Eine Vorlage kann eine Uhrzeit vorgeben ("Training – 18:00"). Ohne sie
+    -- verhält sich eine Vorlage exakt wie vorher. Sie ist der Grund, warum
+    -- eine geänderte Vorlage überhaupt etwas nachzuziehen hat: aus 18:00 wird
+    -- 17:30, und alle noch bevorstehenden Aufgaben daraus wandern mit.
+    ALTER TABLE task_templates ADD COLUMN scheduled_time TEXT;
+
+    --------------------------------------------------------------- Ernährung
+    -- Das einzelne gegessene Lebensmittel, so wie es in FatSecret steht.
+    --
+    -- Die Tageswerte (Kalorien, Protein …) liegen weiterhin als metric_entries
+    -- vor – dort, wo Zielbereiche, Verlauf und Auswertungen sie schon immer
+    -- suchen. Diese Tabelle ist die Begründung dazu: aus WELCHEN Lebensmitteln
+    -- die 2380 kcal von Dienstag eigentlich bestanden. Ohne sie ließe sich ein
+    -- Tag nur noch als Zahl ansehen, nicht mehr nachvollziehen.
+    --
+    -- external_id ist die food_entry_id von FatSecret. Aus ihr wird die
+    -- Zeilen-ID abgeleitet (siehe core/ids.ts, stableId), deshalb trifft ein
+    -- zweiter Abgleich desselben Tages dieselbe Zeile wieder und aktualisiert
+    -- sie, statt sie ein zweites Mal anzulegen.
+    CREATE TABLE food_entries (
+      id TEXT PRIMARY KEY,
+      day TEXT NOT NULL,
+      meal TEXT NOT NULL DEFAULT 'other',   -- breakfast | lunch | dinner | other
+      name TEXT NOT NULL,
+      serving_description TEXT,
+      number_of_units REAL,
+      calories REAL,
+      protein_g REAL,
+      carbs_g REAL,
+      fat_g REAL,
+      fiber_g REAL,
+      sugar_g REAL,
+      saturated_fat_g REAL,
+      sodium_mg REAL,
+      source TEXT NOT NULL DEFAULT 'fatsecret',
+      external_id TEXT,
+      external_food_id TEXT,
+      synced_at TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      ${BASE}
+    );
+    CREATE INDEX ix_food_entries_day ON food_entries(day);
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
@@ -474,7 +523,7 @@ export const SYNCED_TABLES = [
   'workout_sessions', 'workout_sets',
   'body_measurements', 'progress_photos', 'goals', 'goal_contributions',
   'notes', 'notifications', 'insights', 'task_templates', 'account_checks',
-  'shopping_items', 'day_notes', 'investments', 'investment_moves',
+  'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

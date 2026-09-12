@@ -1,28 +1,54 @@
 /**
- * Was die App beim Öffnen von selbst erledigt.
+ * Was die App von selbst erledigt – ohne dass jemand einen Knopf sucht.
  *
- * Zwei Dinge, die man sonst jeden Tag von Hand machen müsste:
+ * Vier Dinge, die man sonst von Hand machen müsste:
  *
  *  1. Fällige wiederkehrende Zahlungen buchen. Miete, Handyvertrag, Abos –
  *     sie stehen fest, also müssen sie nicht jedes Mal bestätigt werden.
- *  2. Offene Aufgaben von gestern auf heute mitnehmen. Was liegengeblieben
- *     ist, gehört in den heutigen Plan, nicht in die Vergangenheit.
+ *  2. Aufgaben aus Vorlagen einplanen, vier Wochen im Voraus.
+ *  3. Geänderte Vorlagen nachziehen und gelöschte aufräumen – aber nur bei
+ *     dem, was noch bevorsteht (siehe core/automation.ts).
+ *  4. Offene Aufgaben von gestern auf heute mitnehmen.
  *
- * Beides läuft einmal pro Tag und so, dass ein zweiter Durchlauf nichts
- * kaputt macht: gebucht wird nur, was noch nicht gebucht ist. Das ist wichtig,
- * weil PC und Handy dieselbe Automatik ausführen.
+ * ---------------------------------------------------------------------------
+ * Warum das hier laufend und nicht einmal am Tag läuft
+ *
+ * Früher gab es eine Sperre im localStorage: einmal pro Tag, dann nie wieder.
+ * Für das reine Erzeugen reicht das – für das Nachziehen nicht. Ändert man am
+ * Handy die Trainingszeit von 18:00 auf 17:30, dann müsste der PC bis morgen
+ * warten, bis er davon etwas merkt. Genau das soll nicht passieren.
+ *
+ * Deshalb läuft der Abgleich nach jeder Datenänderung erneut, kurz verzögert.
+ * Das ist bezahlbar, weil er nichts tut, solange nichts zu tun ist: Er
+ * vergleicht Soll und Ist und kommt im Normalfall mit einer leeren Liste
+ * zurück. Nur der Tagesübertrag bleibt an den Kalendertag gebunden – er ist
+ * datumsgetrieben, nicht datengetrieben.
+ *
+ * ---------------------------------------------------------------------------
+ * Warum daraus keine Endlosschleife wird
+ *
+ * Der Abgleich schreibt Daten, und geschriebene Daten lösen den Abgleich
+ * erneut aus. Das ist gewollt und endet von selbst, weil der zweite Durchlauf
+ * nichts mehr findet. Damit ein Denkfehler daraus trotzdem keine Schleife
+ * machen kann (ein Feld, das sich nie „gleich genug" anfühlt), merkt sich der
+ * Lauf, was er zuletzt getan hat: Dieselbe Änderungsliste zweimal
+ * hintereinander wird nicht ausgeführt, sondern gemeldet.
  */
 import { useEffect, useRef } from 'react'
 import { useApp } from './store'
-import { dueRecurringBookings } from '../core/finance'
 import { carryOverPatches } from '../core/planner'
+import { duePayments, reconcileTemplateTasks, VORPLANUNG_TAGE } from '../core/automation'
 import { formatMoney } from '../core/money'
 import { todayString } from '../core/dates'
+import { list } from '../db/repo'
 
-const GELAUFEN = 'lifehub.automatik.gelaufen'
+const UEBERTRAG_GELAUFEN = 'lifehub.automatik.gelaufen'
 
-/** Wartezeit, damit der erste Abgleich mit dem Server durch ist. */
+/** Wartezeit beim Start, damit der erste Abgleich mit dem Server durch ist. */
 const VORLAUF_MS = 8000
+
+/** Wartezeit nach einer Datenänderung – bündelt schnelles Tippen zu einem Lauf. */
+const NACHLAUF_MS = 1500
 
 export function useAutomatik() {
   const app = useApp()
@@ -31,55 +57,107 @@ export function useAutomatik() {
   const jetzt = useRef(app)
   jetzt.current = app
 
+  const ersterLauf = useRef(true)
+  const letzteAenderungen = useRef('')
+
+  const { data } = app
+
   useEffect(() => {
     if (!app.ready) return
-    const heute = todayString()
-    let zuletzt: string | null = null
-    try { zuletzt = localStorage.getItem(GELAUFEN) } catch { /* nicht verfügbar */ }
-    if (zuletzt === heute) return
+    const verzoegerung = ersterLauf.current ? VORLAUF_MS : NACHLAUF_MS
 
     const timer = window.setTimeout(() => {
-      const { data, mutations } = jetzt.current
+      ersterLauf.current = false
+      const heute = todayString()
       const meldungen: string[] = []
+      const { data: stand, mutations } = jetzt.current
 
-      if (data.settings.auto_book_recurring !== false) {
-        // Kein Bestätigen mehr nötig: Jede fällige, aktive Regel bucht von
-        // selbst. Wer eine Zahlung mit schwankendem Betrag hat, bucht sie wie
-        // gewohnt automatisch mit dem hinterlegten Betrag und korrigiert die
-        // entstandene Buchung danach – die verhält sich wie jede andere.
-        const faellig = dueRecurringBookings(data.recurring, data.transactions, heute)
+      /* ------------------------------------------------ Fällige Zahlungen */
+      if (stand.settings.auto_book_recurring !== false) {
+        // Kein Bestätigen: Jede fällige, aktive Regel bucht von selbst. Wer
+        // eine Zahlung mit schwankendem Betrag hat, korrigiert die entstandene
+        // Buchung danach – sie verhält sich wie jede andere auch.
+        const faellig = duePayments({
+          rules: stand.recurring,
+          transactions: stand.transactions,
+          today: heute,
+          exists: (id) => mutations.exists('transactions', id),
+        })
         let summe = 0
-        for (const d of faellig) {
-          mutations.create('transactions', {
-            type: d.template.type ?? 'expense', booked_on: d.day, value_on: null,
-            amount_cents: d.template.amount_cents ?? 0, currency: 'EUR',
-            account_id: d.template.account_id, to_account_id: d.template.to_account_id ?? null,
-            category_id: d.template.category_id ?? null,
-            merchant: d.rule.title, description: d.template.description ?? null,
-            note: d.template.note ?? 'Automatisch aus einer wiederkehrenden Zahlung gebucht',
-            status: 'booked', recurring_id: d.rule.id,
-          })
-          mutations.patch('recurring_rules', d.rule.id, { last_generated_on: d.day })
-          summe += d.template.amount_cents ?? 0
+        for (const b of faellig) {
+          mutations.create('transactions', b.values)
+          // Bereits gebuchte Zahlungen bleiben, wie sie sind – hier wird nur
+          // vermerkt, bis wann die Regel abgearbeitet ist.
+          mutations.patch('recurring_rules', b.ruleId, { last_generated_on: b.day })
+          summe += b.betragCents
         }
-        if (faellig.length === 1) {
-          meldungen.push(`${faellig[0].rule.title} gebucht (${formatMoney(summe)})`)
-        } else if (faellig.length > 1) {
-          meldungen.push(`${faellig.length} fällige Zahlungen gebucht`)
+        if (faellig.length === 1) meldungen.push(`${faellig[0].titel} gebucht (${formatMoney(summe)})`)
+        else if (faellig.length > 1) meldungen.push(`${faellig.length} fällige Zahlungen gebucht`)
+      }
+
+      /* ------------------------------------------------ Aufgaben aus Vorlagen */
+      if (stand.settings.auto_plan_templates !== false) {
+        // Gelöschte Zeilen gehören ausdrücklich dazu: Eine gelöschte Vorlage
+        // muss ihre zukünftigen Aufgaben mitnehmen, und eine von Hand
+        // entfernte Aufgabe darf nicht wieder auferstehen.
+        const plan = reconcileTemplateTasks({
+          templates: list('task_templates', { includeDeleted: true }) as any,
+          assignments: stand.dayAssignments
+            .filter((a) => !a.deleted_at)
+            .map((a) => ({ day: a.day, day_type_id: a.day_type_id })),
+          tasks: list('tasks', { includeDeleted: true }) as any,
+          today: heute,
+          horizonDays: VORPLANUNG_TAGE,
+          exists: (id) => mutations.exists('tasks', id),
+        })
+
+        // Schutzschalter gegen eine Schleife: Genau dieselbe Liste zweimal
+        // hintereinander bedeutet, dass das Schreiben nichts bewirkt hat.
+        const signatur = JSON.stringify(plan)
+        const etwasZuTun = plan.anlegen.length + plan.aendern.length + plan.entfernen.length > 0
+        if (etwasZuTun && signatur === letzteAenderungen.current) {
+          console.warn('[Automatik] Dieselbe Änderung zweimal hintereinander – abgebrochen.', plan)
+        } else {
+          letzteAenderungen.current = signatur
+          for (const a of plan.anlegen) mutations.create('tasks', a.values)
+          for (const a of plan.aendern) mutations.patch('tasks', a.id, a.patch)
+          // Leise, mit einer zusammenfassenden Meldung danach: Räumt die
+          // Automatik zwölf Aufgaben einer gelöschten Vorlage ab, will niemand
+          // zwölf einzelne Hinweise dazu wegtippen.
+          for (const e of plan.entfernen) mutations.removeQuiet('tasks', e.id)
+
+          if (plan.anlegen.length === 1) meldungen.push('1 Aufgabe aus einer Vorlage eingeplant')
+          else if (plan.anlegen.length > 1) meldungen.push(`${plan.anlegen.length} Aufgaben aus Vorlagen eingeplant`)
+          if (plan.aendern.length === 1) meldungen.push('1 Aufgabe an die geänderte Vorlage angepasst')
+          else if (plan.aendern.length > 1) meldungen.push(`${plan.aendern.length} Aufgaben an geänderte Vorlagen angepasst`)
+          if (plan.entfernen.length === 1) meldungen.push('1 nicht mehr geplante Aufgabe entfernt')
+          else if (plan.entfernen.length > 1) meldungen.push(`${plan.entfernen.length} nicht mehr geplante Aufgaben entfernt`)
         }
       }
 
-      if (data.settings.carry_over_tasks !== false) {
-        const uebertrag = carryOverPatches(data.tasks, heute)
+      /* ---------------------------------------------------- Tagesübertrag */
+      // Einmal pro Kalendertag und Gerät: Was gestern offen blieb, gehört in
+      // den heutigen Plan. Datumsgetrieben, deshalb hier die Tagessperre.
+      let uebertragGelaufen: string | null = null
+      try { uebertragGelaufen = localStorage.getItem(UEBERTRAG_GELAUFEN) } catch { /* nicht verfügbar */ }
+      if (uebertragGelaufen !== heute && stand.settings.carry_over_tasks !== false) {
+        const uebertrag = carryOverPatches(stand.tasks, heute)
         for (const u of uebertrag) mutations.patch('tasks', u.id, u.patch)
         if (uebertrag.length === 1) meldungen.push('1 offene Aufgabe von gestern übernommen')
         else if (uebertrag.length > 1) meldungen.push(`${uebertrag.length} offene Aufgaben übernommen`)
+        try { localStorage.setItem(UEBERTRAG_GELAUFEN, heute) } catch { /* nicht verfügbar */ }
       }
 
-      try { localStorage.setItem(GELAUFEN, heute) } catch { /* nicht verfügbar */ }
       if (meldungen.length) mutations.toast(meldungen.join(' · '))
-    }, VORLAUF_MS)
+    }, verzoegerung)
 
     return () => window.clearTimeout(timer)
-  }, [app.ready])
+    // Absichtlich an den Datenbeständen hängend, die den Abgleich beeinflussen:
+    // Eine Vorlage, die auf dem anderen Gerät geändert wurde, kommt über den
+    // Abgleich herein und soll hier sofort nachgezogen werden.
+  }, [
+    app.ready, app.today,
+    data.taskTemplates, data.tasks, data.recurring, data.transactions,
+    data.dayAssignments, data.settings,
+  ])
 }

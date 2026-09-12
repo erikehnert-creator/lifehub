@@ -6,3 +6,6 @@ src-tauri/target/
 check.mjs
 diag*.mjs
 _to_delete/
+
+# Bildschirmfotos, die die Browser-Tests unterwegs ablegen
+tests/*.png

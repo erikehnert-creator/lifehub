@@ -14,7 +14,7 @@ import {
   todayString, formatDay, addDays, daysInRange, formatDuration, weekdayIndex, weekdayShort,
 } from '../core/dates'
 import { formatNumber } from '../core/money'
-import type { Metric, MetricEntry, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
+import type { FoodEntry, Metric, MetricEntry, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
 
 /** Wertebereich mit Einheit einmal am Ende, z. B. "18,0–22,0 kg" bzw. für Schlaf "7:00–8:00". */
 function formatRange(metric: Metric, min: number, max: number): string {
@@ -123,6 +123,7 @@ function DailyEntry() {
           </Card>
         ))}
         <ActivityCard day={day} />
+        <LebensmittelCard day={day} />
       </div>
     </>
   )
@@ -990,5 +991,97 @@ function TargetEditor({ metric, onClose }: { metric: Metric; onClose: () => void
         </div>
       )}
     </Modal>
+  )
+}
+
+/* --------------------------------------------------- Gegessene Lebensmittel */
+
+const MAHLZEITEN: { key: FoodEntry['meal']; label: string; icon: string }[] = [
+  { key: 'breakfast', label: 'Frühstück', icon: '🌅' },
+  { key: 'lunch', label: 'Mittag', icon: '🍽️' },
+  { key: 'dinner', label: 'Abend', icon: '🌙' },
+  { key: 'other', label: 'Snacks & Sonstiges', icon: '🍏' },
+]
+
+/**
+ * Woraus die Tageswerte entstanden sind.
+ *
+ * Eine Zahl wie „2380 kcal" ist für sich genommen wertlos: Man kann sie weder
+ * überprüfen noch daraus lernen. Erst die Liste darunter beantwortet die
+ * Frage, die man eigentlich hat – „woran lag das heute eigentlich?".
+ *
+ * Deshalb steht hier nicht noch einmal die Summe, sondern die Herkunft, nach
+ * Mahlzeiten sortiert wie im Tagebuch selbst.
+ */
+function LebensmittelCard({ day }: { day: string }) {
+  const data = useData()
+  const eintraege = useMemo(
+    () => data.foodEntries.filter((f) => !f.deleted_at && f.day === day),
+    [data.foodEntries, day],
+  )
+
+  const summe = useMemo(() => {
+    const s = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }
+    for (const e of eintraege) {
+      s.kcal += e.calories ?? 0
+      s.protein += e.protein_g ?? 0
+      s.carbs += e.carbs_g ?? 0
+      s.fat += e.fat_g ?? 0
+      s.fiber += e.fiber_g ?? 0
+    }
+    return s
+  }, [eintraege])
+
+  if (eintraege.length === 0) {
+    return (
+      <Card title="Gegessen" sub="Aus FatSecret übernommen">
+        <Empty icon="🥗" title="Für diesen Tag liegt nichts vor"
+          hint="Sobald FatSecret verbunden ist und der Tag dort Einträge hat, stehen sie hier." />
+      </Card>
+    )
+  }
+
+  return (
+    <Card title="Gegessen" sub={`${eintraege.length} Einträge · ${Math.round(summe.kcal)} kcal`}>
+      <div className="row small muted mb12" style={{ gap: 14, flexWrap: 'wrap' }}>
+        <span>Protein {Math.round(summe.protein)} g</span>
+        <span>Kohlenhydrate {Math.round(summe.carbs)} g</span>
+        <span>Fett {Math.round(summe.fat)} g</span>
+        <span>Ballaststoffe {Math.round(summe.fiber)} g</span>
+      </div>
+      {MAHLZEITEN.map((mz) => {
+        const liste = eintraege.filter((e) => e.meal === mz.key)
+        if (!liste.length) return null
+        const kcal = liste.reduce((a, b) => a + (b.calories ?? 0), 0)
+        return (
+          <div key={mz.key} className="mb12">
+            <div className="row small" style={{ fontWeight: 650, marginBottom: 4 }}>
+              <span>{mz.icon} {mz.label}</span>
+              <span style={{ flex: 1 }} />
+              <span className="muted">{Math.round(kcal)} kcal</span>
+            </div>
+            <div className="list">
+              {liste.map((e) => (
+                <div key={e.id} className="list-row" style={{ paddingLeft: 0, paddingRight: 0 }}>
+                  <span className="list-main">
+                    <span className="list-title">{e.name}</span>
+                    <span className="list-sub">
+                      {[
+                        e.serving_description,
+                        e.protein_g !== null ? `E ${Math.round(e.protein_g)} g` : null,
+                        e.carbs_g !== null ? `KH ${Math.round(e.carbs_g)} g` : null,
+                        e.fat_g !== null ? `F ${Math.round(e.fat_g)} g` : null,
+                        e.fiber_g !== null ? `Ballast. ${Math.round(e.fiber_g)} g` : null,
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <span className="list-amount">{e.calories !== null ? `${Math.round(e.calories)} kcal` : '–'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </Card>
   )
 }

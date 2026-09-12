@@ -134,6 +134,60 @@ Ohne Server funktioniert alles unverändert – nur eben pro Gerät getrennt.
 
 ---
 
+## 4b. Ernährung aus FatSecret übernehmen
+
+*Einstellungen → Ernährung.* LifeHub holt die Einträge aus dem FatSecret-Ernährungs­
+tagebuch und rechnet daraus die Tageswerte für Kalorien, Protein, Kohlenhydrate, Fett
+und Ballaststoffe. Die einzelnen Lebensmittel stehen unter *Tracking → Tag → Gegessen*,
+damit nachvollziehbar bleibt, woraus eine Tageszahl entstanden ist.
+
+### Warum ein Server nötig ist
+
+FatSecret gibt ein persönliches Tagebuch nur über dreibeiniges OAuth 1.0 heraus, und
+das verlangt einen Consumer Secret. In einer statischen Seite kann jeder mitlesen, was
+im Bündel steht – dort hat ein solches Geheimnis nichts verloren. FatSecret schreibt
+deshalb selbst vor, dass Zugangsdaten über einen eigenen Server laufen. Diese Rolle
+übernimmt eine Supabase Edge Function (`supabase/functions/fatsecret`). Auf dem Gerät
+liegt weder der Consumer Secret noch ein FatSecret-Token, und ein FatSecret-Passwort
+wird nie abgefragt.
+
+### Einrichtung (einmalig)
+
+1. Bei [platform.fatsecret.com](https://platform.fatsecret.com) eine Anwendung
+   anlegen. Für Tagebuchzugriff wird die Premier-Stufe benötigt; dreibeiniges OAuth
+   muss für den Schlüssel freigeschaltet sein.
+2. Als Callback-Adresse eintragen:
+   `https://<projekt>.supabase.co/functions/v1/fatsecret/callback`
+3. `supabase/migrations/0002_fatsecret.sql` einmal im SQL-Editor des Supabase-Projekts
+   ausführen (legt die beiden Tabellen für die Token an, beide ohne Freigabe – nur die
+   Funktion selbst kommt heran).
+4. Zugangsdaten hinterlegen und die Funktion veröffentlichen:
+
+   ```
+   supabase secrets set FATSECRET_CONSUMER_KEY=... FATSECRET_CONSUMER_SECRET=...
+   supabase functions deploy fatsecret --no-verify-jwt
+   ```
+
+   `--no-verify-jwt` ist notwendig, weil FatSecret nach der Freigabe ohne Anmeldetoken
+   auf `/callback` zurückleitet. Alle anderen Routen prüfen die Anmeldung selbst.
+5. In LifeHub unter *Einstellungen → Ernährung* auf **Mit FatSecret verbinden** tippen
+   und die Freigabe bei FatSecret erteilen.
+
+Solange Schritt 4 fehlt, sagt die Seite das im Klartext und rührt keine Daten an.
+
+### Was die Schnittstelle nicht kann
+
+* **Nur lesen.** Es lässt sich nichts nach FatSecret zurückschreiben.
+* **Kein Anstoß von außen.** FatSecret meldet Änderungen nicht; abgeglichen wird beim
+  Öffnen der Seite oder auf Knopfdruck. Ein Abgleich holt immer die letzten sieben Tage
+  mit, damit Nachträge und Korrekturen ankommen.
+* **Keine Getränkemenge.** Wasser wird weiter von Hand erfasst.
+* **FatSecret hat Vorrang.** Für einen Tag, den FatSecret liefert, gilt dessen Zahl; ein
+  konkurrierender Handeintrag wandert in den Papierkorb, damit nicht beide Werte
+  zusammengezählt werden. Der Abgleich meldet, wenn das passiert ist.
+
+---
+
 ## 5. Deine Daten
 
 *Einstellungen → Daten & Backup*
