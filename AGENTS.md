@@ -41,6 +41,13 @@ node tests/automatik-e2e.mjs     # plant ein, zieht nach, räumt auf, dreht sich
 node tests/heute-mobil-e2e.mjs   # misst nach, ob die Termine ohne Scrollen dastehen
 ```
 
+Bei einer neuen Migration in `src/db/schema.ts` zusätzlich:
+
+```
+node tests/migration-e2e.mjs      # legt Daten in der VORHERIGEN Fassung an und
+                                  # prueft, ob sie die Migration ueberleben
+```
+
 Die Automatik läuft nach JEDER Datenänderung erneut und schreibt dabei selbst Daten.
 Das endet nur, weil der zweite Durchlauf nichts mehr findet. Wer dort ein Feld ergänzt,
 muss es in `gleich()` (core/automation.ts) sauber vergleichbar machen – sonst findet
