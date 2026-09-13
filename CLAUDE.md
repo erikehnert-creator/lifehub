@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 391 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 416 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -103,3 +103,28 @@ Mehrere ältere Skripte in `tests/` stammen aus einer Linux-Umgebung und haben
 Pfade wie `/home/claude/…` fest eingebaut. Welche das sind und was stattdessen
 läuft, steht in `tests/ALTLASTEN.md`. Nicht wundern, wenn eines davon in eine
 Zeitüberschreitung läuft.
+
+## Die Edge Function sieht einen gekuerzten Pfad
+
+Supabase entfernt `/functions/v1`, bevor die Funktion die Anfrage sieht: Innen
+steht `/fatsecret/start`, aussen `/functions/v1/fatsecret/start`. Wer daraus
+eine Adresse fuer die Aussenwelt baut, erzeugt eine, die es nicht gibt – genau
+so ist der OAuth-Rueckweg von FatSecret ins Leere gelaufen
+(`{"error":"Requested path is invalid"}`), nachdem die Freigabe schon geklappt
+hatte.
+
+Adressen nach aussen deshalb immer aus `SUPABASE_URL` plus ausgeschriebenem
+Praefix zusammensetzen, nie aus `url.pathname`. Beides steht in
+`supabase/functions/fatsecret/pfade.ts`, und `tests/fatsecret-callback.test.ts`
+rechnet es nach.
+
+`pfade.ts` ist bewusst frei von Deno-Aufrufen: `index.ts` selbst laesst sich aus
+den Tests nicht laden, und `supabase/` wird von `npx tsc --noEmit` auch nicht
+erfasst (tsconfig kennt nur `src` und `tests`).
+
+**Nach jeder Aenderung unter `supabase/functions/` reicht ein Push nicht** – die
+Funktion muss eigens veroeffentlicht werden:
+
+```
+npx supabase functions deploy fatsecret --no-verify-jwt
+```

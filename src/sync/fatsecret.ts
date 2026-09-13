@@ -45,6 +45,12 @@ export const MELDUNGEN: Record<string, string> = {
     'Die FatSecret-Funktion auf dem Server ist älter als diese Fassung von LifeHub. Bitte einmal neu veröffentlichen.',
   nicht_erreichbar:
     'Der eigene Server war nicht erreichbar. Prüfe die Internetverbindung; dein Ernährungstagebuch in LifeHub bleibt unverändert.',
+  redirect_to_fehlt:
+    'LifeHub hat dem Server keine gültige Rückkehradresse mitgeteilt. Lade die Seite einmal neu und '
+    + 'versuche es erneut.',
+  redirect_to_unerlaubt:
+    'Der Server nimmt diese Rückkehradresse nicht an – er leitet nach der Freigabe nur zu LifeHub selbst '
+    + 'zurück. Öffne LifeHub über die gewohnte Adresse und verbinde von dort aus.',
   fatsecret_key_falsch:
     'FatSecret kennt diesen Consumer Key nicht. Prüfe im Developer Portal, ob du ihn vollständig kopiert hast, '
     + 'und setze ihn neu (supabase secrets set FATSECRET_CONSUMER_KEY=...).',

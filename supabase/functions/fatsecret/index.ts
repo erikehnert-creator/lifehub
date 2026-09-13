@@ -42,6 +42,7 @@
  * Jede andere Route prüft das Token selbst (siehe `nutzer()`), der Callback
  * ordnet sich stattdessen über den einmaligen oauth_token zu.
  */
+import { callbackAdresse, routeVonPfad, rueckwegErlaubt } from './pfade.ts'
 
 /**
  * Die FatSecret-Adressen – jeweils mit der Methode, die FatSecret dort verlangt.
@@ -351,7 +352,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
 
   const url = new URL(req.url)
-  const pfad = url.pathname.replace(/^.*\/fatsecret/, '').replace(/^\//, '') || 'status'
+  const pfad = routeVonPfad(url.pathname)
 
   // Der Rückweg von FatSecret: ein gewöhnlicher Browser-Aufruf, ohne Anmeldung.
   if (pfad === 'callback') {
@@ -385,9 +386,15 @@ Deno.serve(async (req) => {
       }
       case 'start': {
         const rueckkehr = String(body.redirect_to ?? '')
-        if (!/^https?:\/\//.test(rueckkehr)) return json({ error: 'redirect_to fehlt' }, 400)
-        const callbackUrl = `${url.origin}${url.pathname.replace(/\/start$/, '')}/callback`
-        return json(await starten(u.id, rueckkehr, callbackUrl))
+        if (!/^https?:\/\//.test(rueckkehr)) return json({ error: 'redirect_to_fehlt' }, 400)
+        // Geprüft, nicht nur auf Form: Die Funktion leitet den Browser später
+        // dorthin weiter. Siehe rueckwegErlaubt() in pfade.ts.
+        if (!rueckwegErlaubt(rueckkehr)) {
+          return json({ error: 'redirect_to_unerlaubt', detail: new URL(rueckkehr).origin }, 400)
+        }
+        // NICHT aus url.pathname ableiten: Supabase entfernt /functions/v1,
+        // bevor die Funktion die Anfrage sieht (siehe pfade.ts).
+        return json(await starten(u.id, rueckkehr, callbackAdresse(SUPABASE_URL, url.origin)))
       }
       case 'diary': {
         const tage = Array.isArray(body.dates) ? body.dates.map(Number).filter(Number.isFinite) : []
