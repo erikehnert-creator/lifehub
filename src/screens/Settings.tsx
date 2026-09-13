@@ -17,6 +17,7 @@ import {
 } from '../io/importer'
 import { seedDemoData, KATEGORIE_FARBEN } from '../db/seed'
 import { useFatSecret } from '../state/ernaehrung'
+import { findeDubletten, fuehreZusammen } from '../state/dubletten'
 import {
   folderBackupSupported, folderState, chooseFolder, forgetFolder,
   reconfirmPermission, writeBackup, lastBackupAt, type FolderState,
@@ -670,6 +671,87 @@ function TrashTab() {
 
 /* ---------------------------------------------------------- Synchronisation */
 
+/**
+ * Doppelte Konten und Kategorien zusammenführen.
+ *
+ * Steht hier und nicht bei den Konten, weil die Ursache hier liegt: Ein zweites
+ * Gerät hat seinen Beispielbestand auf einen Server geladen, auf dem schon
+ * etwas lag. Die Karte zeigt sich nur, wenn es tatsächlich etwas zu tun gibt –
+ * sonst wäre sie ein Knopf, der bei Langeweile gedrückt wird.
+ */
+function DublettenKarte() {
+  const m = useMutations()
+  const data = useData()
+  const [ergebnis, setErgebnis] = useState<string | null>(null)
+  const [zeigeAlles, setZeigeAlles] = useState(false)
+
+  // Neu berechnet, sobald sich Konten oder Kategorien ändern.
+  const befund = useMemo(
+    () => findeDubletten(),
+    [data.accounts, data.categories, data.transactions],
+  )
+  const alle = [...befund.konten, ...befund.kategorien]
+  if (!alle.length) return null
+
+  const umzuege = alle.reduce((n, p) => n + p.umzuege.length, 0)
+  const sichtbar = zeigeAlles ? alle : alle.slice(0, 6)
+
+  const zusammenfuehren = () => {
+    const r = fuehreZusammen(alle, m)
+    setErgebnis(
+      `${r.entfernt} Dublette${r.entfernt === 1 ? '' : 'n'} aufgelöst, `
+      + `${r.umgehaengt} Eintrag${r.umgehaengt === 1 ? '' : 'e'} umgehängt. `
+      + 'Die aufgelösten Zeilen liegen im Papierkorb.',
+    )
+  }
+
+  return (
+    <Card className="mb16" title="Doppelte Konten und Kategorien"
+      sub={`${alle.length} Paar${alle.length === 1 ? '' : 'e'} gefunden`}>
+      <div className="hint-box crit small mb12">
+        Gleiche Namen, verschiedene Kennungen – das entsteht, wenn ein zweites Gerät
+        seinen Beispielbestand auf einen Server lädt, auf dem schon Daten liegen.
+      </div>
+
+      <div className="small mb12">
+        LifeHub hängt alles um, was daran hängt ({umzuege} Eintrag{umzuege === 1 ? '' : 'e'}),
+        und legt erst danach die Dublette in den Papierkorb. <strong>Es geht nichts
+        verloren</strong> – auch dann nicht, wenn die Buchungen ausgerechnet am neueren
+        Konto hängen.
+      </div>
+
+      <div className="list mb12">
+        {sichtbar.map((p) => (
+          <div className="list-row" key={p.behalten.id}>
+            <div>
+              <div><strong>{p.behalten.name}</strong></div>
+              <div className="small muted">
+                bleibt ({p.grund}) · {p.aufloesen.length} Dublette
+                {p.aufloesen.length === 1 ? '' : 'n'}
+                {p.umzuege.length > 0 && ` · ${p.umzuege.length} Eintrag${p.umzuege.length === 1 ? '' : 'e'} ziehen um`}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {alle.length > sichtbar.length && (
+        <button className="btn btn-ghost small mb12" onClick={() => setZeigeAlles(true)}>
+          Alle {alle.length} anzeigen
+        </button>
+      )}
+
+      {ergebnis && <div className="hint-box small mb12">{ergebnis}</div>}
+
+      <div className="row">
+        <button className="btn btn-primary" onClick={zusammenfuehren}>Zusammenführen</button>
+        <span className="small muted" style={{ alignSelf: 'center' }}>
+          Danach einmal synchronisieren, damit auch die anderen Geräte aufräumen.
+        </span>
+      </div>
+    </Card>
+  )
+}
+
 function SyncTab() {
   const data = useData()
   const m = useMutations()
@@ -734,6 +816,8 @@ function SyncTab() {
         <Card><Stat label="Wartende Änderungen" value={String(pending)} /></Card>
         <Card><Stat label="Offene Konflikte" value={String(conflicts)} /></Card>
       </div>
+
+      <DublettenKarte />
 
       <Card className="mb16" title="Wie die Synchronisation funktioniert">
         <div className="hint-box">

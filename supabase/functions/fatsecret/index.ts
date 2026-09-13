@@ -402,6 +402,37 @@ Deno.serve(async (req) => {
         return json({ error: 'unbekannte_route', pfad }, 404)
     }
   } catch (err) {
-    return json({ error: 'serverfehler', detail: String((err as Error)?.message ?? err) }, 500)
+    const text = String((err as Error)?.message ?? err)
+
+    /* ------------------------------------------------------------------------
+     * FatSecret sagt nicht, WAS an den Zugangsdaten nicht stimmt – aber die
+     * Reihenfolge der Prüfung verrät es. Nachgemessen am 13.09.2026 mit einem
+     * erfundenen Schlüssel:
+     *
+     *   falscher Key     → 400 "Invalid Consumer Key: <key>"
+     *   Key ok, Rest nicht → 400 "Invalid signature: <signatur>"
+     *
+     * Der Schlüssel wird also ZUERST geprüft. Wer "Invalid signature" sieht,
+     * hat demnach einen gültigen Consumer Key – und ein Secret, das nicht dazu
+     * passt. Das ist eine brauchbare Auskunft; "FatSecret hat die Anfrage
+     * abgelehnt" ist keine.
+     * ---------------------------------------------------------------------- */
+    if (/Invalid Consumer Key/i.test(text)) {
+      return json({ error: 'fatsecret_key_falsch' }, 502)
+    }
+    if (/Invalid signature/i.test(text)) {
+      // Längen, keine Werte: Ein abgeschnittenes oder versehentlich mit
+      // Leerzeichen gesetztes Secret sieht man daran sofort, ohne dass
+      // irgendwo ein Geheimnis auftaucht. Key und Secret sind bei FatSecret
+      // gleich lang – weichen die Längen ab, ist das schon die Antwort.
+      const leerraum = CONSUMER_SECRET !== CONSUMER_SECRET.trim()
+        || CONSUMER_KEY !== CONSUMER_KEY.trim()
+      return json({
+        error: 'fatsecret_secret_falsch',
+        detail: `Key ${CONSUMER_KEY.length} Zeichen, Secret ${CONSUMER_SECRET.length} Zeichen`
+          + (leerraum ? ' – und eines davon hat Leerzeichen am Rand, das ist fast sicher die Ursache' : ''),
+      }, 502)
+    }
+    return json({ error: 'serverfehler', detail: text }, 500)
   }
 })

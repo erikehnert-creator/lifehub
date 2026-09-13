@@ -45,6 +45,13 @@ export const MELDUNGEN: Record<string, string> = {
     'Die FatSecret-Funktion auf dem Server ist älter als diese Fassung von LifeHub. Bitte einmal neu veröffentlichen.',
   nicht_erreichbar:
     'Der eigene Server war nicht erreichbar. Prüfe die Internetverbindung; dein Ernährungstagebuch in LifeHub bleibt unverändert.',
+  fatsecret_key_falsch:
+    'FatSecret kennt diesen Consumer Key nicht. Prüfe im Developer Portal, ob du ihn vollständig kopiert hast, '
+    + 'und setze ihn neu (supabase secrets set FATSECRET_CONSUMER_KEY=...).',
+  fatsecret_secret_falsch:
+    'Der Consumer Key stimmt – FatSecret nimmt ihn an. Das Consumer Secret passt aber nicht dazu: '
+    + 'Damit unterschriebene Anfragen weist FatSecret ab. Hol das Secret im Developer Portal neu '
+    + '(bei Bedarf neu erzeugen) und setze es noch einmal.',
   kein_tagebuchzugriff:
     'Der FatSecret-Schlüssel darf das persönliche Tagebuch nicht lesen. Im FatSecret Developer Portal muss für diesen Schlüssel '
     + '3-Legged OAuth freigeschaltet sein.',

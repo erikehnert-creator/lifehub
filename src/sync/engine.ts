@@ -456,10 +456,66 @@ export async function hasRemoteChanges(url: string, anonKey: string): Promise<bo
   }
 }
 
+/**
+ * Liegt auf dem Server schon ein echter Bestand?
+ *
+ * Eine Zeile je Tabelle genügt – gefragt wird nicht „wie viel", sondern „über-
+ * haupt etwas". Bei einem Fehler wird `null` geliefert: Dann wird nicht geraten,
+ * sondern die Entscheidung dem Nutzer gelassen.
+ */
+async function serverHatBestand(
+  url: string, anonKey: string, token: string,
+): Promise<{ konten: boolean; buchungen: boolean } | null> {
+  try {
+    const [k, b] = await Promise.all([
+      request(url, anonKey, token, 'accounts?select=id&limit=1'),
+      request(url, anonKey, token, 'transactions?select=id&limit=1'),
+    ])
+    return { konten: Array.isArray(k) && k.length > 0, buchungen: Array.isArray(b) && b.length > 0 }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Dieses Gerät füllt den Server.
+ *
+ * Vorher wird nachgesehen, ob dort schon etwas liegt – und zwar aus einem
+ * konkreten Anlass: Am 13.09.2026 wurde die Webfassung geöffnet, um FatSecret
+ * zu verbinden. Sie legte beim ersten Start ihren Beispielbestand an, und
+ * dieser Knopf schob ihn auf den Server, auf dem Eriks echte Konten lagen.
+ * Danach stand jedes Konto doppelt da – einmal echt, einmal als Beispiel.
+ *
+ * Überschrieben wird dabei nichts (gesendet wird nur, nichts gelöscht), aber
+ * verdoppelt: Gleiche Namen, verschiedene Kennungen, und der Abgleich kann sie
+ * nicht als dasselbe erkennen.
+ *
+ * Die Bedingung ist bewusst eng. Abgelehnt wird nur der Fall, der nicht sinnvoll
+ * sein KANN: Der Server hat Buchungen, dieses Gerät keine einzige. Wer hier
+ * wirklich den Serverstand ersetzen will, hat vorher etwas eingespielt – und
+ * dann hat er Buchungen.
+ */
 export async function pushAll(url: string, anonKey: string): Promise<SyncResult> {
   if (!isSignedIn()) {
     return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Bitte zuerst anmelden.' }
   }
+
+  const token = await accessToken(url, anonKey)
+  if (token) {
+    const dort = await serverHatBestand(url, anonKey, token)
+    const hierBuchungen = Number(
+      all<{ n: number }>('SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL')[0]?.n ?? 0,
+    )
+    if (dort?.buchungen && hierBuchungen === 0) {
+      return {
+        ok: false, pushed: 0, pulled: 0, conflicts: 0,
+        message: 'Abgebrochen: Auf dem Server liegen schon Buchungen, auf diesem Gerät keine einzige. '
+          + 'Dieses Gerät würde seinen Beispielbestand danebenlegen – danach stünde jedes Konto doppelt da. '
+          + 'Nimm stattdessen „Dieses Gerät vom Server befüllen".',
+      }
+    }
+  }
+
   try {
     for (const table of SYNCED_TABLES) {
       getDb().run(`UPDATE ${table} SET _dirty = 1`)
