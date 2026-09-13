@@ -13,7 +13,14 @@
  *   2. Dasselbe Profil mit der NEUEN Fassung öffnen.
  *   3. Nachsehen, ob die Daten noch da sind und die neuen Felder existieren.
  *
+ * Welche Fassung die „alte" ist, sucht der Test selbst: die jüngste, deren
+ * `src/db/schema.ts` eine NIEDRIGERE höchste Migrationsnummer hatte als HEAD.
+ * Ein festes HEAD~1 wäre nur an dem einen Tag richtig, an dem die Migration
+ * entsteht – sobald ein weiterer Commit darauf liegt, prüfte der Test die
+ * neue Fassung gegen sich selbst und wäre still bedeutungslos geworden.
+ *
  * Aufruf:  node tests/migration-e2e.mjs
+ *          LIFEHUB_MIGRATION_BASIS=<commit> node tests/migration-e2e.mjs
  */
 import { chromium } from 'playwright'
 import { execSync } from 'node:child_process'
@@ -40,13 +47,48 @@ async function warteAufApp(p, ms = 60000) {
   return false
 }
 
+/** Höchste Migrationsnummer in einer Fassung von src/db/schema.ts. */
+function hoechsteMigration(inhalt) {
+  const treffer = [...inhalt.matchAll(/^\s*id:\s*(\d+),\s*$/gm)].map((m) => Number(m[1]))
+  return treffer.length ? Math.max(...treffer) : 0
+}
+
+/**
+ * Die jüngste Fassung mit niedrigerer Migrationsnummer als HEAD – also genau
+ * die, die auf den Geräten liegt, bevor dieses Update ankommt.
+ */
+function basisFassung() {
+  if (process.env.LIFEHUB_MIGRATION_BASIS) return process.env.LIFEHUB_MIGRATION_BASIS.trim()
+
+  const jetzt = hoechsteMigration(fs.readFileSync(path.join(WURZEL, 'src/db/schema.ts'), 'utf8'))
+  const commits = execSync('git log --format=%H -- src/db/schema.ts', { cwd: WURZEL })
+    .toString().trim().split(String.fromCharCode(10)).filter(Boolean)
+
+  for (const c of commits) {
+    let schema
+    try {
+      schema = execSync(`git show ${c}:src/db/schema.ts`, { cwd: WURZEL, maxBuffer: 16 * 1024 * 1024 }).toString()
+    } catch { continue }
+    if (hoechsteMigration(schema) >= jetzt) continue
+    // Nur brauchbar, wenn diese Fassung auch eine gebaute LifeHub.html mitbringt.
+    try {
+      execSync(`git cat-file -e ${c}:LifeHub.html`, { cwd: WURZEL })
+      return c
+    } catch { /* weiter in die Vergangenheit */ }
+  }
+  throw new Error(
+    `Keine Fassung mit einer Migration unter ${jetzt} gefunden – ` +
+    'Basis per LIFEHUB_MIGRATION_BASIS=<commit> vorgeben.',
+  )
+}
+
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lifehub-mig-'))
   const alt = path.join(tmp, 'LifeHub-alt.html')
   const profil = path.join(tmp, 'profil')
 
   // Die Fassung VOR diesem Update aus der Versionsgeschichte holen.
-  const vorher = execSync('git rev-parse HEAD~1', { cwd: WURZEL }).toString().trim()
+  const vorher = basisFassung()
   fs.writeFileSync(alt, execSync(`git show ${vorher}:LifeHub.html`, {
     cwd: WURZEL, maxBuffer: 64 * 1024 * 1024,
   }))

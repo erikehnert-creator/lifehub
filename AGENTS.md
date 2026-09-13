@@ -23,13 +23,19 @@ DELETE verwenden). Fehlt die Server-Spalte, schlägt die Synchronisation für ge
 diese Tabelle bei jedem Versuch fehl (das ist schon zweimal passiert: einmal bei
 calendar_events, einmal bei tasks).
 
+`tests/schema-parity.test.ts` rechnet das bei jedem `npm test` nach: Es baut das
+lokale Schema wirklich auf und vergleicht jede gesendete Spalte mit
+`0001_init.sql`. Vergisst man die Server-Seite, schlägt der Test fehl und nennt
+die fehlende `ALTER TABLE`-Zeile wörtlich. Verlass dich trotzdem nicht allein
+darauf – der Test prüft die Datei, nicht Eriks Server.
+
 Nach einer Schema-Änderung den Nutzer aktiv daran erinnern, die aktualisierte
 `supabase/migrations/0001_init.sql` einmal im SQL-Editor seines Supabase-Projekts
 auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 225 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 271 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -47,6 +53,12 @@ Bei einer neuen Migration in `src/db/schema.ts` zusätzlich:
 node tests/migration-e2e.mjs      # legt Daten in der VORHERIGEN Fassung an und
                                   # prueft, ob sie die Migration ueberleben
 ```
+
+Welche Fassung dabei die „vorherige" ist, sucht der Test selbst: die jüngste mit
+einer niedrigeren höchsten Migrationsnummer als HEAD. Ein festes `HEAD~1` wäre
+nur an dem Tag richtig, an dem die Migration entsteht – ein Commit später prüfte
+er die neue Fassung gegen sich selbst und wäre still bedeutungslos. Für einen
+anderen Ausgangspunkt: `LIFEHUB_MIGRATION_BASIS=<commit> node tests/migration-e2e.mjs`.
 
 Die Automatik läuft nach JEDER Datenänderung erneut und schreibt dabei selbst Daten.
 Das endet nur, weil der zweite Durchlauf nichts mehr findet. Wer dort ein Feld ergänzt,
