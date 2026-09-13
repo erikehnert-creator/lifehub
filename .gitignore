@@ -14,3 +14,14 @@ tests/*.png
 supabase/.temp/
 .env
 .env.local
+
+# ---------------------------------------------------------------- Vault-Teil
+# Seit dem Umzug liegt das Projekt im Obsidian-Vault. Daneben liegen dort
+# persoenliche Unterlagen - darunter LifeHub - Zugangsdaten.md mit dem
+# Supabase-Datenbankpasswort. Dieses Repository ist oeffentlich.
+# Deshalb bleibt die gesamte Projektablage grundsaetzlich draussen, statt
+# einzelne Dateien aufzuzaehlen: Eine Liste vergisst man, ein Ordner nicht.
+_Projektablage/
+*Zugangsdaten*
+*Zugang*.txt
+LifeHub – Projektnotiz.md
