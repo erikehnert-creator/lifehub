@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 359 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 391 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -54,6 +54,8 @@ node tests/migration-e2e.mjs        # legt Daten in der VORHERIGEN Fassung an un
                                     # prueft, ob sie die Migration ueberleben
 node tests/sync-ganzzahlen-e2e.mjs  # Abgleich gegen einen Server, der Typen ernst
                                     # nimmt - erst scheitern, dann durchlaufen
+node tests/dubletten-e2e.mjs        # doppelte Konten zusammenfuehren, ohne dass
+                                    # eine Buchung dabei verlorengeht
 ```
 
 Welche Fassung dabei die „vorherige" ist, sucht der Test selbst: die jüngste mit

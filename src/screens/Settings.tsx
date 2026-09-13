@@ -682,7 +682,6 @@ function TrashTab() {
 function DublettenKarte() {
   const m = useMutations()
   const data = useData()
-  const [ergebnis, setErgebnis] = useState<string | null>(null)
   const [zeigeAlles, setZeigeAlles] = useState(false)
 
   // Neu berechnet, sobald sich Konten oder Kategorien ändern.
@@ -698,10 +697,15 @@ function DublettenKarte() {
 
   const zusammenfuehren = () => {
     const r = fuehreZusammen(alle, m)
-    setErgebnis(
-      `${r.entfernt} Dublette${r.entfernt === 1 ? '' : 'n'} aufgelöst, `
-      + `${r.umgehaengt} Eintrag${r.umgehaengt === 1 ? '' : 'e'} umgehängt. `
-      + 'Die aufgelösten Zeilen liegen im Papierkorb.',
+    // Als Hinweis der App, nicht als Text in dieser Karte: Sobald nichts mehr
+    // doppelt ist, verschwindet die Karte - und mit ihr saehe man die
+    // Rueckmeldung nie. Der Knopf haette dann einfach "nichts getan".
+    m.toast(
+      `${r.entfernt} Dublette${r.entfernt === 1 ? '' : 'n'} aufgelöst`
+      + (r.umgehaengt > 0
+        ? `, ${r.umgehaengt} ${r.umgehaengt === 1 ? 'Eintrag' : 'Einträge'} umgehängt`
+        : '')
+      + '. Die aufgelösten Zeilen liegen im Papierkorb.',
     )
   }
 
@@ -714,7 +718,7 @@ function DublettenKarte() {
       </div>
 
       <div className="small mb12">
-        LifeHub hängt alles um, was daran hängt ({umzuege} Eintrag{umzuege === 1 ? '' : 'e'}),
+        LifeHub hängt alles um, was daran hängt ({umzuege} {umzuege === 1 ? 'Eintrag' : 'Einträge'}),
         und legt erst danach die Dublette in den Papierkorb. <strong>Es geht nichts
         verloren</strong> – auch dann nicht, wenn die Buchungen ausgerechnet am neueren
         Konto hängen.
@@ -739,8 +743,6 @@ function DublettenKarte() {
           Alle {alle.length} anzeigen
         </button>
       )}
-
-      {ergebnis && <div className="hint-box small mb12">{ergebnis}</div>}
 
       <div className="row">
         <button className="btn btn-primary" onClick={zusammenfuehren}>Zusammenführen</button>
