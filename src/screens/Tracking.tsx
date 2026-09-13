@@ -102,13 +102,17 @@ function DailyEntry() {
           // Werte von gestern übernehmen – schneller als alles neu tippen
           const yesterday = addDays(day, -1)
           let n = 0
-          for (const metric of metrics) {
-            if (dayValue(data.metricEntries, metric, day) !== null) continue
-            const v = dayValue(data.metricEntries, metric, yesterday)
-            if (v === null) continue
-            m.create('metric_entries', { metric_id: metric.id, day, value_num: v, source: 'manual' })
-            n++
-          }
+          // Als ein Stapel: vierzehn Werte waren vorher vierzehn vollständige
+          // Neuladungen aller Tabellen.
+          m.batch(() => {
+            for (const metric of metrics) {
+              if (dayValue(data.metricEntries, metric, day) !== null) continue
+              const v = dayValue(data.metricEntries, metric, yesterday)
+              if (v === null) continue
+              m.create('metric_entries', { metric_id: metric.id, day, value_num: v, source: 'manual' })
+              n++
+            }
+          })
           m.toast(n ? `${n} Werte von gestern übernommen` : 'Nichts zu übernehmen')
         }}>Von gestern übernehmen</button>
       </div>

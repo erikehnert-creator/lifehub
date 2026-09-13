@@ -84,13 +84,18 @@ export function useAutomatik() {
           exists: (id) => mutations.exists('transactions', id),
         })
         let summe = 0
-        for (const b of faellig) {
-          mutations.create('transactions', b.values)
-          // Bereits gebuchte Zahlungen bleiben, wie sie sind – hier wird nur
-          // vermerkt, bis wann die Regel abgearbeitet ist.
-          mutations.patch('recurring_rules', b.ruleId, { last_generated_on: b.day })
-          summe += b.betragCents
-        }
+        // Als ein Stapel: eine Transaktion, ein Nachladen. Sonst löst jede
+        // gebuchte Zahlung ein eigenes aus – und die Automatik läuft nach
+        // JEDER Datenänderung.
+        mutations.batch(() => {
+          for (const b of faellig) {
+            mutations.create('transactions', b.values)
+            // Bereits gebuchte Zahlungen bleiben, wie sie sind – hier wird nur
+            // vermerkt, bis wann die Regel abgearbeitet ist.
+            mutations.patch('recurring_rules', b.ruleId, { last_generated_on: b.day })
+            summe += b.betragCents
+          }
+        })
         if (faellig.length === 1) meldungen.push(`${faellig[0].titel} gebucht (${formatMoney(summe)})`)
         else if (faellig.length > 1) meldungen.push(`${faellig.length} fällige Zahlungen gebucht`)
       }
@@ -119,12 +124,14 @@ export function useAutomatik() {
           console.warn('[Automatik] Dieselbe Änderung zweimal hintereinander – abgebrochen.', plan)
         } else {
           letzteAenderungen.current = signatur
-          for (const a of plan.anlegen) mutations.create('tasks', a.values)
-          for (const a of plan.aendern) mutations.patch('tasks', a.id, a.patch)
-          // Leise, mit einer zusammenfassenden Meldung danach: Räumt die
-          // Automatik zwölf Aufgaben einer gelöschten Vorlage ab, will niemand
-          // zwölf einzelne Hinweise dazu wegtippen.
-          for (const e of plan.entfernen) mutations.removeQuiet('tasks', e.id)
+          mutations.batch(() => {
+            for (const a of plan.anlegen) mutations.create('tasks', a.values)
+            for (const a of plan.aendern) mutations.patch('tasks', a.id, a.patch)
+            // Leise, mit einer zusammenfassenden Meldung danach: Räumt die
+            // Automatik zwölf Aufgaben einer gelöschten Vorlage ab, will niemand
+            // zwölf einzelne Hinweise dazu wegtippen.
+            for (const e of plan.entfernen) mutations.removeQuiet('tasks', e.id)
+          })
 
           if (plan.anlegen.length === 1) meldungen.push('1 Aufgabe aus einer Vorlage eingeplant')
           else if (plan.anlegen.length > 1) meldungen.push(`${plan.anlegen.length} Aufgaben aus Vorlagen eingeplant`)
@@ -142,7 +149,9 @@ export function useAutomatik() {
       try { uebertragGelaufen = localStorage.getItem(UEBERTRAG_GELAUFEN) } catch { /* nicht verfügbar */ }
       if (uebertragGelaufen !== heute && stand.settings.carry_over_tasks !== false) {
         const uebertrag = carryOverPatches(stand.tasks, heute)
-        for (const u of uebertrag) mutations.patch('tasks', u.id, u.patch)
+        mutations.batch(() => {
+          for (const u of uebertrag) mutations.patch('tasks', u.id, u.patch)
+        })
         if (uebertrag.length === 1) meldungen.push('1 offene Aufgabe von gestern übernommen')
         else if (uebertrag.length > 1) meldungen.push(`${uebertrag.length} offene Aufgaben übernommen`)
         try { localStorage.setItem(UEBERTRAG_GELAUFEN, heute) } catch { /* nicht verfügbar */ }

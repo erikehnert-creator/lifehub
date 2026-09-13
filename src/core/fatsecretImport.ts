@@ -161,11 +161,15 @@ export function standNachMonaten(
 /**
  * Wie viele Tage zurück ein gewöhnlicher Abgleich erneut ansieht.
  *
- * Nicht nur heute: In FatSecret trägt man abends nach, korrigiert am nächsten
- * Tag eine Portion oder ergänzt das Frühstück von vorgestern. Vierzehn Tage
- * decken das ab, ohne dass jeder Abgleich die halbe Historie erneut holt.
+ * Drei: heute, gestern, vorgestern.
+ *
+ * Nicht nur heute, weil in FatSecret abends nachgetragen und am nächsten Tag
+ * eine Portion korrigiert wird – das käme sonst nie an. Und nicht mehr, weil
+ * jeder Tag einen Aufruf kostet und die Historie ohnehin einmal vollständig
+ * geholt wurde. Wer einen weit zurückliegenden Tag korrigiert, stößt den
+ * Historienabgleich von Hand an (siehe `historieErneut` in state/ernaehrung.ts).
  */
-export const NACHLAUF_TAGE = 14
+export const NACHLAUF_TAGE = 3
 
 /**
  * Die Tage, die ein laufender Abgleich erneut holt – neueste zuerst.
@@ -200,4 +204,19 @@ export function abgleichFaellig(
   const t = Date.parse(zuletzt)
   if (!Number.isFinite(t)) return true
   return jetzt - t >= abstand
+}
+
+/**
+ * Der Stand für einen erneuten Historienlauf.
+ *
+ * Gebraucht, wenn in FatSecret ein weit zurückliegender Tag korrigiert wurde:
+ * Der laufende Abgleich sieht nur drei Tage zurück und bekäme davon nichts mit.
+ *
+ * Zurückgesetzt wird nur der Suchfortschritt, nicht das Ergebnis. Was schon in
+ * LifeHub steht, bleibt stehen und wird beim erneuten Lauf aktualisiert statt
+ * ein zweites Mal angelegt – die Zeilen-IDs stammen aus der food_entry_id von
+ * FatSecret, ein zweiter Durchlauf trifft also dieselben Zeilen wieder.
+ */
+export function standFuerNeuenLauf(stand: ImportStand): ImportStand {
+  return { ...stand, geprueftBis: null, leereMonate: 0, fertig: false }
 }

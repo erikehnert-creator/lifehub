@@ -1584,6 +1584,11 @@ function ErnaehrungTab() {
                 {fs.laeuft ? 'Wird geholt …' : 'Jetzt abgleichen (7 Tage)'}
               </button>
               <button className="btn" disabled={fs.laeuft} onClick={() => void abgleich(30)}>Letzte 30 Tage</button>
+              {fs.importStand.fertig && (
+                <button className="btn" disabled={fs.laeuft} onClick={() => fs.historieErneut()}>
+                  Historie erneut abgleichen
+                </button>
+              )}
               <span style={{ flex: 1 }} />
               <button className="btn btn-danger" disabled={fs.laeuft} onClick={() => void fs.trennen()}>Trennen</button>
             </>

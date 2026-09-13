@@ -24,7 +24,7 @@ import {
 } from '../core/fatsecret'
 import {
   LEERER_STAND, abgleichFaellig, ersterTagDesMonats, nachzuholendeTage, naechsteMonate,
-  standNachMonaten, type ImportStand, type MonatsBefund,
+  standFuerNeuenLauf, standNachMonaten, type ImportStand, type MonatsBefund,
 } from '../core/fatsecretImport'
 import { PUBLIC_APP_URL } from '../sync/config'
 import {
@@ -39,10 +39,15 @@ export const ABGLEICH_TAGE = 7
 /**
  * Wie viele Monate eine Runde des historischen Imports prüft.
  *
- * Sechs Monate sind sechs Aufrufe – wenig genug, dass eine Runde schnell
- * vorbei ist, und genug, dass ein Jahr Historie in zwei Runden erfasst ist.
+ * Ein Jahr je Runde. Das sind zwölf Aufrufe für die Monatsübersichten – wenig,
+ * weil eine Übersicht einen ganzen Monat abdeckt. Die eigentliche Arbeit sind
+ * die Tage darin, und die werden ohnehin in Häppchen geholt.
+ *
+ * Weniger wäre schonender, dauert aber länger: Jede Runde wartet auf den
+ * nächsten Takt, drei Jahre Historie kämen sonst auf ein Vielfaches an
+ * Wartezeit statt an Arbeit.
  */
-const MONATE_JE_RUNDE = 6
+const MONATE_JE_RUNDE = 12
 
 /**
  * Wie viele Tage in EINER Anfrage an die Edge Function gehen.
@@ -138,7 +143,7 @@ export function useFatSecret() {
     try {
       const tage = abzugleichendeTage(anzahlTage)
       const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
-      const ergebnis = anwenden(tage, roh, mutations, data)
+      const ergebnis = mutations.batch(() => anwenden(tage, roh, mutations, data))
       setStatus((s) => (s ? { ...s, last_sync_at: nowIso() } : s))
       return ergebnis
     } catch (err) {
@@ -166,14 +171,15 @@ export function useFatSecret() {
    * Zurück kommt, ob es noch etwas zu tun gibt. Der Aufrufer entscheidet, wann
    * die nächste Runde läuft.
    */
-  const importSchritt = useCallback(async (): Promise<{ weiter: boolean; tage: number }> => {
+  const importSchritt = useCallback(async (): Promise<{ weiter: boolean; tage: number; stand: ImportStand }> => {
     const stand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
-    if (stand.fertig) return { weiter: false, tage: 0 }
+    if (stand.fertig) return { weiter: false, tage: 0, stand }
 
     const monate = naechsteMonate(stand, MONATE_JE_RUNDE, todayString())
     if (!monate.length) {
-      mutations.setSetting('fatsecret_import', { ...stand, fertig: true })
-      return { weiter: false, tage: 0 }
+      const fertig = { ...stand, fertig: true }
+      mutations.setSetting('fatsecret_import', fertig)
+      return { weiter: false, tage: 0, stand: fertig }
     }
 
     // 1. Welche Tage haben überhaupt Einträge? Ein Aufruf je Monat.
@@ -191,13 +197,18 @@ export function useFatSecret() {
     for (let i = 0; i < alleTage.length; i += TAGE_JE_ANFRAGE) {
       const haeppchen = alleTage.slice(i, i + TAGE_JE_ANFRAGE)
       const tagesdaten = await fatsecretTagebuch(settings, haeppchen.map(dayToEpochDay))
-      const e = anwenden(haeppchen, tagesdaten, mutations, data)
+      // Als EIN Stapel: eine Datenbanktransaktion, ein Nachladen am Ende. Ohne
+      // das loeste jede einzelne geschriebene Zeile ein vollstaendiges
+      // Neuladen aller Tabellen aus - bei zehn Tagen sind das gut 900 Zeilen
+      // und damit 900 Neuladungen. Die alte Fassung hat den Import daran nicht
+      // nur verlangsamt, sondern die Seite zum Absturz gebracht.
+      const e = mutations.batch(() => anwenden(haeppchen, tagesdaten, mutations, data))
       geschrieben += e.neu + e.geaendert
     }
 
     const neuerStand = standNachMonaten(stand, befunde)
     mutations.setSetting('fatsecret_import', neuerStand)
-    return { weiter: !neuerStand.fertig, tage: alleTage.length }
+    return { weiter: !neuerStand.fertig, tage: alleTage.length, stand: neuerStand }
   }, [settings.sync_url, settings.sync_key, mutations, data])
 
   /**
@@ -220,13 +231,19 @@ export function useFatSecret() {
       if (faellig) {
         const tage = nachzuholendeTage(todayString(), addDays)
         const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
-        anwenden(tage, roh, mutations, data)
+        mutations.batch(() => anwenden(tage, roh, mutations, data))
       }
-      if (!stand.fertig) await importSchritt()
-      // Erst NACH dem Schreiben vermerken: Bricht etwas ab, gilt der Lauf als
-      // nicht geschehen und wird beim nächsten Mal wiederholt.
-      const jetzt: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
-      mutations.setSetting('fatsecret_import', { ...jetzt, zuletzt: nowIso() })
+      // Der Stand NACH dem Importschritt – und zwar der, den der Schritt
+      // zurückgibt, nicht der aus `data`.
+      //
+      // Das war ein echter Fehler: `data` ist die Momentaufnahme vom letzten
+      // Rendern. Wer daraus liest und zurückschreibt, überschreibt genau den
+      // Fortschritt, den der Importschritt eben gespeichert hat. Der Lauf
+      // begann dadurch bei jeder Runde wieder beim selben Monat – gemessen
+      // 3531 geholte Tage, obwohl es nur 168 gab, und „fertig" wurde nie
+      // erreicht. Von außen sah das aus wie „der Import ist langsam".
+      const danach = stand.fertig ? stand : (await importSchritt()).stand
+      mutations.setSetting('fatsecret_import', { ...danach, zuletzt: nowIso() })
     } catch (err) {
       // Leise: Der automatische Lauf soll niemanden mit einer Meldung
       // unterbrechen. Wer wissen will, woran es liegt, drückt den Knopf.
@@ -234,11 +251,25 @@ export function useFatSecret() {
     }
   }, [settings.sync_url, settings.sync_key, mutations, data, importSchritt])
 
+  /**
+   * Die Historie noch einmal durchgehen.
+   *
+   * Für den Fall, dass in FatSecret ein Tag von vor drei Monaten korrigiert
+   * wurde – der laufende Abgleich sieht nur drei Tage zurück und bekäme davon
+   * nichts mit. Zurückgesetzt wird nur der Suchfortschritt; was schon da ist,
+   * bleibt und wird aktualisiert statt doppelt angelegt.
+   */
+  const historieErneut = useCallback(() => {
+    const stand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
+    mutations.setSetting('fatsecret_import', standFuerNeuenLauf(stand))
+    mutations.toast('Historienabgleich gestartet – er läuft im Hintergrund weiter.')
+  }, [mutations, data])
+
   const importStand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
 
   return {
     status, laeuft, fehler, rueckweg, importStand,
-    statusLaden, verbinden, trennen, abgleichen, importSchritt, automatisch,
+    statusLaden, verbinden, trennen, abgleichen, importSchritt, automatisch, historieErneut,
   }
 }
 
@@ -278,6 +309,11 @@ function anwenden(
       neu++
     }
     for (const a of plan.aendern) { mutations.patch('food_entries', a.id, a.patch); geaendert++ }
+    for (const w of plan.wiederherstellen) {
+      mutations.restoreRow('food_entries', w.id)
+      mutations.patch('food_entries', w.id, w.values)
+      neu++
+    }
     for (const e of plan.entfernen) { mutations.removeQuiet('food_entries', e.id); entfernt++ }
 
     /* ------------------------------------------------------- Tagessummen */

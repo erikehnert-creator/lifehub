@@ -114,6 +114,19 @@ export interface ZusammenfuehrungsErgebnis {
 export function fuehreZusammen(
   plaene: Zusammenfuehrung[], m: Mutations,
 ): ZusammenfuehrungsErgebnis {
+  return m.batch(() => zusammenfuehren(plaene, m))
+}
+
+/**
+ * Innerhalb eines Stapels: Umhängen und Aufräumen als eine Änderung.
+ *
+ * Getrennt von `fuehreZusammen`, damit die Reihenfolge sichtbar bleibt – und
+ * damit klar ist, dass hier nichts einzeln nachgeladen wird. Bei acht Dubletten
+ * mit hunderten Buchungen wären das sonst hunderte vollständige Neuladungen.
+ */
+function zusammenfuehren(
+  plaene: Zusammenfuehrung[], m: Mutations,
+): ZusammenfuehrungsErgebnis {
   let umgehaengt = 0
   let entfernt = 0
 

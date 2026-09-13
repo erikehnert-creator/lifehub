@@ -156,3 +156,35 @@ die halbe Historie abschneidet.
 `sync-ganzzahlen-e2e.mjs` hat einen FEST eingetragenen Altstand (89caf3f), im
 Gegensatz zu `migration-e2e.mjs`: Er prueft einen bestimmten historischen
 Fehler, nicht Migrationen allgemein.
+
+## Nachladen: nur die betroffene Tabelle
+
+`loadAll()` las bis zum 13.09.2026 bei JEDER Aenderung alle rund vierzig
+Tabellen neu ein. Bei einer kleinen Datenbank faellt das nicht auf. Mit drei
+Jahren Ernaehrungshistorie sind es rund 23.000 Zeilen - und der historische
+FatSecret-Import schreibt sie einzeln. Gemessen: Die Seite **stuerzte ab**,
+bevor sechs Monate importiert waren.
+
+Jetzt gilt:
+
+- `LADER` in `state/store.tsx` ordnet jede Tabelle ihrem Platz im Datenbild zu.
+  `loadAll()` baut sich daraus zusammen - die Abfragen stehen an EINER Stelle.
+- Eine Mutation laedt nur ihre eigene Tabelle nach (`beruehrt`).
+- Wer in einer Schleife schreibt, nimmt `mutations.batch(...)`: eine
+  Datenbanktransaktion, ein Nachladen am Ende, nur fuer die beruehrten
+  Tabellen.
+
+**Neue Schleife, die schreibt? Immer in `batch` packen.** Sonst kehrt das
+Problem an dieser Stelle zurueck, ohne dass irgendwo ein Test rot wird - es
+wird einfach langsam. Vorhandene Beispiele: der FatSecret-Import
+(`state/ernaehrung.ts`), die Automatik (`state/automatik.ts`), die
+Dublettenzusammenfuehrung (`state/dubletten.ts`), "Von gestern uebernehmen"
+(`screens/Tracking.tsx`).
+
+`db.export()` ist nachgemessen und KEIN Problem: bei 23.100 Zeilen (2 MB)
+unter 1 ms, weil es nur den WASM-Speicher kopiert. Das Schreiben nach
+IndexedDB ist ohnehin auf 250 ms gedrosselt.
+
+Gemessen wird mit `node tests/performance-benchmark.mjs [monate]`. Der Lauf
+bringt seinen eigenen Server mit und treibt den echten Importpfad. Fuer einen
+Vorher/Nachher-Vergleich: `LIFEHUB_HTML=<andere.html>`.

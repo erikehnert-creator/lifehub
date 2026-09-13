@@ -284,6 +284,8 @@ export interface LokalesLebensmittel {
 export interface LebensmittelPlan {
   anlegen: { id: string; values: Record<string, any> }[]
   aendern: { id: string; patch: Record<string, any> }[]
+  /** Wieder da in FatSecret - also auch wieder hier. Siehe unten. */
+  wiederherstellen: { id: string; values: Record<string, any> }[]
   /** In FatSecret gelöschte Einträge – hier ebenfalls entfernen. */
   entfernen: { id: string; name: string }[]
 }
@@ -330,7 +332,7 @@ export function reconcileFoodEntries(opts: {
   lokal: LokalesLebensmittel[]
   syncedAt: string
 }): LebensmittelPlan {
-  const plan: LebensmittelPlan = { anlegen: [], aendern: [], entfernen: [] }
+  const plan: LebensmittelPlan = { anlegen: [], aendern: [], wiederherstellen: [], entfernen: [] }
   const desTages = opts.lokal.filter((l) => l.day === opts.day)
 
   const lokalNachExtern = new Map<string, LokalesLebensmittel>()
@@ -371,7 +373,24 @@ export function reconcileFoodEntries(opts: {
       })
       continue
     }
-    if (vorhanden.deleted_at) continue // in LifeHub bewusst entfernt
+    if (vorhanden.deleted_at) {
+      // Steht der Eintrag in FatSecret wieder da, gehört er auch wieder hierher.
+      //
+      // Früher blieb er gelöscht („in LifeHub bewusst entfernt"). Das war
+      // richtig, solange LifeHub eine eigene Ernährungserfassung hatte. Seit
+      // FatSecret die Quelle ist, ist es falsch: Ein Eintrag verschwindet hier
+      // nur, weil er DORT verschwunden war – kommt er zurück, war das eine
+      // Korrektur in FatSecret und keine Entscheidung in LifeHub.
+      //
+      // Wer einen Eintrag loswerden will, löscht ihn in FatSecret. Das ist die
+      // gleiche Regel wie für alles andere auch: eine Quelle, ein Ort zum
+      // Ändern.
+      plan.wiederherstellen.push({
+        id: vorhanden.id,
+        values: { ...werte, synced_at: opts.syncedAt },
+      })
+      continue
+    }
 
     const patch: Record<string, any> = {}
     for (const [k, v] of Object.entries(werte)) {
@@ -396,7 +415,8 @@ export function reconcileFoodEntries(opts: {
 
 /** Ist an diesem Tag überhaupt etwas zu tun? */
 export function planIstLeer(p: LebensmittelPlan): boolean {
-  return p.anlegen.length === 0 && p.aendern.length === 0 && p.entfernen.length === 0
+  return p.anlegen.length === 0 && p.aendern.length === 0
+    && p.wiederherstellen.length === 0 && p.entfernen.length === 0
 }
 
 /* ------------------------------------------------------- Tageswerte buchen */

@@ -181,12 +181,26 @@ describe('Wiederholter Abgleich', () => {
     expect(p.entfernen).toEqual([{ id: foodEntryRowId('111'), name: 'Haferflocken' }])
   })
 
-  it('holt einen in LifeHub gelöschten Eintrag nicht zurück', () => {
+  it('holt einen Eintrag zurück, den FatSecret wieder hat', () => {
+    // Diese Regel wurde am 13.09.2026 bewusst umgedreht.
+    //
+    // Vorher blieb eine gelöschte Zeile gelöscht („in LifeHub bewusst
+    // entfernt"). Das war richtig, solange LifeHub eine eigene
+    // Ernährungserfassung hatte. Seit FatSecret die Quelle ist, ist es falsch:
+    // Eine Zeile verschwindet hier nur deshalb, weil sie DORT verschwunden war
+    // – steht sie wieder im Tagebuch, war das eine Korrektur in FatSecret und
+    // keine Entscheidung in LifeHub.
+    //
+    // Wer einen Eintrag loswerden will, löscht ihn in FatSecret. Eine Quelle,
+    // ein Ort zum Ändern.
     const p = reconcileFoodEntries({
       day: TAG, remote: [remote[0]],
       lokal: [lokal({ deleted_at: '2026-09-14T21:00:00Z' })], syncedAt: jetzt,
     })
-    expect(planIstLeer(p)).toBe(true)
+    expect(planIstLeer(p)).toBe(false)
+    expect(p.wiederherstellen.map((w) => w.id)).toEqual([foodEntryRowId('111')])
+    // Und er kommt nicht als zweite Zeile daneben.
+    expect(p.anlegen).toHaveLength(0)
   })
 
   it('fasst von Hand erfasste Lebensmittel nicht an', () => {

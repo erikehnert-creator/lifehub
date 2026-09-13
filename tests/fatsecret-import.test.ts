@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 import {
   FRUEHESTER_MONAT, LEERER_STAND, LEERE_MONATE_BIS_ENDE, abgleichFaellig,
   ersterTagDesMonats, monatVon, nachzuholendeTage, naechsteMonate, standNachMonaten,
-  vorherigerMonat, type ImportStand, type MonatsBefund,
+  standFuerNeuenLauf, vorherigerMonat, type ImportStand, type MonatsBefund,
 } from '../src/core/fatsecretImport'
 import { parseMonthDays } from '../src/core/fatsecret'
 import { addDays } from '../src/core/dates'
@@ -194,8 +194,38 @@ describe('Was ein gewöhnlicher Abgleich nachholt', () => {
     expect(tage).toEqual(['2026-09-13', '2026-09-12', '2026-09-11'])
   })
 
-  it('deckt genug ab, dass ein Nachtrag von vorgestern ankommt', () => {
-    expect(nachzuholendeTage(HEUTE, addDays).length).toBeGreaterThanOrEqual(7)
+  it('deckt heute, gestern und vorgestern ab – genau das und nicht mehr', () => {
+    // Drei Tage sind Absicht: In FatSecret wird abends nachgetragen und am
+    // nächsten Tag korrigiert, das muss ankommen. Weiter zurück kostet je Tag
+    // einen Aufruf und bringt nichts – die Historie wurde einmal vollständig
+    // geholt. Wer einen alten Tag ändert, stößt den Historienabgleich an.
+    expect(nachzuholendeTage(HEUTE, addDays))
+      .toEqual(['2026-09-13', '2026-09-12', '2026-09-11'])
+  })
+})
+
+describe('Historie erneut abgleichen', () => {
+  it('setzt den Suchfortschritt zurück, nicht das Ergebnis', () => {
+    // Der Fall: In FatSecret wird ein Tag von vor drei Monaten korrigiert. Der
+    // laufende Abgleich sieht nur drei Tage zurück und bekäme davon nichts mit.
+    const fertig: ImportStand = {
+      geprueftBis: '2023-01', leereMonate: 12, fertig: true,
+      aeltesterTag: '2023-05-02', gefundeneTage: 812, zuletzt: '2026-09-13T10:00:00Z',
+    }
+    const neu = standFuerNeuenLauf(fertig)
+
+    expect(neu.fertig).toBe(false)
+    expect(neu.geprueftBis).toBeNull()
+    expect(neu.leereMonate).toBe(0)
+    // Was gefunden wurde, bleibt bekannt – der Lauf beginnt die SUCHE neu,
+    // nicht die Datenhaltung.
+    expect(neu.aeltesterTag).toBe('2023-05-02')
+    expect(neu.gefundeneTage).toBe(812)
+  })
+
+  it('lässt den Lauf wieder beim laufenden Monat beginnen', () => {
+    const neu = standFuerNeuenLauf({ ...LEERER_STAND, geprueftBis: '2023-01', fertig: true })
+    expect(naechsteMonate(neu, 2, HEUTE)).toEqual(['2026-09', '2026-08'])
   })
 })
 

@@ -216,11 +216,18 @@ function Shell() {
   // auf dem Gerät, also weiß eine frisch geöffnete App es sonst nicht.
   const fatsecret = useFatSecret()
   const fatsecretVerbunden = !!fatsecret.status?.connected
+  const importLaeuft = fatsecretVerbunden && !fatsecret.importStand.fertig
   const automatischRef = useRef(fatsecret.automatisch)
   automatischRef.current = fatsecret.automatisch
   const statusLadenRef = useRef(fatsecret.statusLaden)
   statusLadenRef.current = fatsecret.statusLaden
-  useEffect(() => { if (ready) void statusLadenRef.current() }, [ready])
+  // Auch nach einer Anmeldung erneut fragen, nicht nur beim Start: Der
+  // FatSecret-Zustand liegt auf dem SERVER. Eine App, die ohne Anmeldung
+  // startet, bekaeme sonst nie mit, dass FatSecret verbunden ist - der
+  // automatische Abgleich liefe dann erst nach einem Neuladen an.
+  useEffect(() => {
+    if (ready) void statusLadenRef.current()
+  }, [ready, syncEpoche])
 
   /**
    * FatSecret von selbst nachholen – ohne dass jemand „Abgleichen" drückt.
@@ -255,7 +262,19 @@ function Shell() {
     }
 
     void lauf()
-    const takt = setInterval(lauf, 60 * 1000)
+    // Zwei verschiedene Takte, weil zwei verschiedene Dinge anstehen:
+    //
+    //   Erstimport läuft   Eine Runde je Minute. Das ist kein Nachfragen,
+    //                      sondern Arbeit, die abgearbeitet werden will.
+    //   Erstimport fertig  Alle 15 Minuten – und auch dann tut `automatisch()`
+    //                      nur etwas, wenn der letzte Lauf lange genug her ist.
+    //                      Ein Minutentakt wäre hier reines Klopfen an eine
+    //                      Tür, hinter der nichts passiert ist.
+    //
+    // Der eigentliche Anstoß kommt ohnehin von den Ereignissen darunter:
+    // App-Start, zurück ins Fenster, wieder online. Das deckt Eriks Alltag ab –
+    // morgens in FatSecret eintragen, später LifeHub öffnen.
+    const takt = setInterval(lauf, importLaeuft ? 60 * 1000 : 15 * 60 * 1000)
     const beiSichtbar = () => { if (!document.hidden) void lauf() }
     window.addEventListener('focus', beiSichtbar)
     document.addEventListener('visibilitychange', beiSichtbar)
@@ -267,7 +286,7 @@ function Shell() {
       document.removeEventListener('visibilitychange', beiSichtbar)
       window.removeEventListener('online', lauf)
     }
-  }, [ready, fatsecretVerbunden])
+  }, [ready, fatsecretVerbunden, importLaeuft])
 
   useEffect(() => {
     if (!ready || !syncUrl || !syncKey) return
