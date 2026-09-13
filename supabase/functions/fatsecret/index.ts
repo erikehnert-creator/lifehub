@@ -327,7 +327,15 @@ Deno.serve(async (req) => {
   }
 
   if (!CONSUMER_KEY || !CONSUMER_SECRET) {
-    return json({ error: 'nicht_eingerichtet', detail: 'FATSECRET_CONSUMER_KEY/SECRET fehlen auf dem Server.' }, 503)
+    // Getrennt benannt, weil die Abhilfe unterschiedlich ist: Meist ist nur
+    // eines der beiden Geheimnisse gesetzt, und dann sucht man lange, wenn
+    // die Meldung nur „fehlen" sagt. Die Werte selbst stehen hier nirgends.
+    const fehlt = !CONSUMER_KEY && !CONSUMER_SECRET
+      ? 'FATSECRET_CONSUMER_KEY und FATSECRET_CONSUMER_SECRET sind auf dem Server nicht gesetzt.'
+      : !CONSUMER_KEY
+        ? 'FATSECRET_CONSUMER_KEY ist auf dem Server nicht gesetzt (FATSECRET_CONSUMER_SECRET schon).'
+        : 'FATSECRET_CONSUMER_SECRET ist auf dem Server nicht gesetzt (FATSECRET_CONSUMER_KEY schon).'
+    return json({ error: 'nicht_eingerichtet', detail: fehlt }, 503)
   }
 
   const u = await nutzer(req)

@@ -31,3 +31,18 @@ export function resolvedSyncUrl(settingsUrl: string): string {
 export function resolvedSyncKey(settingsKey: string): string {
   return settingsKey || DEFAULT_SYNC_KEY
 }
+
+/**
+ * Die öffentliche Adresse der Webfassung (GitHub Pages).
+ *
+ * Gebraucht wird sie für den Rückweg aus der FatSecret-Freigabe. Läuft LifeHub
+ * als Einzeldatei per Doppelklick, ist die eigene Adresse `file:///C:/…` – und
+ * dorthin kann kein OAuth-Dienst zurückleiten. `location.origin` ist dann
+ * obendrein die Zeichenkette `"null"`, was zusammengesetzt zu einer Adresse
+ * wie `null/C:/…` führt; die Edge Function weist sie zu Recht ab.
+ *
+ * Statt dessen läuft die einmalige Freigabe über die Webfassung. Das Token
+ * liegt danach serverseitig bei der Supabase-Anmeldung – nicht im Browser –,
+ * deshalb sieht die Einzeldatei die Verbindung anschließend genauso.
+ */
+export const PUBLIC_APP_URL = 'https://erikehnert-creator.github.io/lifehub/'

@@ -9,3 +9,8 @@ _to_delete/
 
 # Bildschirmfotos, die die Browser-Tests unterwegs ablegen
 tests/*.png
+
+# Arbeitsdateien der Supabase-CLI (enthaelt u. a. Projektkennung/Token)
+supabase/.temp/
+.env
+.env.local

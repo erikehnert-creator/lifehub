@@ -407,3 +407,51 @@ export function planNutritionMetrics(opts: {
   }
   return plan
 }
+
+/* ----------------------------------------------- Rückweg aus der Freigabe */
+
+export interface Rueckweg {
+  /** Die Adresse, auf die FatSecret nach der Freigabe zurückführt. */
+  url: string
+  /**
+   * true, wenn die Freigabe über die Webfassung läuft, weil die laufende
+   * Fassung keine Adresse hat, auf die zurückgeleitet werden kann.
+   */
+  ueberWeb: boolean
+}
+
+/**
+ * Wohin FatSecret nach der Freigabe zurückkehrt.
+ *
+ * Läuft LifeHub über http(s), führt der Weg auf genau diese Seite zurück.
+ * Läuft es als Einzeldatei per Doppelklick, geht das nicht:
+ *
+ *   - `file:///C:/…/LifeHub.html` ist keine Adresse, die ein OAuth-Dienst
+ *     aufrufen kann. Ein Server leitet nicht auf die Festplatte des Besuchers.
+ *   - `location.origin` ist in diesem Fall die Zeichenkette `"null"`. Wer
+ *     `origin + pathname` zusammensetzt, erhält `null/C:/…` – und die Edge
+ *     Function weist das zu Recht ab („redirect_to fehlt"), weil sie nur
+ *     http:// und https:// annimmt. Genau daran ist die Verbindung aus der
+ *     PC-Fassung bisher gescheitert.
+ *
+ * Dann führt der Rückweg auf die öffentliche Webfassung. Das ist kein Notnagel:
+ * Das FatSecret-Token liegt hinterher serverseitig an der Supabase-Anmeldung,
+ * nicht im Browser. Die Einzeldatei erkennt die Verbindung deshalb genauso,
+ * sobald sie mit demselben Konto angemeldet ist – ohne selbst je ein Token
+ * gesehen zu haben.
+ *
+ * Ein Windows-Pfad wird dabei nirgends gelesen oder weitergereicht.
+ */
+export function oauthRueckweg(
+  ort: { protocol: string; origin: string; pathname: string },
+  oeffentlicheAdresse: string,
+  ziel = '#/einstellungen/ernaehrung',
+): Rueckweg {
+  const ueberWeb = !/^https?:$/i.test(ort.protocol ?? '')
+  if (ueberWeb) {
+    // Genau ein Schrägstrich am Ende, ob die Adresse einen mitbringt oder nicht.
+    const basis = oeffentlicheAdresse.replace(/#.*$/, '').replace(/\/*$/, '/')
+    return { url: basis + ziel, ueberWeb }
+  }
+  return { url: `${ort.origin}${ort.pathname}${ziel}`, ueberWeb }
+}

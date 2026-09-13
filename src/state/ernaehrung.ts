@@ -19,9 +19,10 @@ import { useApp } from './store'
 import { addDays, nowIso, todayString } from '../core/dates'
 import type { DayString } from '../core/dates'
 import {
-  aggregateDay, dayToEpochDay, parseFoodEntries, planNutritionMetrics,
+  aggregateDay, dayToEpochDay, oauthRueckweg, parseFoodEntries, planNutritionMetrics,
   reconcileFoodEntries, type FatSecretEntry,
 } from '../core/fatsecret'
+import { PUBLIC_APP_URL } from '../sync/config'
 import {
   FatSecretFehler, fatsecretStatus, fatsecretTagebuch, fatsecretTrennen, fatsecretVerbinden,
   type FatSecretStatus,
@@ -72,19 +73,31 @@ export function useFatSecret() {
     }
   }, [settings.sync_url, settings.sync_key])
 
+  /**
+   * Wohin FatSecret nach der Freigabe zurückkehrt – und ob dafür die
+   * Webfassung gebraucht wird. Wird auch von der Oberfläche gelesen, damit
+   * dort vorher dasteht, was gleich passiert, statt den Nutzer zu überraschen.
+   */
+  const rueckweg = oauthRueckweg(location, PUBLIC_APP_URL)
+
   const verbinden = useCallback(async () => {
     setFehler(null)
     try {
-      // Der Rückweg führt genau auf diese Seite zurück. Ohne Hash-Teil, weil
-      // FatSecret seine Parameter hinten anhängt und ein Hash sie verschlucken
-      // würde – die Edge Function setzt ihn beim Umleiten wieder.
-      const rueckkehr = `${location.origin}${location.pathname}#/einstellungen/ernaehrung`
-      const ziel = await fatsecretVerbinden(settings, rueckkehr)
-      location.href = ziel
+      // Der Rückweg führt auf die Ernährungsseite zurück. Den Hash-Teil hängt
+      // die Edge Function beim Umleiten wieder an – FatSecret setzt seine
+      // eigenen Parameter hinten dran und würde ihn sonst verschlucken.
+      const ziel = await fatsecretVerbinden(settings, rueckweg.url)
+      if (rueckweg.ueberWeb) {
+        // Aus der Einzeldatei heraus: ein neues Fenster. Diese Fassung bleibt
+        // offen, damit nach der Freigabe niemand seine geöffnete App verliert.
+        window.open(ziel, '_blank', 'noopener')
+      } else {
+        location.href = ziel
+      }
     } catch (err) {
       setFehler(err instanceof FatSecretFehler ? err.message : String((err as Error)?.message ?? err))
     }
-  }, [settings.sync_url, settings.sync_key])
+  }, [settings.sync_url, settings.sync_key, rueckweg.url, rueckweg.ueberWeb])
 
   const trennen = useCallback(async () => {
     setFehler(null)
@@ -120,7 +133,7 @@ export function useFatSecret() {
     }
   }, [settings.sync_url, settings.sync_key, mutations, data])
 
-  return { status, laeuft, fehler, statusLaden, verbinden, trennen, abgleichen }
+  return { status, laeuft, fehler, rueckweg, statusLaden, verbinden, trennen, abgleichen }
 }
 
 /* ------------------------------------------------------------- Ausführung */

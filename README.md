@@ -145,17 +145,34 @@ damit nachvollziehbar bleibt, woraus eine Tageszahl entstanden ist.
 
 FatSecret gibt ein persönliches Tagebuch nur über dreibeiniges OAuth 1.0 heraus, und
 das verlangt einen Consumer Secret. In einer statischen Seite kann jeder mitlesen, was
-im Bündel steht – dort hat ein solches Geheimnis nichts verloren. FatSecret schreibt
-deshalb selbst vor, dass Zugangsdaten über einen eigenen Server laufen. Diese Rolle
-übernimmt eine Supabase Edge Function (`supabase/functions/fatsecret`). Auf dem Gerät
-liegt weder der Consumer Secret noch ein FatSecret-Token, und ein FatSecret-Passwort
-wird nie abgefragt.
+im Bündel steht – dort hat ein solches Geheimnis nichts verloren. Diese Rolle übernimmt
+eine Supabase Edge Function (`supabase/functions/fatsecret`). Auf dem Gerät liegt weder
+der Consumer Secret noch ein FatSecret-Token, und ein FatSecret-Passwort wird nie
+abgefragt.
+
+Der Weg über OAuth **1.0** ist dabei kein Altlastenerbe, sondern die bessere Wahl:
+FatSecret sperrt Anfragen über OAuth 2.0 aus, wenn die absendende IP-Adresse nicht
+vorher freigeschaltet wurde. Eine Edge Function hat keine feste IP-Adresse – über
+OAuth 2.0 wäre diese Anbindung also gar nicht zuverlässig zu betreiben.
+([Quelle](https://github.com/fatsecret-group/postman-fatsecret-apis/blob/main/readme.md))
+
+Benutzte Endpunkte:
+`https://authentication.fatsecret.com/oauth/{request_token,authorize,access_token}`
+und die Methode `food_entries.get.v2`
+([Doku](https://platform.fatsecret.com/docs/v2/food_entries.get)).
 
 ### Einrichtung (einmalig)
 
 1. Bei [platform.fatsecret.com](https://platform.fatsecret.com) eine Anwendung
-   anlegen. Für Tagebuchzugriff wird die Premier-Stufe benötigt; dreibeiniges OAuth
-   muss für den Schlüssel freigeschaltet sein.
+   anlegen und für den Schlüssel dreibeiniges OAuth freischalten.
+
+   Zur Stufe: `food_entries.get.v2` ist in der Dokumentation **nicht** als
+   *Premier Exclusive* gekennzeichnet, und auch die Beschreibung des dreibeinigen
+   OAuth nennt keine Stufe – nach heutigem Stand der Doku genügt also ein
+   gewöhnlicher Schlüssel. Die Stufenübersicht sagt es allerdings nirgends
+   ausdrücklich; falls FatSecret den Tagebuchzugriff später doch verweigert,
+   meldet LifeHub das im Klartext („Der FatSecret-Schlüssel darf das persönliche
+   Tagebuch nicht lesen").
 2. Als Callback-Adresse eintragen:
    `https://<projekt>.supabase.co/functions/v1/fatsecret/callback`
 3. `supabase/migrations/0002_fatsecret.sql` einmal im SQL-Editor des Supabase-Projekts
@@ -174,6 +191,21 @@ wird nie abgefragt.
    und die Freigabe bei FatSecret erteilen.
 
 Solange Schritt 4 fehlt, sagt die Seite das im Klartext und rührt keine Daten an.
+
+Schritt für Schritt, ohne Vorwissen und mit dem iPhone-Teil:
+[`ANLEITUNG_FATSECRET_IPHONE.md`](ANLEITUNG_FATSECRET_IPHONE.md).
+
+### Die lokale PC-Fassung (`file://`)
+
+Ein OAuth-Dienst kann nicht auf eine Datei auf deiner Festplatte zurückleiten, und
+`location.origin` ist bei `file://` die Zeichenkette `"null"` – zusammengesetzt ergäbe
+das eine Rückkehradresse wie `null/C:/…`, die die Edge Function zu Recht abweist.
+
+Deshalb öffnet die Einzeldatei für die **einmalige** Freigabe die Webfassung in einem
+neuen Fenster und sagt das vorher auch. Danach liegt das FatSecret-Token serverseitig
+an der Supabase-Anmeldung – nicht im Browser. Webfassung, iPhone und Einzeldatei sehen
+dieselbe Verbindung, solange dasselbe LifeHub-Konto angemeldet ist. In der Einzeldatei
+genügt anschließend ein Klick auf *Verbindung prüfen*.
 
 ### Was die Schnittstelle nicht kann
 

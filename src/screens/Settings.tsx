@@ -32,7 +32,7 @@ import {
   signIn, signOut, currentSession, syncRolle, clearSyncRolle, meldeSyncAenderung,
   type Session, type SyncRolle,
 } from '../sync/auth'
-import { resolvedSyncUrl, resolvedSyncKey, hasBuiltinSyncDefaults } from '../sync/config'
+import { resolvedSyncUrl, resolvedSyncKey, hasBuiltinSyncDefaults, PUBLIC_APP_URL } from '../sync/config'
 
 const STATES: [string, string][] = [
   ['BW', 'Baden-Württemberg'], ['BY', 'Bayern'], ['BE', 'Berlin'], ['BB', 'Brandenburg'],
@@ -1489,9 +1489,33 @@ function ErnaehrungTab() {
               <button className="btn btn-danger" disabled={fs.laeuft} onClick={() => void fs.trennen()}>Trennen</button>
             </>
           ) : (
-            <button className="btn btn-primary" onClick={() => void fs.verbinden()}>Mit FatSecret verbinden</button>
+            <>
+              <button className="btn btn-primary" onClick={() => void fs.verbinden()}>
+                {fs.rueckweg.ueberWeb ? 'Mit FatSecret verbinden (öffnet die Webfassung)' : 'Mit FatSecret verbinden'}
+              </button>
+              {fs.rueckweg.ueberWeb && (
+                <button className="btn" disabled={fs.laeuft} onClick={() => void fs.statusLaden()}>
+                  Verbindung prüfen
+                </button>
+              )}
+            </>
           )}
         </div>
+
+        {fs.rueckweg.ueberWeb && !verbunden && (
+          <div className="hint-box small mt12">
+            <strong>Diese Fassung läuft als Datei auf deinem PC.</strong> FatSecret kann nach der
+            Freigabe nicht auf eine Datei zurückleiten, sondern nur auf eine Internetadresse.
+            Deshalb öffnet sich für die einmalige Freigabe kurz die Webfassung von LifeHub
+            (<code>{PUBLIC_APP_URL}</code>) in einem neuen Fenster.
+            <div className="mt8">
+              Melde dich dort mit <strong>demselben LifeHub-Konto</strong> an wie hier, erteile die
+              Freigabe bei FatSecret, und komm dann hierher zurück: Das Zugangstoken liegt danach
+              auf dem Server bei deinem Konto – nicht im Browser –, deshalb erkennt auch diese
+              Fassung die Verbindung. Einmal auf <em>Verbindung prüfen</em> genügt.
+            </div>
+          </div>
+        )}
 
         <div className="hint-box small mt12">
           Die Freigabe erteilst du bei FatSecret selbst – LifeHub fragt dein FatSecret-Passwort
