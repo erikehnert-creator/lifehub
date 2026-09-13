@@ -19,6 +19,9 @@
  */
 import { all, run, getDb, saveNow } from '../db/sqlite'
 import { SYNCED_TABLES, type SyncedTable } from '../db/schema'
+import {
+  berichtigungsText, ganzzahlSpalten, gebrocheneWerte, type SpaltenInfo,
+} from '../core/ganzzahlen'
 import { nowIso } from '../core/dates'
 import { uuidv7 } from '../core/ids'
 import { getDeviceId } from '../db/repo'
@@ -82,6 +85,55 @@ function localRow(table: string, id: string): Record<string, any> | null {
 function stripLocal(row: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {}
   for (const [k, v] of Object.entries(row)) if (!k.startsWith('_')) out[k] = v
+  return out
+}
+
+export interface BerichtigterWert {
+  tabelle: string
+  spalte: string
+  wert: number
+  ganz: number
+}
+
+/** Welche Spalten einer Tabelle SQLite als ganzzahlig führt – einmal je Lauf. */
+const ganzzahlSpaltenCache = new Map<string, string[]>()
+function ganzzahlSpaltenVon(table: string): string[] {
+  const bekannt = ganzzahlSpaltenCache.get(table)
+  if (bekannt) return bekannt
+  const info = all<SpaltenInfo>(`SELECT name, type FROM pragma_table_info('${table}')`)
+  const spalten = ganzzahlSpalten(info)
+  ganzzahlSpaltenCache.set(table, spalten)
+  return spalten
+}
+
+/**
+ * Nachkommastellen aus ganzzahligen Spalten nehmen, bevor sie den Server
+ * erreichen – und zwar in der Datenbank, nicht nur in der Sendung.
+ *
+ * Nur die Sendung zu säubern hieße: Der Abgleich läuft durch, der krumme Wert
+ * bleibt aber liegen und weicht von dem ab, was auf dem Server steht. Beim
+ * nächsten Pull käme er als Konflikt zurück.
+ *
+ * Ohne diese Stelle scheitert der Push der ganzen Tabelle an einer einzigen
+ * Zeile, mit `22P02` und bei jedem Versuch aufs Neue (siehe core/ganzzahlen.ts).
+ * Migration 9 räumt den bekannten Fall – Ballaststoffe mit Sortierwert 23.5 –
+ * beim Update ab; das hier fängt jeden weiteren ab, den heute noch niemand
+ * kennt. Die Zeile bleibt `_dirty`, sie wird ja gerade gesendet.
+ */
+function ganzzahlenBerichtigen(
+  table: string, zeilen: Record<string, any>[],
+): BerichtigterWert[] {
+  const spalten = ganzzahlSpaltenVon(table)
+  if (!spalten.length) return []
+
+  const out: BerichtigterWert[] = []
+  for (const zeile of zeilen) {
+    for (const b of gebrocheneWerte(zeile, spalten)) {
+      run(`UPDATE ${table} SET ${b.spalte} = ? WHERE id = ?`, [b.ganz, zeile.id] as any)
+      zeile[b.spalte] = b.ganz          // auch in der Sendung dieses Laufs
+      out.push({ tabelle: table, spalte: b.spalte, wert: b.wert, ganz: b.ganz })
+    }
+  }
   return out
 }
 
@@ -219,6 +271,7 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
   // einzelne Tabelle betroffen war. Jetzt läuft der Rest ganz normal weiter,
   // und die betroffene Tabelle steht namentlich in der Fehlermeldung.
   const fehlgeschlagen: string[] = []
+  const berichtigt: BerichtigterWert[] = []
 
   try {
     for (const table of SYNCED_TABLES) {
@@ -283,6 +336,7 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
       for (;;) {
         const dirty = all<Record<string, any>>(`SELECT * FROM ${table} WHERE _dirty = 1 LIMIT ${size}`)
         if (!dirty.length) break
+        berichtigt.push(...ganzzahlenBerichtigen(table, dirty))
         const payload = dirty.map(stripLocal)
         const saved = await request(url, anonKey, token, table, { method: 'POST', body: JSON.stringify(payload) })
         const byId = new Map<string, any>((saved ?? []).map((r: any) => [r.id, r]))
@@ -310,13 +364,20 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
     await saveNow()
     const parts = [`${pushed} gesendet`, `${pulled} empfangen`]
     if (conflicts) parts.push(`${conflicts} Konflikte`)
+    // Berichtigte Werte gehören in die Meldung, auch wenn danach alles glatt
+    // lief: Eine Zahl, die sich von selbst ändert, soll man nachlesen können.
+    const hinweis = berichtigungsText(berichtigt)
     if (fehlgeschlagen.length) {
       return {
         ok: false, pushed, pulled, conflicts,
-        message: `Teilweise synchronisiert (${parts.join(' · ')}). Fehlgeschlagen: ${fehlgeschlagen.join(' / ')}`,
+        message: `Teilweise synchronisiert (${parts.join(' · ')}). Fehlgeschlagen: ${fehlgeschlagen.join(' / ')}`
+          + (hinweis ? ` ${hinweis}` : ''),
       }
     }
-    return { ok: true, pushed, pulled, conflicts, message: `Synchronisiert: ${parts.join(' · ')}` }
+    return {
+      ok: true, pushed, pulled, conflicts,
+      message: `Synchronisiert: ${parts.join(' · ')}` + (hinweis ? ` ${hinweis}` : ''),
+    }
   } catch (err: any) {
     return {
       ok: false, pushed, pulled, conflicts,

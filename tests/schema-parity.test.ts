@@ -25,20 +25,25 @@ import { MIGRATIONS, SYNCED_TABLES } from '../src/db/schema'
 
 const SERVER_SQL = path.join(__dirname, '..', 'supabase', 'migrations', '0001_init.sql')
 
+/** Spaltenname → deklarierter Typ. */
+type Spalten = Map<string, string>
+
 /** Das lokale Schema so, wie die App es auf dem Gerät wirklich anlegt. */
-async function lokaleSpalten(): Promise<Map<string, Set<string>>> {
+async function lokaleSpalten(): Promise<Map<string, Spalten>> {
   const SQL = await initSqlJs()
   const db = new SQL.Database()
   for (const m of MIGRATIONS) db.run(m.sql)
 
-  const out = new Map<string, Set<string>>()
+  const out = new Map<string, Spalten>()
   const tabellen = db.exec(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
   )[0]
   for (const zeile of tabellen.values) {
     const name = String(zeile[0])
-    const spalten = db.exec(`SELECT name FROM pragma_table_info('${name}')`)[0]
-    out.set(name, new Set((spalten?.values ?? []).map((r) => String(r[0]))))
+    const spalten = db.exec(`SELECT name, type FROM pragma_table_info('${name}')`)[0]
+    out.set(name, new Map(
+      (spalten?.values ?? []).map((r) => [String(r[0]), String(r[1] ?? '').trim()]),
+    ))
   }
   db.close()
   return out
@@ -55,7 +60,7 @@ async function lokaleSpalten(): Promise<Map<string, Set<string>>> {
  * zeilenweiser Leser übersähe die hinteren stillschweigend und der Test wäre
  * genau dort blind, wo er gebraucht wird.
  */
-function serverSpalten(): Map<string, Set<string>> {
+function serverSpalten(): Map<string, Spalten> {
   const roh = fs.readFileSync(SERVER_SQL, 'utf8')
   // Zeilenkommentare raus, bevor irgendetwas gedeutet wird.
   const text = roh
@@ -63,10 +68,26 @@ function serverSpalten(): Map<string, Set<string>> {
     .map((z) => z.replace(/--.*$/, ''))
     .join('\n')
 
-  const out = new Map<string, Set<string>>()
-  const merke = (tabelle: string, spalte: string) => {
-    if (!out.has(tabelle)) out.set(tabelle, new Set())
-    out.get(tabelle)!.add(spalte)
+  const out = new Map<string, Spalten>()
+  const merke = (tabelle: string, spalte: string, typ: string) => {
+    if (!out.has(tabelle)) out.set(tabelle, new Map())
+    out.get(tabelle)!.set(spalte, typ.trim().toLowerCase())
+  }
+
+  /**
+   * Aus `number_of_units double precision` wird `double precision`.
+   *
+   * Alles ab dem ersten Schlüsselwort gehört nicht mehr zum Typ. Zweiteilige
+   * Typen wie `double precision` oder `timestamp with time zone` bleiben
+   * dadurch heil, weil keines ihrer Wörter in dieser Liste steht.
+   */
+  const typVon = (rest: string): string => {
+    const woerter: string[] = []
+    for (const w of rest.trim().split(/\s+/)) {
+      if (/^(NOT|NULL|DEFAULT|PRIMARY|REFERENCES|UNIQUE|CHECK|GENERATED|COLLATE|CONSTRAINT)$/i.test(w)) break
+      woerter.push(w)
+    }
+    return woerter.join(' ').replace(/\(.*$/, '')
   }
 
   /* ------------------------------------------------ CREATE TABLE ... ( … ) */
@@ -102,20 +123,43 @@ function serverSpalten(): Map<string, Set<string>> {
       if (!wort) continue
       // Tabellenbedingungen sind keine Spalten.
       if (/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|EXCLUDE|LIKE)$/i.test(wort[1])) continue
-      merke(m[1], wort[1])
+      merke(m[1], wort[1], typVon(teil.trim().slice(wort[1].length)))
     }
   }
 
   /* ------------------------------ ALTER TABLE ... ADD COLUMN (Nachzügler) */
-  const nach = /ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)\b/gi
-  for (let m = nach.exec(text); m; m = nach.exec(text)) merke(m[1], m[2])
+  const nach = /ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)([^;]*);/gi
+  for (let m = nach.exec(text); m; m = nach.exec(text)) merke(m[1], m[2], typVon(m[3]))
 
   return out
 }
 
+/**
+ * Welche SQLite-Typen dürfen in welchen PostgreSQL-Typ fließen.
+ *
+ * Die Richtung, auf die es ankommt, ist die strenge: Führt der Server eine
+ * Spalte als `integer`, das Gerät sie aber als `REAL`, dann kann die App dort
+ * jederzeit eine Zahl mit Nachkommastelle hineinschreiben, die der Server
+ * zurückweist – und weil eine Tabelle immer als Ganzes gesendet wird, bleibt
+ * dann die ganze Tabelle stehen.
+ */
+const ERLAUBT: Record<string, RegExp> = {
+  integer: /^INTEGER$/i,
+  bigint: /^INTEGER$/i,
+  smallint: /^INTEGER$/i,
+  boolean: /^INTEGER$/i,
+  'double precision': /^(REAL|INTEGER|NUMERIC)$/i,
+  real: /^(REAL|INTEGER|NUMERIC)$/i,
+  numeric: /^(REAL|INTEGER|NUMERIC)$/i,
+  text: /^TEXT$/i,
+  uuid: /^TEXT$/i,
+  jsonb: /^TEXT$/i,
+  bytea: /^BLOB$/i,
+}
+
 describe('Lokales Schema und Server-Schema passen zusammen', () => {
-  let lokal: Map<string, Set<string>>
-  let server: Map<string, Set<string>>
+  let lokal: Map<string, Spalten>
+  let server: Map<string, Spalten>
 
   beforeAll(async () => {
     lokal = await lokaleSpalten()
@@ -129,6 +173,14 @@ describe('Lokales Schema und Server-Schema passen zusammen', () => {
     expect(server.size).toBeGreaterThan(40)
   })
 
+  it('liest auch die Typen und nicht nur die Namen', () => {
+    // Ohne diese Absicherung könnte der Typvergleich unten stillschweigend
+    // nichts mehr prüfen, weil überall ein leerer Typ steht.
+    expect(server.get('metrics')?.get('sort_order')).toBe('integer')
+    expect(server.get('food_entries')?.get('calories')).toBe('double precision')
+    expect(lokal.get('metrics')?.get('sort_order')).toBe('INTEGER')
+  })
+
   it.each(SYNCED_TABLES.map((t) => [t]))('%s: der Server kennt jede Spalte', (tabelle) => {
     const hier = lokal.get(tabelle)
     expect(hier, `Tabelle ${tabelle} fehlt im lokalen Schema`).toBeTruthy()
@@ -136,12 +188,38 @@ describe('Lokales Schema und Server-Schema passen zusammen', () => {
     expect(dort, `Tabelle ${tabelle} fehlt in 0001_init.sql`).toBeTruthy()
 
     // `_dirty` und `_conflict` bleiben absichtlich auf dem Gerät.
-    const gesendet = [...hier!].filter((c) => !c.startsWith('_')).sort()
+    const gesendet = [...hier!.keys()].filter((c) => !c.startsWith('_')).sort()
     const fehlend = gesendet.filter((c) => !dort!.has(c))
     expect(
       fehlend,
       `In 0001_init.sql fehlt für ${tabelle}:\n` +
         fehlend.map((c) => `  ALTER TABLE ${tabelle} ADD COLUMN IF NOT EXISTS ${c} ...;`).join('\n'),
+    ).toEqual([])
+  })
+
+  it.each(SYNCED_TABLES.map((t) => [t]))('%s: die Typen vertragen sich', (tabelle) => {
+    const hier = lokal.get(tabelle)!
+    const dort = server.get(tabelle)!
+    const unpassend: string[] = []
+
+    for (const [spalte, sqliteTyp] of hier) {
+      if (spalte.startsWith('_')) continue
+      const pgTyp = dort.get(spalte)
+      if (!pgTyp) continue                       // meldet schon der Test darüber
+      const regel = ERLAUBT[pgTyp]
+      if (!regel) {
+        unpassend.push(`${spalte}: PostgreSQL-Typ "${pgTyp}" ist hier nicht eingeplant`)
+        continue
+      }
+      if (!regel.test(sqliteTyp)) {
+        unpassend.push(`${spalte}: lokal ${sqliteTyp}, auf dem Server ${pgTyp}`)
+      }
+    }
+
+    expect(
+      unpassend,
+      `${tabelle}: Diese Spalten können Werte erzeugen, die der Server ablehnt:\n  `
+        + unpassend.join('\n  '),
     ).toEqual([])
   })
 })

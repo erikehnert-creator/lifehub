@@ -509,6 +509,54 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_food_entries_day ON food_entries(day);
     `,
   },
+  {
+    id: 9,
+    name: 'ganzzahlige_sortierwerte',
+    sql: `
+    ------------------------------------------------------------- Sortierwerte
+    -- Ballaststoffe kamen mit Migration 8 als Sortierwert 23.5 herein – der
+    -- freie Platz zwischen Fett (23) und Wasser (24). SQLite nimmt das an:
+    -- INTEGER ist dort eine Neigung, kein Versprechen; der Wert bleibt als
+    -- REAL liegen (typeof() sagt 'real'). PostgreSQL nimmt es nicht an.
+    --
+    -- Und weil der Abgleich eine Tabelle immer als Ganzes sendet, scheiterte
+    -- daran nicht diese eine Zeile, sondern metrics vollständig – bei jedem
+    -- Versuch aufs Neue, mit
+    --   22P02  invalid input syntax for type integer: "23.5"
+    -- während alle anderen Tabellen unauffällig weiterliefen.
+    --
+    -- Neu nummeriert wird in genau der Reihenfolge, die gerade sichtbar ist
+    -- (sort_order, bei Gleichstand rowid – dieselbe Reihenfolge, die
+    -- store.tsx mit ORDER BY sort_order liest). Angezeigt ändert sich also
+    -- nichts. Die Schrittweite 10 lässt Platz: Der nächste Wert, der zwischen
+    -- zwei bestehende gehört, bekommt wieder eine ganze Zahl statt einer 23.5.
+    --
+    -- Die Zwischentabelle ist kein Umweg. Ein UPDATE, dessen Unterabfrage
+    -- dieselbe Tabelle liest, die es gerade beschreibt, sieht je nach Zeile
+    -- alte oder schon neue Werte. Die Nummerierung entsteht deshalb einmal
+    -- vollständig aus dem Ausgangsstand und wird danach nur noch abgeschrieben.
+    --
+    -- Die WHERE-Bedingung sorgt dafür, dass eine bereits saubere Datenbank
+    -- gar nicht angefasst wird: Ist kein gebrochener Wert da, bleibt
+    -- _sortierung leer und das UPDATE trifft keine Zeile.
+    --
+    -- _dirty = 1, damit die berichtigten Zeilen auch wirklich erneut gesendet
+    -- werden. Ohne das bliebe der Server auf dem alten Stand, und der Abgleich
+    -- meldete zwar keinen Fehler mehr, hätte den 23.5 aber nie ersetzt.
+    CREATE TEMP TABLE _sortierung AS
+      SELECT id, (ROW_NUMBER() OVER (ORDER BY sort_order, rowid) - 1) * 10 AS neu
+        FROM metrics
+       WHERE (SELECT COUNT(*) FROM metrics x
+               WHERE x.sort_order <> CAST(x.sort_order AS INTEGER)) > 0;
+
+    UPDATE metrics
+       SET sort_order = (SELECT neu FROM _sortierung WHERE _sortierung.id = metrics.id),
+           _dirty = 1
+     WHERE id IN (SELECT id FROM _sortierung);
+
+    DROP TABLE _sortierung;
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
