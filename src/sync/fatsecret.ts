@@ -45,6 +45,12 @@ export const MELDUNGEN: Record<string, string> = {
     'Die FatSecret-Funktion auf dem Server ist älter als diese Fassung von LifeHub. Bitte einmal neu veröffentlichen.',
   nicht_erreichbar:
     'Der eigene Server war nicht erreichbar. Prüfe die Internetverbindung; dein Ernährungstagebuch in LifeHub bleibt unverändert.',
+  months_fehlt:
+    'LifeHub hat dem Server keine Monate genannt, die es holen soll. Das ist ein Fehler in LifeHub – '
+    + 'bitte einmal die Seite neu laden.',
+  dates_fehlt:
+    'LifeHub hat dem Server keine Tage genannt, die es holen soll. Das ist ein Fehler in LifeHub – '
+    + 'bitte einmal die Seite neu laden.',
   redirect_to_fehlt:
     'LifeHub hat dem Server keine gültige Rückkehradresse mitgeteilt. Lade die Seite einmal neu und '
     + 'versuche es erneut.',
@@ -162,6 +168,21 @@ export async function fatsecretTrennen(
  * core/fatsecret.ts). Zurück kommt die Rohantwort je Tag – das Auswerten
  * passiert in core/fatsecret.ts, damit es prüfbar bleibt.
  */
+/**
+ * Monatsübersichten holen – je Monat nur die Tage MIT Einträgen.
+ *
+ * `monate` sind Tage seit dem 1. Januar 1970, jeweils der erste des Monats.
+ * Zurück kommt die Rohantwort je Monat; ausgewertet wird sie in
+ * core/fatsecret.ts (parseMonthDays), damit es prüfbar bleibt.
+ */
+export async function fatsecretMonate(
+  settings: { sync_url: string; sync_key: string },
+  months: number[],
+): Promise<Record<string, any>> {
+  const daten = await ruf(settings, 'months', { months })
+  return (daten?.months ?? {}) as Record<string, any>
+}
+
 export async function fatsecretTagebuch(
   settings: { sync_url: string; sync_key: string },
   dates: number[],

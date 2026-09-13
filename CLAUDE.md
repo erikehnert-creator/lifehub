@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 416 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 442 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -128,3 +128,31 @@ Funktion muss eigens veroeffentlicht werden:
 ```
 npx supabase functions deploy fatsecret --no-verify-jwt
 ```
+
+## FatSecret laeuft von selbst
+
+Seit dem 13.09.2026 holt LifeHub die Ernaehrung ohne Knopfdruck: `automatisch()`
+in `state/ernaehrung.ts`, angestossen aus `App.tsx` beim Start, beim Zurueck-
+kehren ins Fenster und im Minutentakt. Der Knopf bleibt fuer den Notfall.
+
+Zwei Dinge laufen dort getrennt:
+
+  laufend      Die letzten 14 Tage erneut holen (dort wird nachgetragen und
+               korrigiert), hoechstens alle 15 Minuten - siehe
+               `abgleichFaellig` in `core/fatsecretImport.ts`.
+  historisch   Monat fuer Monat rueckwaerts. `food_entries.get_month.v2`
+               nennt je Monat NUR die Tage mit Eintraegen, deshalb kostet ein
+               Jahr zwoelf Aufrufe statt 365.
+
+Der Fortschritt steht in `settings.fatsecret_import` - also im mitsynchro-
+nisierten Einstellungsspeicher. Das ist Absicht: Das Handy macht dort weiter,
+wo der PC aufgehoert hat, statt die Historie ein zweites Mal zu holen.
+
+**Ein Ende gibt es nicht zu erfragen.** FatSecret nennt kein Anlegedatum des
+Kontos. Der Lauf hoert nach zwoelf leeren Monaten in Folge auf, und zusaetzlich
+an einem festen Boden. Wer die Zahl senkt, riskiert, dass eine laengere Pause
+die halbe Historie abschneidet.
+
+`sync-ganzzahlen-e2e.mjs` hat einen FEST eingetragenen Altstand (89caf3f), im
+Gegensatz zu `migration-e2e.mjs`: Er prueft einen bestimmten historischen
+Fehler, nicht Migrationen allgemein.

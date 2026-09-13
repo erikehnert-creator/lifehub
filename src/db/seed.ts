@@ -65,6 +65,32 @@ export const METRICS: Array<{
   { key: 'sleep_h', name: 'Schlaf', group: 'sleep', unit: 'h', type: 'number', decimals: 1, agg: 'last', dir: 'range', target: { value: 8, minus: 1, plus: 1, hardMin: 5, hardMax: 11 }, color: 'var(--series-7)', sort: 30 },
   { key: 'sleep_quality', name: 'Schlafqualität', group: 'sleep', unit: '/10', type: 'scale', decimals: 0, agg: 'last', dir: 'higher_better', min: 1, max: 10, target: { value: 8, minus: 2, plus: 2, hardMin: 1, hardMax: 10 }, color: 'var(--series-7)', sort: 31 },
   { key: 'sugar_g', name: 'Zucker', group: 'nutrition', unit: 'g', type: 'integer', decimals: 0, agg: 'sum', dir: 'lower_better', target: { value: 50, minus: 50, plus: 20, hardMin: 0, hardMax: 120 }, color: 'var(--series-8)', sort: 26 },
+
+  /* ------------------------------------------- Nährwerte aus dem Tagebuch
+   * FatSecret liefert diese Werte in derselben Antwort wie Kalorien und
+   * Makros mit – sie kosten also keinen weiteren Abruf. Sie stehen bewusst
+   * NICHT im Tageseingabe-Formular (`inForm: false`): Von Hand trägt niemand
+   * sein Kalium ein, und ein Formular mit vierzehn Feldern benutzt man nicht
+   * mehr. Im Verlauf und in den Auswertungen sind sie trotzdem da.
+   *
+   * Die Schlüssel sind identisch mit den Spalten in `food_entries` und den
+   * Feldern in core/fatsecret.ts. Nur dadurch kommt aggregateDay() ohne eine
+   * Übersetzungstabelle aus.
+   *
+   * Ohne Zielbereich, weil ich für Erik keine Tagesempfehlung erfinden will –
+   * die hängt an Alter, Gewicht und Trainingspensum. Wer einen will, trägt ihn
+   * unter Einstellungen → Trackingwerte selbst ein.
+   */
+  { key: 'saturated_fat_g', name: 'Gesättigte Fettsäuren', group: 'nutrition', unit: 'g', type: 'number', decimals: 1, agg: 'sum', dir: 'lower_better', color: 'var(--series-5)', sort: 100, inForm: false },
+  { key: 'poly_fat_g', name: 'Mehrfach ungesättigte Fettsäuren', group: 'nutrition', unit: 'g', type: 'number', decimals: 1, agg: 'sum', dir: 'neutral', color: 'var(--series-5)', sort: 101, inForm: false },
+  { key: 'mono_fat_g', name: 'Einfach ungesättigte Fettsäuren', group: 'nutrition', unit: 'g', type: 'number', decimals: 1, agg: 'sum', dir: 'neutral', color: 'var(--series-5)', sort: 102, inForm: false },
+  { key: 'cholesterol_mg', name: 'Cholesterin', group: 'nutrition', unit: 'mg', type: 'integer', decimals: 0, agg: 'sum', dir: 'lower_better', color: 'var(--series-2)', sort: 103, inForm: false },
+  { key: 'sodium_mg', name: 'Natrium', group: 'nutrition', unit: 'mg', type: 'integer', decimals: 0, agg: 'sum', dir: 'lower_better', color: 'var(--series-2)', sort: 104, inForm: false },
+  { key: 'potassium_mg', name: 'Kalium', group: 'nutrition', unit: 'mg', type: 'integer', decimals: 0, agg: 'sum', dir: 'higher_better', color: 'var(--series-3)', sort: 105, inForm: false },
+  { key: 'calcium_mg', name: 'Calcium', group: 'nutrition', unit: 'mg', type: 'integer', decimals: 0, agg: 'sum', dir: 'higher_better', color: 'var(--series-3)', sort: 106, inForm: false },
+  { key: 'iron_mg', name: 'Eisen', group: 'nutrition', unit: 'mg', type: 'number', decimals: 1, agg: 'sum', dir: 'higher_better', color: 'var(--series-3)', sort: 107, inForm: false },
+  { key: 'vitamin_a_ug', name: 'Vitamin A', group: 'nutrition', unit: 'µg', type: 'integer', decimals: 0, agg: 'sum', dir: 'higher_better', color: 'var(--series-4)', sort: 108, inForm: false },
+  { key: 'vitamin_c_mg', name: 'Vitamin C', group: 'nutrition', unit: 'mg', type: 'integer', decimals: 0, agg: 'sum', dir: 'higher_better', color: 'var(--series-4)', sort: 109, inForm: false },
   { key: 'energy', name: 'Energie', group: 'wellbeing', unit: '/10', type: 'scale', decimals: 0, agg: 'avg', dir: 'higher_better', min: 1, max: 10, target: { value: 8, minus: 2, plus: 2, hardMin: 1, hardMax: 10 }, color: 'var(--series-4)', sort: 50 },
   {
     key: 'skin', name: 'Hautstatus', group: 'wellbeing', unit: '/10', type: 'scale', decimals: 0, agg: 'last',

@@ -135,7 +135,12 @@ function lokal(over: Partial<LokalesLebensmittel> = {}): LokalesLebensmittel {
     deleted_at: null, meal: 'breakfast', name: 'Haferflocken',
     serving_description: '100 g - Kalorien: 370kcal', number_of_units: 1,
     calories: 370, protein_g: 13.5, carbs_g: 58.7, fat_g: 7, fiber_g: 10,
-    sugar_g: 1.1, saturated_fat_g: 1.3, sodium_mg: 8, ...over,
+    sugar_g: 1.1, saturated_fat_g: 1.3, sodium_mg: 8,
+    // Die übrigen Nährwerte liefert FatSecret nur „where available"; eine
+    // gespeicherte Zeile hat die Spalten, oft aber ohne Inhalt.
+    cholesterol_mg: null, potassium_mg: null, poly_fat_g: null, mono_fat_g: null,
+    vitamin_a_ug: null, vitamin_c_mg: null, calcium_mg: null, iron_mg: null,
+    ...over,
   }
 }
 

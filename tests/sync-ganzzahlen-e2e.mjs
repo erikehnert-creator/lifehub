@@ -236,24 +236,25 @@ async function abgleich(p, url) {
 }
 
 /** Die Fassung vor Migration 9 – gesucht wie in migration-e2e.mjs. */
+/**
+ * Die Fassung, die den Fehler noch hatte – fest eingetragen, mit Absicht.
+ *
+ * migration-e2e sucht seinen Altstand dynamisch (die juengste Fassung mit
+ * niedrigerer Migrationsnummer), weil er allgemein prueft, dass Migrationen
+ * Daten ueberleben lassen. Dieser Test hier prueft etwas anderes: EINEN
+ * bestimmten Fehler, "Ballaststoffe mit Sortierwert 23.5". Der steckt in
+ * genau dieser Fassung und in keiner spaeteren.
+ *
+ * Dynamisch gesucht wanderte der Altstand mit jeder neuen Migration weiter
+ * und waere ab Migration 10 bei einer Fassung gelandet, die den Fehler laengst
+ * nicht mehr hat - Schritt 1 ("der Server MUSS ablehnen") schluege dann fehl,
+ * ohne dass irgendetwas kaputt waere. Und ohne Schritt 1 waere nicht belegt,
+ * dass der Server-Nachbau ueberhaupt streng genug ist.
+ */
+const BASIS_MIT_FEHLER = '89caf3f'
+
 function basisFassung() {
-  if (process.env.LIFEHUB_MIGRATION_BASIS) return process.env.LIFEHUB_MIGRATION_BASIS.trim()
-  const hoechste = (t) => {
-    const tr = [...t.matchAll(/^\s*id:\s*(\d+),\s*$/gm)].map((x) => Number(x[1]))
-    return tr.length ? Math.max(...tr) : 0
-  }
-  const jetzt = hoechste(fs.readFileSync(path.join(WURZEL, 'src/db/schema.ts'), 'utf8'))
-  const commits = execSync('git log --format=%H -- src/db/schema.ts', { cwd: WURZEL })
-    .toString().trim().split(String.fromCharCode(10)).filter(Boolean)
-  for (const c of commits) {
-    let schema
-    try {
-      schema = execSync(`git show ${c}:src/db/schema.ts`, { cwd: WURZEL, maxBuffer: 16 * 1024 * 1024 }).toString()
-    } catch { continue }
-    if (hoechste(schema) >= jetzt) continue
-    try { execSync(`git cat-file -e ${c}:LifeHub.html`, { cwd: WURZEL }); return c } catch { /* weiter */ }
-  }
-  throw new Error('Keine Fassung mit einer niedrigeren Migration gefunden.')
+  return (process.env.LIFEHUB_MIGRATION_BASIS || BASIS_MIT_FEHLER).trim()
 }
 
 async function main() {

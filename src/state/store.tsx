@@ -10,6 +10,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { initDatabase, onSaveStateChange, saveNow } from '../db/sqlite'
 import { list, setDeviceId, insert, update, softDelete, restore, upsertByKey, byId, hardDelete, existsById } from '../db/repo'
 import { seedIfEmpty, ensureBuiltinMetrics, ensureCategoryColors } from '../db/seed'
+import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
 import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment,
@@ -53,6 +54,15 @@ export interface AppSettings {
   carry_over_tasks: boolean
   /** Aufgaben aus Vorlagen von selbst einplanen (vier Wochen im Voraus). */
   auto_plan_templates: boolean
+  /**
+   * Wie weit der FatSecret-Import zurueck schon durch ist.
+   *
+   * Steht bewusst in den Einstellungen und nicht in einer eigenen Tabelle:
+   * Einstellungen werden mitsynchronisiert, also macht das Handy dort weiter,
+   * wo der PC aufgehoert hat - statt die halbe Historie ein zweites Mal zu
+   * holen. Aufbau siehe core/fatsecretImport.ts.
+   */
+  fatsecret_import: ImportStand
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -74,6 +84,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auto_book_recurring: true,
   carry_over_tasks: true,
   auto_plan_templates: true,
+  fatsecret_import: LEERER_STAND,
 }
 
 /* --------------------------------------------------------------- Datenbild */

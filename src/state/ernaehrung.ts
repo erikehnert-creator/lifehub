@@ -19,18 +19,39 @@ import { useApp } from './store'
 import { addDays, nowIso, todayString } from '../core/dates'
 import type { DayString } from '../core/dates'
 import {
-  aggregateDay, dayToEpochDay, oauthRueckweg, parseFoodEntries, planNutritionMetrics,
-  reconcileFoodEntries, type FatSecretEntry,
+  aggregateDay, dayToEpochDay, oauthRueckweg, parseFoodEntries, parseMonthDays,
+  planNutritionMetrics, reconcileFoodEntries, type FatSecretEntry,
 } from '../core/fatsecret'
+import {
+  LEERER_STAND, abgleichFaellig, ersterTagDesMonats, nachzuholendeTage, naechsteMonate,
+  standNachMonaten, type ImportStand, type MonatsBefund,
+} from '../core/fatsecretImport'
 import { PUBLIC_APP_URL } from '../sync/config'
 import {
-  FatSecretFehler, fatsecretStatus, fatsecretTagebuch, fatsecretTrennen, fatsecretVerbinden,
-  type FatSecretStatus,
+  FatSecretFehler, fatsecretMonate, fatsecretStatus, fatsecretTagebuch, fatsecretTrennen,
+  fatsecretVerbinden, type FatSecretStatus,
 } from '../sync/fatsecret'
 import { list } from '../db/repo'
 
 /** Wie viele Tage ein gewöhnlicher Abgleich zurückgeht. */
 export const ABGLEICH_TAGE = 7
+
+/**
+ * Wie viele Monate eine Runde des historischen Imports prüft.
+ *
+ * Sechs Monate sind sechs Aufrufe – wenig genug, dass eine Runde schnell
+ * vorbei ist, und genug, dass ein Jahr Historie in zwei Runden erfasst ist.
+ */
+const MONATE_JE_RUNDE = 6
+
+/**
+ * Wie viele Tage in EINER Anfrage an die Edge Function gehen.
+ *
+ * Dort wird daraus je Tag ein Aufruf an FatSecret. Zu viele auf einmal, und
+ * die Funktion läuft in ihre Zeitgrenze; zu wenige, und der Import braucht
+ * unnötig viele Runden.
+ */
+const TAGE_JE_ANFRAGE = 10
 
 export interface AbgleichErgebnis {
   ok: boolean
@@ -133,7 +154,92 @@ export function useFatSecret() {
     }
   }, [settings.sync_url, settings.sync_key, mutations, data])
 
-  return { status, laeuft, fehler, rueckweg, statusLaden, verbinden, trennen, abgleichen }
+  /**
+   * Eine Runde des historischen Imports – und sonst nichts.
+   *
+   * Bewusst EIN Schritt statt einer Schleife bis zum Ende: Der Lauf kann über
+   * Jahre gehen, und ein Browserfenster, das man zwischendurch schließt, darf
+   * nicht bedeuten, dass alles von vorn beginnt. Der Fortschritt steht nach
+   * jeder Runde in den Einstellungen – und weil die mitsynchronisiert werden,
+   * macht das Handy dort weiter, wo der PC aufgehört hat.
+   *
+   * Zurück kommt, ob es noch etwas zu tun gibt. Der Aufrufer entscheidet, wann
+   * die nächste Runde läuft.
+   */
+  const importSchritt = useCallback(async (): Promise<{ weiter: boolean; tage: number }> => {
+    const stand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
+    if (stand.fertig) return { weiter: false, tage: 0 }
+
+    const monate = naechsteMonate(stand, MONATE_JE_RUNDE, todayString())
+    if (!monate.length) {
+      mutations.setSetting('fatsecret_import', { ...stand, fertig: true })
+      return { weiter: false, tage: 0 }
+    }
+
+    // 1. Welche Tage haben überhaupt Einträge? Ein Aufruf je Monat.
+    const roh = await fatsecretMonate(settings, monate.map((m) => dayToEpochDay(ersterTagDesMonats(m))))
+    const befunde: MonatsBefund[] = monate.map((m) => ({
+      monat: m,
+      tage: parseMonthDays(roh[String(dayToEpochDay(ersterTagDesMonats(m)))]),
+    }))
+
+    // 2. Diese Tage im Einzelnen holen – dort stehen die Nährwerte, die die
+    //    Monatsübersicht nicht hat. In Häppchen, damit weder FatSecret noch
+    //    die Edge Function in einem Zug überlastet werden.
+    const alleTage = befunde.flatMap((b) => b.tage).sort().reverse()
+    let geschrieben = 0
+    for (let i = 0; i < alleTage.length; i += TAGE_JE_ANFRAGE) {
+      const haeppchen = alleTage.slice(i, i + TAGE_JE_ANFRAGE)
+      const tagesdaten = await fatsecretTagebuch(settings, haeppchen.map(dayToEpochDay))
+      const e = anwenden(haeppchen, tagesdaten, mutations, data)
+      geschrieben += e.neu + e.geaendert
+    }
+
+    const neuerStand = standNachMonaten(stand, befunde)
+    mutations.setSetting('fatsecret_import', neuerStand)
+    return { weiter: !neuerStand.fertig, tage: alleTage.length }
+  }, [settings.sync_url, settings.sync_key, mutations, data])
+
+  /**
+   * Der Abgleich, der von selbst läuft.
+   *
+   * Holt die letzten Tage nach (dort wird nachgetragen und korrigiert) und
+   * schiebt danach den historischen Import ein Stück weiter, solange er noch
+   * nicht durch ist. Beides zusammen ist der Grund, warum man den Knopf
+   * „Jetzt abgleichen" im Alltag nicht mehr braucht.
+   *
+   * Tut nichts, wenn der letzte Lauf noch keine Viertelstunde her ist – außer
+   * der historische Import läuft noch, dann geht der weiter.
+   */
+  const automatisch = useCallback(async (): Promise<void> => {
+    const stand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
+    const faellig = abgleichFaellig(stand.zuletzt, Date.now())
+    if (!faellig && stand.fertig) return
+
+    try {
+      if (faellig) {
+        const tage = nachzuholendeTage(todayString(), addDays)
+        const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
+        anwenden(tage, roh, mutations, data)
+      }
+      if (!stand.fertig) await importSchritt()
+      // Erst NACH dem Schreiben vermerken: Bricht etwas ab, gilt der Lauf als
+      // nicht geschehen und wird beim nächsten Mal wiederholt.
+      const jetzt: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
+      mutations.setSetting('fatsecret_import', { ...jetzt, zuletzt: nowIso() })
+    } catch (err) {
+      // Leise: Der automatische Lauf soll niemanden mit einer Meldung
+      // unterbrechen. Wer wissen will, woran es liegt, drückt den Knopf.
+      setFehler(err instanceof FatSecretFehler ? err.message : String((err as Error)?.message ?? err))
+    }
+  }, [settings.sync_url, settings.sync_key, mutations, data, importSchritt])
+
+  const importStand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
+
+  return {
+    status, laeuft, fehler, rueckweg, importStand,
+    statusLaden, verbinden, trennen, abgleichen, importSchritt, automatisch,
+  }
 }
 
 /* ------------------------------------------------------------- Ausführung */

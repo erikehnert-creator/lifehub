@@ -346,6 +346,44 @@ async function tagebuch(userId: string, tage: number[]): Promise<Response> {
   return json({ days: ergebnis })
 }
 
+/**
+ * Monatsübersichten holen – die Grundlage des historischen Imports.
+ *
+ * `food_entries.get_month.v2` liefert je Monat nur die Tage, an denen etwas
+ * eingetragen wurde. Ein Jahr Historie kostet damit zwölf Aufrufe statt 365.
+ *
+ * Die Obergrenze von 24 Monaten je Anfrage ist Rücksicht auf beide Seiten:
+ * FatSecret wird nicht in einem Zug mit hunderten Aufrufen belegt, und die
+ * Edge Function läuft nicht in ihre Zeitgrenze. Der Aufrufer holt sich den
+ * Rest in der nächsten Runde – der Import ist ohnehin wiederaufnehmbar.
+ */
+async function monatsuebersicht(userId: string, monate: number[]): Promise<Response> {
+  const k = await konto(userId)
+  if (!k) return json({ error: 'nicht_verbunden' }, 409)
+
+  const ergebnis: Record<string, unknown> = {}
+  for (const tag of monate.slice(0, 24)) {
+    const text = await oauthRequest({
+      url: FATSECRET_API,
+      method: 'GET',
+      params: { method: 'food_entries.get_month.v2', format: 'json', date: String(tag) },
+      consumerKey: CONSUMER_KEY,
+      consumerSecret: CONSUMER_SECRET,
+      token: k.oauth_token,
+      tokenSecret: k.oauth_token_secret,
+    })
+    let daten: any = null
+    try { daten = JSON.parse(text) } catch { daten = null }
+    if (daten?.error) {
+      const code = Number(daten.error.code ?? 0)
+      if (code === 4 || code === 8 || code === 14) return json({ error: 'anmeldung_abgelaufen' }, 401)
+      return json({ error: 'fatsecret', detail: String(daten.error.message ?? '') }, 502)
+    }
+    ergebnis[String(tag)] = daten
+  }
+  return json({ months: ergebnis })
+}
+
 /* ----------------------------------------------------------------- Einstieg */
 
 Deno.serve(async (req) => {
@@ -396,9 +434,17 @@ Deno.serve(async (req) => {
         // bevor die Funktion die Anfrage sieht (siehe pfade.ts).
         return json(await starten(u.id, rueckkehr, callbackAdresse(SUPABASE_URL, url.origin)))
       }
+      case 'months': {
+        // Ein Aufruf je Monat, und die Antwort nennt nur die Tage MIT
+        // Einträgen. Das ist der Grund, warum der historische Import ohne
+        // Tag-für-Tag-Abfrage auskommt.
+        const monate = Array.isArray(body.months) ? body.months.map(Number).filter(Number.isFinite) : []
+        if (!monate.length) return json({ error: 'months_fehlt' }, 400)
+        return await monatsuebersicht(u.id, monate)
+      }
       case 'diary': {
         const tage = Array.isArray(body.dates) ? body.dates.map(Number).filter(Number.isFinite) : []
-        if (!tage.length) return json({ error: 'dates fehlt' }, 400)
+        if (!tage.length) return json({ error: 'dates_fehlt' }, 400)
         return await tagebuch(u.id, tage)
       }
       case 'disconnect': {

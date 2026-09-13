@@ -1486,6 +1486,16 @@ GRANT SELECT ON sync_head TO authenticated;
 REVOKE ALL ON sync_head FROM anon;
 
 
+-- Migration 10: die uebrigen Naehrwerte, die FatSecret ohnehin mitliefert.
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS cholesterol_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS potassium_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS poly_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS mono_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_a_ug double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_c_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS calcium_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS iron_mg double precision;
+
 -- Prüfung: Es darf weder eine Tabelle ohne Zeilensicherheit noch eine ohne
 -- Regel geben. Die Abfrage geht bewusst über pg_class samt Schema – ein
 -- Vergleich allein über den Namen würde auch Indizes treffen und die Prüfung

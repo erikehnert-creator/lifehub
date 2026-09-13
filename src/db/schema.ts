@@ -557,6 +557,35 @@ export const MIGRATIONS: Migration[] = [
     DROP TABLE _sortierung;
     `,
   },
+  {
+    id: 10,
+    name: 'vollstaendige_naehrwerte',
+    sql: `
+    --------------------------------------------------------------- Ernährung
+    -- FatSecret liefert je Eintrag deutlich mehr als Kalorien und Makros.
+    -- Bisher wurden davon nur gesättigte Fettsäuren und Natrium abgelegt, der
+    -- Rest fiel beim Einlesen unter den Tisch – obwohl er in derselben Antwort
+    -- stand und nichts extra kostet.
+    --
+    -- Die Namen entsprechen genau den Feldern in core/fatsecret.ts und den
+    -- Metrik-Schlüsseln in seed.ts. Das ist kein Zufall, sondern die
+    -- Voraussetzung dafür, dass aggregateDay() die Tagessummen ohne
+    -- Übersetzungstabelle bilden kann.
+    --
+    -- Einheiten wie von FatSecret geliefert (siehe Doku food_entries.get.v2):
+    --   g   poly_fat, mono_fat
+    --   mg  cholesterol, potassium, vitamin_c, calcium, iron
+    --   µg  vitamin_a
+    ALTER TABLE food_entries ADD COLUMN cholesterol_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN potassium_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN poly_fat_g REAL;
+    ALTER TABLE food_entries ADD COLUMN mono_fat_g REAL;
+    ALTER TABLE food_entries ADD COLUMN vitamin_a_ug REAL;
+    ALTER TABLE food_entries ADD COLUMN vitamin_c_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN calcium_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN iron_mg REAL;
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */

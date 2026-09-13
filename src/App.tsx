@@ -22,6 +22,7 @@ import { writeBackup, folderBackupSupported } from './io/folderBackup'
 import { exportFullJson, download, timestampSuffix } from './io/exporters'
 import { verifyPin, markUnlocked, isUnlockedInSession, clearUnlocked } from './core/lock'
 import { isSignedIn, syncRolle, currentSession } from './sync/auth'
+import { useFatSecret } from './state/ernaehrung'
 import { pendingChangeCount, hasRemoteChanges } from './sync/engine'
 import { resolvedSyncUrl, resolvedSyncKey } from './sync/config'
 
@@ -209,6 +210,64 @@ function Shell() {
   // abzutippen.
   const syncUrl = resolvedSyncUrl(data.settings.sync_url)
   const syncKey = resolvedSyncKey(data.settings.sync_key)
+
+  // Ist FatSecret verbunden, holt LifeHub die Ernährung von selbst nach.
+  // Einmal beim Start nachfragen – der Zustand liegt auf dem Server, nicht
+  // auf dem Gerät, also weiß eine frisch geöffnete App es sonst nicht.
+  const fatsecret = useFatSecret()
+  const fatsecretVerbunden = !!fatsecret.status?.connected
+  const automatischRef = useRef(fatsecret.automatisch)
+  automatischRef.current = fatsecret.automatisch
+  const statusLadenRef = useRef(fatsecret.statusLaden)
+  statusLadenRef.current = fatsecret.statusLaden
+  useEffect(() => { if (ready) void statusLadenRef.current() }, [ready])
+
+  /**
+   * FatSecret von selbst nachholen – ohne dass jemand „Abgleichen" drückt.
+   *
+   * Zwei Takte, weil zwei verschiedene Dinge zu tun sind:
+   *
+   *   langsam  Die letzten Tage erneut ansehen. FatSecret meldet sich nicht,
+   *            wenn dort etwas nachgetragen wird, also muss gefragt werden –
+   *            aber jeder Lauf kostet einen Aufruf je Tag. Eine Viertelstunde
+   *            Abstand (siehe abgleichFaellig) reicht dafür.
+   *   schnell  Der historische Import, solange er noch läuft. Der soll zügig
+   *            vorankommen, während das Fenster offen ist, und hört danach
+   *            von selbst auf.
+   *
+   * `automatisch()` entscheidet selbst, ob überhaupt etwas zu tun ist, und
+   * bleibt still, wenn nicht. Fehler unterbrechen hier niemanden – wer wissen
+   * will, woran es liegt, findet es auf der Ernährungsseite.
+   */
+  useEffect(() => {
+    if (!ready || !fatsecretVerbunden) return
+
+    let cancelled = false
+    let busy = false
+    // Über eine Ref, nicht über die Abhängigkeiten: `automatisch` hängt am
+    // gesamten Datenbild und bekommt bei jeder Änderung eine neue Identität.
+    // Stünde es in den Abhängigkeiten, würde der Takt bei jeder Eingabe neu
+    // aufgesetzt – und liefe damit praktisch nie bis zu einem Durchlauf.
+    const lauf = async () => {
+      if (cancelled || busy || document.hidden || !navigator.onLine) return
+      busy = true
+      try { await automatischRef.current() } finally { busy = false }
+    }
+
+    void lauf()
+    const takt = setInterval(lauf, 60 * 1000)
+    const beiSichtbar = () => { if (!document.hidden) void lauf() }
+    window.addEventListener('focus', beiSichtbar)
+    document.addEventListener('visibilitychange', beiSichtbar)
+    window.addEventListener('online', lauf)
+    return () => {
+      cancelled = true
+      clearInterval(takt)
+      window.removeEventListener('focus', beiSichtbar)
+      document.removeEventListener('visibilitychange', beiSichtbar)
+      window.removeEventListener('online', lauf)
+    }
+  }, [ready, fatsecretVerbunden])
 
   useEffect(() => {
     if (!ready || !syncUrl || !syncKey) return

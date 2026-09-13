@@ -1555,9 +1555,22 @@ function ErnaehrungTab() {
           <Stat small label="Importierte Tage" value={String(importierteTage)} />
         </div>
 
-        {fs.status?.last_sync_at && (
+        {verbunden && (
           <div className="small muted mb12">
-            Zuletzt abgeglichen: {new Date(fs.status.last_sync_at).toLocaleString('de-DE')}
+            {fs.laeuft
+              ? 'Wird geholt …'
+              : fs.importStand.zuletzt
+                ? `Zuletzt abgeglichen: ${new Date(fs.importStand.zuletzt).toLocaleString('de-DE')}`
+                : 'Der erste Abgleich läuft gleich von selbst.'}
+            <div className="mt8">
+              {fs.importStand.fertig
+                ? `Historie vollständig geholt${fs.importStand.aeltesterTag
+                  ? ` – ältester Tag: ${formatDay(fs.importStand.aeltesterTag)}`
+                  : ''}.`
+                : fs.importStand.geprueftBis
+                  ? `Ältere Tage werden im Hintergrund nachgeholt – zurück bis ${fs.importStand.geprueftBis}.`
+                  : 'Deine bisherigen Tage werden gleich im Hintergrund nachgeholt.'}
+            </div>
           </div>
         )}
 

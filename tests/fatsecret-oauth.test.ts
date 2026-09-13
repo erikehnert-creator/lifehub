@@ -100,12 +100,15 @@ describe('OAuth-Methoden der Edge Function', () => {
     quelltext = fs.readFileSync(QUELLE, 'utf8')
   })
 
-  it('findet überhaupt alle drei signierten Aufrufe', () => {
+  it('findet überhaupt alle signierten Aufrufe', () => {
     // Absicherung gegen einen Test, der still nichts mehr prüft, weil der
     // Aufbau der Datei sich geändert hat und der Leser leer ausgeht.
-    expect(gefunden.length).toBe(3)
+    //
+    // `FATSECRET_API` kommt zweimal vor: einmal für die Tageseinträge, einmal
+    // für die Monatsübersicht des historischen Imports. Beide sind GET.
+    expect(gefunden.length).toBe(4)
     expect(gefunden.map((a) => a.ziel).sort()).toEqual([
-      'FATSECRET_ACCESS_TOKEN', 'FATSECRET_API', 'FATSECRET_REQUEST_TOKEN',
+      'FATSECRET_ACCESS_TOKEN', 'FATSECRET_API', 'FATSECRET_API', 'FATSECRET_REQUEST_TOKEN',
     ])
   })
 

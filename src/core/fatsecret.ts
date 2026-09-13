@@ -64,6 +64,20 @@ export interface FatSecretEntry {
   sugar_g: number | null
   saturated_fat_g: number | null
   sodium_mg: number | null
+  /*
+   * Die übrigen Werte aus derselben FatSecret-Antwort. Laut Doku „where
+   * available" – fehlt einer, bleibt er `null` und wird nicht als 0 gezählt.
+   * Einheiten wie geliefert: Fette in g, Mineralien und Vitamin C in mg,
+   * Vitamin A in µg.
+   */
+  cholesterol_mg: number | null
+  potassium_mg: number | null
+  poly_fat_g: number | null
+  mono_fat_g: number | null
+  vitamin_a_ug: number | null
+  vitamin_c_mg: number | null
+  calcium_mg: number | null
+  iron_mg: number | null
 }
 
 /** FatSecret liefert alle Zahlen als Text – und fehlende Werte gar nicht. */
@@ -97,6 +111,33 @@ function meal(v: any): Meal {
  *  2. Ein leerer Tag liefert kein leeres Array, sondern gar kein
  *     `food_entries`-Feld.
  */
+/**
+ * Die Tage eines Monats, an denen überhaupt etwas im Tagebuch steht.
+ *
+ * Aus `food_entries.get_month.v2`. Die Übersicht enthält laut Doku nur Tage
+ * mit Einträgen – damit kostet ein ganzer Monat einen Aufruf, und man weiß
+ * danach, welche Tage sich einzeln zu holen lohnen. Ohne sie müsste der
+ * historische Import jeden einzelnen Tag abfragen, auch die leeren.
+ *
+ * Dieselben zwei Fallen wie bei den Tageseinträgen: Bei genau einem Tag ist
+ * `day` ein Objekt statt einer Liste, und ein leerer Monat hat gar kein
+ * `day`-Feld.
+ */
+export function parseMonthDays(raw: any): DayString[] {
+  const container = raw?.month ?? raw
+  const roh = container?.day
+  if (!roh) return []
+  const liste: any[] = Array.isArray(roh) ? roh : [roh]
+
+  const out: DayString[] = []
+  for (const d of liste) {
+    const dateInt = zahl(d?.date_int)
+    if (dateInt === null) continue
+    out.push(epochDayToDay(dateInt))
+  }
+  return [...new Set(out)].sort()
+}
+
 export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEntry[] {
   const container = raw?.food_entries ?? raw
   const roh = container?.food_entry
@@ -126,6 +167,14 @@ export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEn
       sugar_g: zahl(e?.sugar),
       saturated_fat_g: zahl(e?.saturated_fat),
       sodium_mg: zahl(e?.sodium),
+      cholesterol_mg: zahl(e?.cholesterol),
+      potassium_mg: zahl(e?.potassium),
+      poly_fat_g: zahl(e?.polyunsaturated_fat),
+      mono_fat_g: zahl(e?.monounsaturated_fat),
+      vitamin_a_ug: zahl(e?.vitamin_a),
+      vitamin_c_mg: zahl(e?.vitamin_c),
+      calcium_mg: zahl(e?.calcium),
+      iron_mg: zahl(e?.iron),
     })
   }
   return out
@@ -136,6 +185,9 @@ export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEn
 /** Die Metriken, die aus dem Tagebuch berechnet werden – Schlüssel wie in seed.ts. */
 export const ERNAEHRUNGS_METRIKEN = [
   'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g',
+  'saturated_fat_g', 'poly_fat_g', 'mono_fat_g', 'cholesterol_mg',
+  'sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg',
+  'vitamin_a_ug', 'vitamin_c_mg',
 ] as const
 export type ErnaehrungsMetrik = (typeof ERNAEHRUNGS_METRIKEN)[number]
 
@@ -213,6 +265,20 @@ export interface LokalesLebensmittel {
   sugar_g: number | null
   saturated_fat_g: number | null
   sodium_mg: number | null
+  /*
+   * Die übrigen Werte aus derselben FatSecret-Antwort. Laut Doku „where
+   * available" – fehlt einer, bleibt er `null` und wird nicht als 0 gezählt.
+   * Einheiten wie geliefert: Fette in g, Mineralien und Vitamin C in mg,
+   * Vitamin A in µg.
+   */
+  cholesterol_mg: number | null
+  potassium_mg: number | null
+  poly_fat_g: number | null
+  mono_fat_g: number | null
+  vitamin_a_ug: number | null
+  vitamin_c_mg: number | null
+  calcium_mg: number | null
+  iron_mg: number | null
 }
 
 export interface LebensmittelPlan {
@@ -222,9 +288,21 @@ export interface LebensmittelPlan {
   entfernen: { id: string; name: string }[]
 }
 
+/**
+ * Die Felder, die beim Abgleich einer schon gespeicherten Zeile verglichen und
+ * nötigenfalls nachgezogen werden.
+ *
+ * Muss vollständig sein: Ein Feld, das hier fehlt, wird beim ersten Import
+ * geschrieben, danach aber nie mehr aktualisiert – korrigiert man die Portion
+ * in FatSecret, bliebe der alte Wert stehen, ohne dass irgendwo ein Fehler
+ * auftaucht. `tests/fatsecret.test.ts` rechnet die Liste gegen die
+ * Schnittstelle nach.
+ */
 const NAEHRWERTE = [
   'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g',
   'saturated_fat_g', 'sodium_mg',
+  'cholesterol_mg', 'potassium_mg', 'poly_fat_g', 'mono_fat_g',
+  'vitamin_a_ug', 'vitamin_c_mg', 'calcium_mg', 'iron_mg',
 ] as const
 
 function gleich(a: any, b: any): boolean {
