@@ -43,10 +43,28 @@
  * ordnet sich stattdessen über den einmaligen oauth_token zu.
  */
 
-const FATSECRET_REQUEST_TOKEN = 'https://authentication.fatsecret.com/oauth/request_token'
-const FATSECRET_AUTHORIZE = 'https://authentication.fatsecret.com/oauth/authorize'
-const FATSECRET_ACCESS_TOKEN = 'https://authentication.fatsecret.com/oauth/access_token'
-const FATSECRET_API = 'https://platform.fatsecret.com/rest/server.api'
+/**
+ * Die FatSecret-Adressen – jeweils mit der Methode, die FatSecret dort verlangt.
+ *
+ * Die Methode ist hier kein Nebensache: Sie ist der erste Teil der
+ * Signaturbasis. Wer mit GET signiert, wo POST verlangt ist, bekommt keine
+ * Meldung über die Methode, sondern `Invalid signature` – und sucht dann den
+ * Fehler beim Schlüssel, beim Encoding oder bei der Uhrzeit.
+ *
+ * Laut Dokumentation (Stand 13.09.2026):
+ *   request_token   „This API supports HTTP method POST."
+ *   authorize       einfacher GET-Aufruf im Browser, nicht signiert
+ *   access_token    „This API supports HTTP method GET."
+ * https://platform.fatsecret.com/docs/guides/authentication/oauth1/three-legged
+ *
+ * Wird eine dieser Zeilen geändert, muss `tests/fatsecret-oauth.test.ts`
+ * mitgeändert werden – der Test liest diese Datei und rechnet die Zuordnung
+ * von Adresse zu Methode nach.
+ */
+const FATSECRET_REQUEST_TOKEN = 'https://authentication.fatsecret.com/oauth/request_token' // POST
+const FATSECRET_AUTHORIZE = 'https://authentication.fatsecret.com/oauth/authorize'         // GET, unsigniert
+const FATSECRET_ACCESS_TOKEN = 'https://authentication.fatsecret.com/oauth/access_token'   // GET
+const FATSECRET_API = 'https://platform.fatsecret.com/rest/server.api'                     // GET
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -102,9 +120,22 @@ async function oauthRequest(opts: {
   consumerSecret: string
   token?: string
   tokenSecret?: string
-  method?: 'GET' | 'POST'
+  /**
+   * Pflichtangabe, und zwar mit Absicht.
+   *
+   * Vorher stand hier `method?: ... ` mit `?? 'GET'`. Wer die Angabe vergaß,
+   * bekam stillschweigend GET – und weil die Methode in die Signaturbasis
+   * eingeht, antwortete FatSecret nicht mit „falsche Methode", sondern mit
+   * einem dürren `Invalid signature`. Genau so ist der Aufruf des
+   * request_token-Endpunkts monatelang falsch geblieben: FatSecret verlangt
+   * dort POST (siehe FATSECRET_REQUEST_TOKEN), geschickt wurde GET.
+   *
+   * Ohne Vorgabewert ist das Vergessen kein leiser Fehlgriff mehr, sondern
+   * fällt beim Veröffentlichen auf.
+   */
+  method: 'GET' | 'POST'
 }): Promise<string> {
-  const method = opts.method ?? 'GET'
+  const method = opts.method
   const alle: Record<string, string> = {
     ...opts.params,
     oauth_consumer_key: opts.consumerKey,
@@ -194,6 +225,7 @@ const CONSUMER_SECRET = Deno.env.get('FATSECRET_CONSUMER_SECRET') ?? ''
 async function starten(userId: string, rueckkehr: string, callbackUrl: string) {
   const antwort = await oauthRequest({
     url: FATSECRET_REQUEST_TOKEN,
+    method: 'POST',                       // FatSecret verlangt hier POST
     params: { oauth_callback: callbackUrl },
     consumerKey: CONSUMER_KEY,
     consumerSecret: CONSUMER_SECRET,
@@ -237,6 +269,7 @@ async function callback(url: URL): Promise<Response> {
     if (!verifier) throw new Error('FatSecret hat die Freigabe abgebrochen.')
     const antwort = await oauthRequest({
       url: FATSECRET_ACCESS_TOKEN,
+      method: 'GET',                      // FatSecret verlangt hier GET
       params: { oauth_verifier: verifier },
       consumerKey: CONSUMER_KEY,
       consumerSecret: CONSUMER_SECRET,
@@ -286,6 +319,7 @@ async function tagebuch(userId: string, tage: number[]): Promise<Response> {
   for (const tag of tage.slice(0, 62)) {
     const text = await oauthRequest({
       url: FATSECRET_API,
+      method: 'GET',
       params: { method: 'food_entries.get.v2', format: 'json', date: String(tag) },
       consumerKey: CONSUMER_KEY,
       consumerSecret: CONSUMER_SECRET,
