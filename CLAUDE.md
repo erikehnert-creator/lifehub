@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 271 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 359 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -50,8 +50,10 @@ node tests/heute-mobil-e2e.mjs   # misst nach, ob die Termine ohne Scrollen dast
 Bei einer neuen Migration in `src/db/schema.ts` zusätzlich:
 
 ```
-node tests/migration-e2e.mjs      # legt Daten in der VORHERIGEN Fassung an und
-                                  # prueft, ob sie die Migration ueberleben
+node tests/migration-e2e.mjs        # legt Daten in der VORHERIGEN Fassung an und
+                                    # prueft, ob sie die Migration ueberleben
+node tests/sync-ganzzahlen-e2e.mjs  # Abgleich gegen einen Server, der Typen ernst
+                                    # nimmt - erst scheitern, dann durchlaufen
 ```
 
 Welche Fassung dabei die „vorherige" ist, sucht der Test selbst: die jüngste mit
@@ -65,3 +67,37 @@ Das endet nur, weil der zweite Durchlauf nichts mehr findet. Wer dort ein Feld e
 muss es in `gleich()` (core/automation.ts) sauber vergleichbar machen – sonst findet
 jeder Lauf dieselbe „Änderung" erneut und die App dreht sich im Kreis. `automatik-e2e`
 prüft genau das.
+
+## Wo das Projekt liegt
+
+Seit dem 13.09.2026 ist der Arbeitsordner
+
+    …/Claude Gedächtniss/02 Projekte/LifeHub
+
+also im Obsidian-Vault. Daneben liegt dort `_Projektablage/` mit persönlichen
+Unterlagen, darunter dem Supabase-Datenbankpasswort. Dieses Repository ist
+öffentlich: `_Projektablage/` ist per `.gitignore` als ganzer Ordner
+ausgeschlossen, und ihr Inhalt gehört niemals in einen Commit, eine Notiz oder
+einen Bericht.
+
+Der frühere Ordner `Dokumente/Projekte/LifeHub-Projekt` wird nicht mehr benutzt.
+
+## Werte, die PostgreSQL ablehnt
+
+SQLite prüft Spaltentypen nicht: `sort_order INTEGER` ist dort eine Neigung, kein
+Versprechen, und 23.5 bleibt einfach stehen. PostgreSQL antwortet darauf mit
+`22P02` – und weil eine Tabelle immer als Ganzes gesendet wird, scheitert daran
+nicht die eine Zeile, sondern der Push der kompletten Tabelle, bei jedem Versuch
+aufs Neue. Genau so ist „Ballaststoffe 23.5" wochenlang unbemerkt geblieben.
+
+Wer eine Zahl in eine ganzzahlige Spalte schreibt, prüft deshalb, dass sie
+ganzzahlig IST. `core/ganzzahlen.ts` fängt den Rest beim Senden ab,
+`tests/sortierwerte.test.ts` prüft den Seed, `tests/schema-parity.test.ts`
+vergleicht auch die Typen.
+
+## Nicht alle Testskripte laufen hier
+
+Mehrere ältere Skripte in `tests/` stammen aus einer Linux-Umgebung und haben
+Pfade wie `/home/claude/…` fest eingebaut. Welche das sind und was stattdessen
+läuft, steht in `tests/ALTLASTEN.md`. Nicht wundern, wenn eines davon in eine
+Zeitüberschreitung läuft.
