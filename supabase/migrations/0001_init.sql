@@ -723,6 +723,14 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scheduled_end_on text;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_total integer;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_done integer;
 ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS scheduled_time text;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS cholesterol_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS potassium_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS poly_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS mono_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_a_ug double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_c_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS calcium_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS iron_mg double precision;
 
 
 -- server_rev: Sequenz, Index und Trigger je Tabelle
@@ -1486,22 +1494,28 @@ GRANT SELECT ON sync_head TO authenticated;
 REVOKE ALL ON sync_head FROM anon;
 
 
--- Migration 10: die uebrigen Naehrwerte, die FatSecret ohnehin mitliefert.
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS cholesterol_mg double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS potassium_mg double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS poly_fat_g double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS mono_fat_g double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_a_ug double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_c_mg double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS calcium_mg double precision;
-ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS iron_mg double precision;
-
--- Prüfung: Es darf weder eine Tabelle ohne Zeilensicherheit noch eine ohne
--- Regel geben. Die Abfrage geht bewusst über pg_class samt Schema – ein
--- Vergleich allein über den Namen würde auch Indizes treffen und die Prüfung
--- damit wertlos machen.
+-- Prüfung zum Schluss. Die Abfragen gehen bewusst über pg_class samt Schema –
+-- ein Vergleich allein über den Namen würde auch Indizes treffen und die
+-- Prüfung wertlos machen.
+--
+-- Zwei Prüfungen mit verschiedener Reichweite, und das ist Absicht:
+--
+--   Zeilensicherheit  gilt für JEDE Tabelle im Schema. Eine Tabelle ohne sie
+--                     ist immer ein Fehler, egal woher sie kommt.
+--   Zugriffsregel     wird nur für die Tabellen verlangt, die DIESE Datei
+--                     anlegt. Was eine andere Migration anlegt, verantwortet
+--                     auch sie.
+--
+-- Der Unterschied hat einen konkreten Anlass: 0002_fatsecret.sql legt zwei
+-- Tabellen an, die Zugangstoken enthalten und bewusst weder Regel noch
+-- Freigabe haben – dort kommt ausschließlich der Dienstschlüssel heran, den
+-- allein die Edge Function kennt. Ohne diese Trennung scheiterte diese Datei,
+-- sobald 0002 einmal gelaufen war („Tabellen ohne Zugriffsregel:
+-- fatsecret_pending, fatsecret_accounts"), und zwar bei jedem weiteren
+-- Durchlauf, obwohl nichts falsch war.
 DO $$
 DECLARE ohne_rls text; ohne_regel text; anon_rechte text;
+  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries'];
 BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -1510,6 +1524,7 @@ BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_regel
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND c.relkind = 'r'
+    AND c.relname = ANY(meine_tabellen)
     AND NOT EXISTS (
       SELECT 1 FROM pg_policies p
       WHERE p.schemaname = 'public' AND p.tablename = c.relname
@@ -1522,12 +1537,18 @@ BEGIN
     RAISE EXCEPTION 'Tabellen ohne Zugriffsregel: %', ohne_regel;
   END IF;
 
+  -- Ebenfalls auf die eigenen Tabellen begrenzt, aus demselben Grund wie oben:
+  -- Supabase vergibt für JEDE neue Tabelle in "public" von Haus aus Rechte an
+  -- anon. Eine Tabelle aus einer anderen Migration entzieht sie dort selbst
+  -- (siehe 0002_fatsecret.sql) – hier darüber zu stolpern hieße, eine fremde
+  -- Datei durch diese zu blockieren.
   SELECT string_agg(DISTINCT table_name, ', ') INTO anon_rechte
   FROM information_schema.role_table_grants
-  WHERE table_schema = 'public' AND grantee = 'anon';
+  WHERE table_schema = 'public' AND grantee = 'anon'
+    AND table_name = ANY(meine_tabellen);
   IF anon_rechte IS NOT NULL THEN
     RAISE EXCEPTION 'Der oeffentliche Schluessel haette noch Rechte auf: %', anon_rechte;
   END IF;
 
-  RAISE NOTICE 'Schema vollstaendig: alle Tabellen sind gesichert, anon hat keine Rechte.';
+  RAISE NOTICE 'Schema vollstaendig: Zeilensicherheit ueberall an, alle % Tabellen dieser Datei haben eine Zugriffsregel, anon hat auf keine davon Rechte.', array_length(meine_tabellen, 1);
 END $$;
