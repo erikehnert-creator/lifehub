@@ -811,3 +811,24 @@ table.data tbody tr:hover { background: var(--surface-2); }
   /* Listenzeilen, die sich antippen lassen, brauchen dieselbe Ruhe. */
   .list-row, .nav-item, .tab-btn { min-height: 44px; }
 }
+
+/* --------------------------------------------- Zeitversetzte Zusammenhänge
+ *
+ * Der Verlauf über die geprüften Verzögerungen ist hier kein Schmuck, sondern
+ * der Schutz vor Fehlschlüssen: Ein Ausschlag, der allein dasteht, sieht
+ * anders aus als einer mit Nachbarn – und genau das soll man sehen, bevor man
+ * sein Essen umstellt.
+ */
+.befund { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.befund:last-of-type { border-bottom: 0; }
+.befund-satz { font-size: 14.5px; line-height: 1.45; }
+.befund-zahlen { margin-top: 3px; }
+.befund-verlauf { display: flex; align-items: flex-end; gap: 5px; margin-top: 9px; }
+.befund-lag { width: 26px; text-align: center; }
+.befund-lag-balken {
+  height: 34px; display: flex; align-items: flex-end;
+  background: var(--surface-2); border-radius: 4px; overflow: hidden;
+}
+.befund-lag-balken span { display: block; width: 100%; background: var(--border-strong); }
+.befund-lag.stark .befund-lag-balken span { background: var(--accent); }
+.befund-lag-tag { font-size: 12px; color: var(--text-muted); margin-top: 3px; }

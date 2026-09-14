@@ -26,6 +26,7 @@ const ZIEL = path.join(WURZEL, 'tests', 'ansichten')
 
 const SEITEN = {
   heute: '#/',
+  zusammenhaenge: '#/analysen/zusammenhaenge',
   tracking: '#/tracking',
   finanzen: '#/finanzen',
   plan: '#/plan',

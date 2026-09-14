@@ -15,6 +15,7 @@ import {
 } from '../core/finance'
 import { dailySeries, correlation, correlationLabel, aggregate, groupSeries, formatMetricValue } from '../core/metrics'
 import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
+import { ZeitversetzteZusammenhaenge } from './Zusammenhaenge'
 import { formatMoney, formatNumber, toEuro } from '../core/money'
 import {
   todayString, monthOf, lastMonths, monthLabelShort, formatMonth, addDays,
@@ -323,6 +324,13 @@ function CorrelationTab() {
           Er sagt nichts darüber, ob einer den anderen verursacht – dafür kann es viele andere Gründe geben.
         </div>
       </Card>
+
+      {/*
+        Zuerst die zeitversetzte Auswertung: Sie beantwortet die Frage, die Erik
+        tatsächlich hat („liegt es am Zucker?"), während der Vergleich zweier
+        Werte darunter das Werkzeug zum Selbernachsehen ist.
+      */}
+      <ZeitversetzteZusammenhaenge />
 
       <div className="row mb16">
         <span className="field-label">Zeitraum</span>
