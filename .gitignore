@@ -28,3 +28,6 @@ LifeHub – Projektnotiz.md
 
 # Messergebnisse der Leistungsprüfung (je Lauf neu erzeugt)
 tests/benchmark-*.json
+
+# Bildschirmfotos aus tests/ansicht.mjs - Arbeitsmaterial, kein Quellcode
+tests/ansichten/

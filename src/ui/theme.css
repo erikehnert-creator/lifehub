@@ -378,7 +378,7 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.012em; }
   background: var(--surface-3);
 }
 
-.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; padding: 2px 9px; border-radius: 20px; background: var(--surface-3); color: var(--text-2); }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 650; padding: 2px 9px; border-radius: 20px; background: var(--surface-3); color: var(--text-2); }
 .pill.good { background: rgba(12,163,12,.14); color: var(--good-text); }
 .pill.warn { background: rgba(250,178,25,.18); color: var(--warn-text); }
 .pill.crit { background: rgba(208,59,59,.14); color: var(--critical); }
@@ -724,4 +724,90 @@ table.data tbody tr:hover { background: var(--surface-2); }
   .kal-tag { min-height: 62px; }
   .kal-gitter { max-height: 58vh; }
   .kal-titel { min-width: 110px; font-size: 15.5px; }
+}
+
+/* ------------------------------------------------------------- Ernährung
+ *
+ * Die Tageswerte als Kacheln: Zahl groß, Ziel klein, Balken in der Farbe des
+ * Zielbereichs. Gedacht zum Ablesen im Vorbeigehen, nicht zum Ausfüllen –
+ * seit FatSecret die Zahlen liefert, steht dort in aller Regel schon etwas.
+ *
+ * `auto-fit` statt fester Spaltenzahl: Am Schreibtisch stehen die sechs Werte
+ * in einer Reihe, auf dem Handy in zweien, ohne eigenen Umbruchpunkt. 128px
+ * ist die Breite, bei der „2.380 kcal" noch ohne Trennung danebenpasst.
+ */
+.wert-kacheln {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+.wert-kachel {
+  background: var(--surface-2); border-radius: var(--r-sm);
+  padding: 10px 12px 11px; min-width: 0;
+}
+.wert-kachel-name {
+  font-size: 12px; color: var(--text-muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wert-kachel-zahl {
+  font-size: 23px; font-weight: 680; letter-spacing: -.02em; line-height: 1.25;
+  font-variant-numeric: tabular-nums; margin-bottom: 7px;
+}
+.wert-kachel-einheit { font-size: 12.5px; font-weight: 550; color: var(--text-muted); margin-left: 4px; }
+.wert-kachel-ziel {
+  font-size: 12px; color: var(--text-muted); margin-top: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Die übrigen elf Nährwerte: zum Nachsehen, nicht zum Verfolgen. */
+.naehrwert-liste {
+  display: grid; gap: 0 22px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.naehrwert-zeile {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+.naehrwert-name { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.naehrwert-wert { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 620; white-space: nowrap; }
+
+@media (max-width: 520px) {
+  .wert-kacheln { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+  .wert-kachel-zahl { font-size: 20px; }
+}
+
+/* ------------------------------------------------- Antippen statt Klicken
+ *
+ * Auf einem Bildschirm, der mit dem Finger bedient wird, ist eine Schaltfläche
+ * von 32 px zu klein: Die Fingerkuppe deckt rund 45 px ab, man trifft den
+ * Nachbarn und muss die Aktion zurücknehmen. Die üblichen Empfehlungen nennen
+ * 44 px (Apple) bzw. 48 px (Google); 40 px ist der Wert, ab dem es in der
+ * Praxis aufhört, ärgerlich zu sein.
+ *
+ * `pointer: coarse` trifft genau die Geräte, bei denen das zählt – Handy und
+ * Tablet. Am Schreibtisch bleibt alles so kompakt wie bisher, dort zielt die
+ * Maus genau. Deshalb hier und nicht an einem Breitenumbruch: Ein schmales
+ * Fenster am PC wird nicht mit dem Finger bedient.
+ *
+ * Gemessen wird das in `tests/ansicht.mjs`; die Liste war vor dieser Regel auf
+ * jeder Seite zwischen einer und fünf Flächen lang.
+ */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 40px; padding: 8px 12px; }
+  .chip { min-height: 40px; }
+  .chip.sm { min-height: 40px; padding: 8px 12px; }
+  .input, .select { min-height: 44px; }
+  /*
+   * Das Kästchen bleibt 21 px gross – groesser saehe plump aus und stuende
+   * neben dem Text wie ein Fremdkoerper. Nur die FLAECHE waechst, unsichtbar,
+   * ueber ein Pseudoelement. Aussehen und Treffsicherheit sind eben zwei
+   * verschiedene Dinge.
+   */
+  .checkbox { position: relative; }
+  .checkbox::after {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 44px; height: 44px; transform: translate(-50%, -50%);
+  }
+  /* Listenzeilen, die sich antippen lassen, brauchen dieselbe Ruhe. */
+  .list-row, .nav-item, .tab-btn { min-height: 44px; }
 }

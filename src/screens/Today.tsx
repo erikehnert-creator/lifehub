@@ -13,6 +13,7 @@ import { usePageLayout, LayoutEditToggle, LayoutEditPanel } from '../ui/pageLayo
 import type { LayoutCardDef } from '../core/layout'
 import { Meter, Sparkline, LineChart } from '../charts'
 import { useData, useMutations } from '../state/store'
+import { TageswertKacheln } from './Ernaehrung'
 import {
   accountBalances, availableMoney, netWorth, monthTotals, budgetProgress,
   expectedIncomeRest, savingsRateView, forecastMonth,
@@ -318,34 +319,9 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
       case 'ernaehrung':
         if (nutritionMetrics.length === 0) return null
         return (
-          <Card key={id} title="Ernährung heute" action={<button className="btn btn-sm" onClick={() => navigate('#/tracking')}>Eintragen</button>}>
-            <div className="grid grid-2 keep2" style={{ gap: 10 }}>
-              {/* Sechs statt vier: Kalorien, die drei Makros, Ballaststoffe und Wasser
-                  sind genau die Werte, um die es beim Nachschauen geht. */}
-              {nutritionMetrics.slice(0, 6).map((metric) => {
-                const v = dayValue(data.metricEntries, metric, today)
-                const target = targetFor(data.metricTargets, metric.id, today)
-                const zone = evaluateZone(v, target)
-                return (
-                  <div key={metric.id}>
-                    <div className="small muted">{metric.name}</div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                      <span style={{ fontSize: 19, fontWeight: 700 }}>
-                        {v === null ? '–' : v.toLocaleString('de-DE', { maximumFractionDigits: metric.decimals })}
-                      </span>
-                      <span className="small muted">{metric.unit}</span>
-                    </div>
-                    {target?.target_value != null && (
-                      <>
-                        <Meter percent={v === null ? 0 : (v / (target.target_value || 1)) * 100}
-                          status={zone.status === 'optimal' ? 'good' : zone.status === 'tolerated' ? 'warning' : 'critical'} />
-                        <div className="small muted mt8">Ziel {target.target_value}{target.tolerance_plus ? ` ±${target.tolerance_plus}` : ''} {metric.unit}</div>
-                      </>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+          <Card key={id} title="Ernährung heute"
+            action={<button className="btn btn-sm" onClick={() => navigate('#/tracking')}>Alles ansehen →</button>}>
+            <TageswertKacheln day={today} />
           </Card>
         )
 
