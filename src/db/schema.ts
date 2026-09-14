@@ -586,6 +586,26 @@ export const MIGRATIONS: Migration[] = [
     ALTER TABLE food_entries ADD COLUMN iron_mg REAL;
     `,
   },
+  {
+    id: 11,
+    name: 'ballaststoffe_mit_nachkommastelle',
+    sql: `
+    --------------------------------------------------------------- Ernährung
+    -- FatSecret nennt Ballaststoffe mit einer Nachkommastelle: 27,4 g. LifeHub
+    -- zeigte 27 – der Wert war richtig gespeichert, nur auf ganze Gramm
+    -- gerundet dargestellt. Bei 30 g Tagesziel ist eine halbe Portion Haferbrei
+    -- Unterschied, und beim Vergleich mit FatSecret sieht es nach einem Fehler
+    -- aus, wo keiner ist.
+    --
+    -- Geändert wird nur, was noch unverändert im Auslieferungszustand steht:
+    -- is_builtin = 1 und genau die alten Werte. Wer die Anzeige selbst
+    -- eingestellt hat, behält seine Einstellung.
+    UPDATE metrics
+       SET decimals = 1, value_type = 'number', updated_at = datetime('now'),
+           version = version + 1, _dirty = 1
+     WHERE key = 'fiber_g' AND is_builtin = 1 AND decimals = 0 AND value_type = 'integer';
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */

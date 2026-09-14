@@ -5,6 +5,7 @@
  */
 import { all, one, run, getDb, scheduleSave } from './sqlite'
 import { uuidv7 } from '../core/ids'
+import { natuerlicheId } from '../core/natuerlicheSchluessel'
 import { nowIso } from '../core/dates'
 import type { SyncedTable } from './schema'
 
@@ -25,7 +26,23 @@ function logChange(table: string, rowId: string, op: 'insert' | 'update' | 'dele
 }
 
 export function insert<T extends Record<string, any>>(table: SyncedTable, data: T): string {
-  const id = (data.id as string) || uuidv7()
+  // Tabellen mit natürlichem Schlüssel bekommen eine daraus abgeleitete ID.
+  // Dadurch erzeugen PC und Handy für dieselbe Sache dieselbe Zeile, statt
+  // zwei, die der Abgleich später gegeneinander ausspielt – ausführlich in
+  // core/natuerlicheSchluessel.ts.
+  const abgeleitet = data.id ? null : natuerlicheId(table, data)
+  if (abgeleitet && existsById(table, abgeleitet)) {
+    // Es gibt die Zeile schon – womöglich im Papierkorb, etwa eine gelöschte
+    // Tagesnotiz, zu der man wieder etwas schreibt. Ein zweites INSERT liefe
+    // hier in den Primärschlüssel. Also wiederbeleben und füllen; das ist
+    // genau das, was „genau eine Zeile je Tag" bedeutet.
+    const vorhanden = one<Record<string, any>>(`SELECT deleted_at FROM ${table} WHERE id = ?`, [abgeleitet])
+    if (vorhanden?.deleted_at) restore(table, abgeleitet)
+    const { id: _ignoriert, ...felder } = data as Record<string, any>
+    update(table, abgeleitet, felder)
+    return abgeleitet
+  }
+  const id = (data.id as string) || abgeleitet || uuidv7()
   const ts = nowIso()
   const record: Record<string, any> = {
     ...data,

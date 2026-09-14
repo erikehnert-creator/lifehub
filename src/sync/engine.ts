@@ -22,6 +22,10 @@ import { SYNCED_TABLES, type SyncedTable } from '../db/schema'
 import {
   berichtigungsText, ganzzahlSpalten, gebrocheneWerte, type SpaltenInfo,
 } from '../core/ganzzahlen'
+import {
+  NATUERLICHER_SCHLUESSEL, SCHLUESSEL_UMBENENNBAR, VERWEISE_AUF,
+  aufgeloesterSchluessel, entscheideKollision,
+} from '../core/natuerlicheSchluessel'
 import { nowIso } from '../core/dates'
 import { uuidv7 } from '../core/ids'
 import { getDeviceId } from '../db/repo'
@@ -135,6 +139,81 @@ function ganzzahlenBerichtigen(
     }
   }
   return out
+}
+
+/**
+ * Eine hereinkommende Zeile, deren natürlicher Schlüssel hier schon vergeben ist.
+ *
+ * Ohne diese Stelle erledigt SQLite den Konflikt selbst, und zwar auf die
+ * schlechteste denkbare Weise: `INSERT OR REPLACE` LÖSCHT die vorhandene Zeile
+ * und setzt die neue an ihren Platz – ohne Fehler, ohne Meldung. Alles, was
+ * auf die gelöschte Zeile zeigte, zeigt danach ins Leere. Genau so sind die
+ * Ballaststoff-Tageswerte unsichtbar geworden (core/natuerlicheSchluessel.ts).
+ *
+ * Hier wird stattdessen entschieden, umgehängt und aufgeräumt:
+ *
+ *   1. Welche der beiden bleibt – nach einer festen, geräteunabhängigen Regel.
+ *   2. Was auf die weichende zeigt, wird auf die bleibende umgehängt und als
+ *      „noch zu senden" markiert, damit die Berichtigung auch beim anderen
+ *      Gerät ankommt.
+ *   3. Die weichende Zeile wird aufgelöst: Wo der Schlüssel technisch ist,
+ *      bekommt sie einen abgewandelten und gilt als gelöscht – so erfährt auch
+ *      der Server davon und die Dublette ist dauerhaft weg. Wo im Schlüssel
+ *      echter Inhalt steht (ein Datum), wird sie nur örtlich entfernt.
+ *
+ * Zurück kommt, ob die hereinkommende Zeile noch eingefügt werden soll.
+ */
+function loeseSchluesselkollision(
+  table: string, row: Record<string, any>,
+): { einfuegen: boolean; aufgeloest: string | null } {
+  const feld = NATUERLICHER_SCHLUESSEL[table]
+  if (!feld) return { einfuegen: true, aufgeloest: null }
+  const wert = row[feld]
+  if (wert === null || wert === undefined || wert === '') return { einfuegen: true, aufgeloest: null }
+
+  const andere = all<{ id: string }>(
+    `SELECT id FROM ${table} WHERE ${feld} = ? AND id <> ?`, [wert, row.id],
+  )
+  if (!andere.length) return { einfuegen: true, aufgeloest: null }
+
+  const { bleibt, weicht } = entscheideKollision(String(row.id), andere[0].id)
+  const ts = nowIso()
+
+  // Erst umhängen, dann auflösen – andersherum gäbe es einen Moment, in dem
+  // Tageswerte auf eine Metrik zeigen, die es nicht mehr gibt.
+  for (const v of VERWEISE_AUF[table] ?? []) {
+    getDb().run(
+      `UPDATE ${v.tabelle} SET ${v.feld} = ?, updated_at = ?, version = version + 1, _dirty = 1
+        WHERE ${v.feld} = ?`,
+      [bleibt, ts, weicht] as any,
+    )
+  }
+
+  if (weicht === andere[0].id) {
+    // Die hiesige Zeile weicht. Die hereinkommende wird gleich eingefügt.
+    if (SCHLUESSEL_UMBENENNBAR[table]) {
+      getDb().run(
+        `UPDATE ${table} SET ${feld} = ?, deleted_at = ?, updated_at = ?, version = version + 1, _dirty = 1
+          WHERE id = ?`,
+        [aufgeloesterSchluessel(String(wert), weicht), ts, ts, weicht] as any,
+      )
+    } else {
+      getDb().run(`DELETE FROM ${table} WHERE id = ?`, [weicht] as any)
+    }
+    return { einfuegen: true, aufgeloest: weicht }
+  }
+
+  // Die hereinkommende weicht. Wo möglich wird sie als gelöschte Zeile
+  // übernommen – nur so erfährt der Server, dass sie weg soll.
+  if (SCHLUESSEL_UMBENENNBAR[table]) {
+    const zeile = { ...row, [feld]: aufgeloesterSchluessel(String(wert), weicht), deleted_at: ts, updated_at: ts }
+    const cols = Object.keys(zeile)
+    getDb().run(
+      `INSERT OR REPLACE INTO ${table} (${cols.join(',')}, _dirty, _conflict) VALUES (${cols.map(() => '?').join(',')}, 1, 0)`,
+      cols.map((c) => zeile[c]) as any,
+    )
+  }
+  return { einfuegen: false, aufgeloest: weicht }
 }
 
 /**
@@ -272,6 +351,8 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
   // und die betroffene Tabelle steht namentlich in der Fehlermeldung.
   const fehlgeschlagen: string[] = []
   const berichtigt: BerichtigterWert[] = []
+  /** Zeilen, die als Dublette eines natürlichen Schlüssels aufgelöst wurden. */
+  const aufgeloesteDubletten: string[] = []
 
   try {
     for (const table of SYNCED_TABLES) {
@@ -297,6 +378,12 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
           delete row.user_id                     // gehört nur dem Server
           const local = localRow(table, row.id)
           if (!local) {
+            // Vorher prüfen, ob der natürliche Schlüssel hier schon vergeben
+            // ist – sonst löscht `INSERT OR REPLACE` die vorhandene Zeile
+            // stillschweigend mit.
+            const kollision = loeseSchluesselkollision(table, row)
+            if (kollision.aufgeloest) aufgeloesteDubletten.push(`${table}/${kollision.aufgeloest}`)
+            if (!kollision.einfuegen) { pulled++; continue }
             const cols = Object.keys(row)
             getDb().run(
               `INSERT OR REPLACE INTO ${table} (${cols.join(',')}, _dirty, _conflict) VALUES (${cols.map(() => '?').join(',')}, 0, 0)`,
@@ -366,7 +453,12 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
     if (conflicts) parts.push(`${conflicts} Konflikte`)
     // Berichtigte Werte gehören in die Meldung, auch wenn danach alles glatt
     // lief: Eine Zahl, die sich von selbst ändert, soll man nachlesen können.
-    const hinweis = berichtigungsText(berichtigt)
+    const hinweis = [
+      berichtigungsText(berichtigt),
+      aufgeloesteDubletten.length
+        ? `${aufgeloesteDubletten.length} doppelt angelegte Zeile(n) zusammengeführt.`
+        : '',
+    ].filter(Boolean).join(' ')
     if (fehlgeschlagen.length) {
       return {
         ok: false, pushed, pulled, conflicts,

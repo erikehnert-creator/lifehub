@@ -21,6 +21,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { initDatabase, onSaveStateChange, saveNow, transaction } from '../db/sqlite'
 import { list, setDeviceId, insert, update, softDelete, restore, upsertByKey, byId, hardDelete, existsById } from '../db/repo'
 import { seedIfEmpty, ensureBuiltinMetrics, ensureCategoryColors } from '../db/seed'
+import { repariereVerwaisteTageswerte } from '../db/reparatur'
 import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
 import type {
@@ -425,15 +426,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       seedIfEmpty(deviceId)
       ensureBuiltinMetrics()
       ensureCategoryColors()
+      // Tageswerte, die auf eine verschwundene Metrik zeigen, wieder
+      // einhängen. Im Normalfall eine Abfrage ohne Treffer; siehe
+      // db/reparatur.ts, warum es das überhaupt gibt.
+      const repariert = repariereVerwaisteTageswerte()
       if (cancelled) return
       setData(loadAll())
       setReady(true)
+      if (repariert.tageswerte.length > 0) {
+        // Eine Zahl, die sich von selbst ändert, soll man nachlesen können.
+        toast(`${repariert.tageswerte.length} Tageswerte wieder zugeordnet`
+          + (repariert.metriken.length ? ` (${repariert.metriken.join(', ')})` : '') + '.')
+      }
     })().catch((err) => {
       console.error(err)
       setError(String(err?.message ?? err))
       setReady(true)
     })
     return () => { cancelled = true }
+    // Bewusst nur beim ersten Lauf. `toast` ist über useCallback stabil, steht
+    // aber nicht in der Liste: Der Start soll sich nicht wiederholen lassen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => onSaveStateChange(setSaveState), [])

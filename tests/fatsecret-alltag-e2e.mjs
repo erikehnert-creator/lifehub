@@ -243,7 +243,9 @@ async function main() {
   const protein = await wertAufErnaehrungsseite(p, heute, 'Protein')
   pruefe('Protein steht auf der Ernährungsseite', protein === '20', `abgelesen: ${protein}`)
   const ballast = await wertAufErnaehrungsseite(p, heute, 'Ballaststoffe')
-  pruefe('Ballaststoffe stehen auf der Ernährungsseite', ballast === '6', `abgelesen: ${ballast}`)
+  // Mit einer Nachkommastelle, seit Migration 11: FatSecret nennt 27,4 g, und
+  // wer die Zahlen nebeneinanderlegt, soll keinen Rundungsfehler suchen.
+  pruefe('Ballaststoffe stehen auf der Ernährungsseite', ballast === '6,0', `abgelesen: ${ballast}`)
 
   /* ----------------------------------- 3. Einzelne Lebensmittel sind da */
   const gegessen = await p.evaluate(() => document.body.innerText)

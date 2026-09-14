@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 442 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 472 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -83,6 +83,33 @@ ausgeschlossen, und ihr Inhalt gehört niemals in einen Commit, eine Notiz oder
 einen Bericht.
 
 Der frühere Ordner `Dokumente/Projekte/LifeHub-Projekt` wird nicht mehr benutzt.
+
+## Eindeutige Spalten: die ID muss sich daraus ableiten
+
+Vier Tabellen haben neben der ID einen zweiten eindeutigen Wert – `settings.key`,
+`metrics.key`, `day_assignments.day`, `day_notes.day`. Lokal steht das als UNIQUE
+im Schema, auf dem Server NICHT. Legen PC und Handy dieselbe Sache unabhängig
+voneinander an, nimmt der Server beide Zeilen an, und beim Holen löst SQLite den
+UNIQUE-Konflikt auf die schlechteste denkbare Weise: `INSERT OR REPLACE` LÖSCHT
+die vorhandene Zeile. Ohne Fehler, ohne Meldung. Alles, was darauf zeigte, zeigt
+danach ins Leere.
+
+Genau so sind Eriks Ballaststoff-Tageswerte verschwunden: gespeichert,
+synchronisiert – und auf eine Metrik verweisend, die es nicht mehr gab.
+
+Deshalb gilt: **Eine neue eindeutige Spalte gehört in `NATUERLICHER_SCHLUESSEL`
+(core/natuerlicheSchluessel.ts).** Dann leitet `insert()` die ID daraus ab, beide
+Geräte erzeugen dieselbe Zeile, und es kann gar nicht erst zwei geben. Wer eine
+Tabelle mit Verweisen darauf anlegt, trägt die Verweise zusätzlich in
+`VERWEISE_AUF` ein – sonst hängen sie beim Auflösen einer Altlast in der Luft.
+
+`tests/natuerliche-schluessel.test.ts` liest die UNIQUE-Spalten aus dem Schema und
+schlägt fehl, wenn eine davon in der Liste fehlt.
+
+```
+node tests/ballaststoffe-e2e.mjs   # zwei Geraete, eine doppelte Metrik: der
+                                   # Wert muss trotzdem dastehen
+```
 
 ## Werte, die PostgreSQL ablehnt
 

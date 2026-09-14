@@ -209,6 +209,25 @@ describe('Wiederholter Abgleich', () => {
     expect(p.entfernen).toHaveLength(0)
   })
 
+  it('lässt einen in FatSecret verschobenen Eintrag mitwandern', () => {
+    // In FatSecret korrigiert man auch mal den Tag: Das Abendessen war doch
+    // von gestern. Die food_entry_id bleibt dabei dieselbe, und weil die
+    // Zeilen-ID allein daraus abgeleitet ist, bleibt auch sie gleich.
+    //
+    // Wer nur die Zeilen DES TAGES ansieht, findet den Eintrag am neuen Tag
+    // nicht, will ihn anlegen – und läuft in den schon vergebenen
+    // Primärschlüssel. Am alten Tag fällt er gleichzeitig als „nicht mehr
+    // vorhanden" heraus. Ergebnis: verschwunden statt umgezogen.
+    const amFalschenTag = lokal({ id: foodEntryRowId('111'), day: '2026-09-13', external_id: '111' })
+    const p = reconcileFoodEntries({
+      day: TAG, remote: [remote[0]], lokal: [amFalschenTag], syncedAt: jetzt,
+    })
+    expect(p.anlegen, 'kein zweites Anlegen auf denselben Primärschlüssel').toHaveLength(0)
+    expect(p.aendern).toHaveLength(1)
+    expect(p.aendern[0].id).toBe(foodEntryRowId('111'))
+    expect(p.aendern[0].patch.day).toBe(TAG)
+  })
+
   it('sieht nur den angefragten Tag an', () => {
     const andererTag = lokal({ id: 'x', day: '2026-09-13', external_id: '999' })
     const p = reconcileFoodEntries({ day: TAG, remote: [], lokal: [andererTag], syncedAt: jetzt })
@@ -295,6 +314,74 @@ describe('Tageswerte landen im bestehenden Metriksystem', () => {
     }]
     const p = planNutritionMetrics({ day: TAG, werte: leer, metriken: [METRIKEN[0]], vorhanden, syncedAt: jetzt })
     expect(p.entfernen).toEqual([{ id: nutritionEntryId('calories', TAG), metrik: 'calories' }])
+  })
+
+  /* ------------------------------------------------ Der Ballaststoff-Fehler */
+
+  /**
+   * Der Fall, an dem Eriks Ballaststoffe wochenlang hängen geblieben sind.
+   *
+   * Vorgeschichte: `fiber_g` kam am 13.09.2026 dazu – in derselben Fassung, in
+   * der ein Sortierwert von 23.5 den Abgleich der Tabelle `metrics` zum Stehen
+   * brachte. Bis das behoben war, hatten PC und Handy jeweils ihre EIGENE
+   * Ballaststoff-Metrik angelegt und ihre Tageswerte darauf geschrieben.
+   * Danach lief der Abgleich wieder, beide Metriken erreichten den Server, und
+   * jedes Gerät ersetzte seine eigene durch die fremde.
+   *
+   * Zurück blieb ein Tageswert, der auf eine Metrik zeigte, die es nicht mehr
+   * gab. Die frühere Fassung suchte ihre Zeile über die Metrik-ID, fand nichts,
+   * plante ein Anlegen – und das lief still ins Leere, weil der
+   * Primärschlüssel schon vergeben war. Bei jedem Abgleich aufs Neue.
+   */
+  it('erkennt die eigene Zeile auch, wenn sie auf eine verschwundene Metrik zeigt', () => {
+    const vorhanden = [{
+      id: nutritionEntryId('fiber_g', TAG),
+      metric_id: 'm-fiber-vom-handy',          // diese Metrik gibt es nicht mehr
+      day: TAG, value_num: 10, source: 'fatsecret', deleted_at: null,
+    }]
+    const p = planNutritionMetrics({
+      day: TAG, werte, metriken: [{ id: 'm-fiber', key: 'fiber_g' }],
+      vorhanden, syncedAt: jetzt,
+    })
+    expect(p.anlegen, 'kein zweites Anlegen auf denselben Primärschlüssel').toHaveLength(0)
+    expect(p.aendern).toEqual([{
+      id: nutritionEntryId('fiber_g', TAG),
+      patch: { value_num: 10, source: 'fatsecret', metric_id: 'm-fiber' },
+    }])
+  })
+
+  it('zieht die Metrik-ID auch dann gerade, wenn der Wert stimmt', () => {
+    // Sonst bliebe genau der Fall stehen, in dem der Wert längst richtig
+    // berechnet ist und trotzdem niemand ihn sieht.
+    const vorhanden = [{
+      id: nutritionEntryId('calories', TAG), metric_id: 'alte-id', day: TAG,
+      value_num: 700, source: 'fatsecret', deleted_at: null,
+    }]
+    const p = planNutritionMetrics({ day: TAG, werte, metriken: [METRIKEN[0]], vorhanden, syncedAt: jetzt })
+    expect(p.aendern).toHaveLength(1)
+    expect(p.aendern[0].patch.metric_id).toBe('m-kcal')
+  })
+
+  it('entfernt die eigene Zeile auch dann, wenn sie auf eine andere Metrik zeigt', () => {
+    const leer = aggregateDay([])
+    const vorhanden = [{
+      id: nutritionEntryId('calories', TAG), metric_id: 'alte-id', day: TAG,
+      value_num: 700, source: 'fatsecret', deleted_at: null,
+    }]
+    const p = planNutritionMetrics({ day: TAG, werte: leer, metriken: [METRIKEN[0]], vorhanden, syncedAt: jetzt })
+    expect(p.entfernen).toEqual([{ id: nutritionEntryId('calories', TAG), metrik: 'calories' }])
+  })
+
+  it('räumt dabei keinen Handeintrag einer anderen Metrik ab', () => {
+    // Die eigene Zeile wird an der ID erkannt, die konkurrierenden aber
+    // weiterhin an der Metrik-ID. Ohne diese Trennung löschte ein Abgleich
+    // der Kalorien den von Hand eingetragenen Wasserstand gleich mit.
+    const vorhanden = [
+      { id: 'wasser-von-hand', metric_id: 'm-wasser', day: TAG, value_num: 2.5, source: 'manual', deleted_at: null },
+    ]
+    const p = planNutritionMetrics({ day: TAG, werte, metriken: [METRIKEN[0]], vorhanden, syncedAt: jetzt })
+    expect(p.ersetzen).toHaveLength(0)
+    expect(p.entfernen).toHaveLength(0)
   })
 
   it('stellt eine gelöschte eigene Zeile wieder her, statt eine zweite anzulegen', () => {

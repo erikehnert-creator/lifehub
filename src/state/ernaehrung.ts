@@ -298,13 +298,23 @@ function anwenden(
     const eintraege: FatSecretEntry[] = parseFoodEntries(antwort, tag)
 
     /* ------------------------------------------------ einzelne Lebensmittel */
-    // Gelöschte Zeilen gehören dazu: Was in LifeHub bewusst entfernt wurde,
-    // darf der nächste Abgleich nicht zurückholen.
-    const lokal = list('food_entries', { includeDeleted: true, where: 'day = ?', params: [tag] }) as any[]
+    // Geholt wird der ganze Tag – auch die gelöschten Zeilen – UND jede Zeile,
+    // die zu einer der gerade gelieferten food_entry_ids gehört, egal an
+    // welchem Tag sie steht. Letzteres, damit ein in FatSecret auf einen
+    // anderen Tag verschobener Eintrag mitwandern kann statt zu verschwinden
+    // (siehe reconcileFoodEntries).
+    const externIds = eintraege.map((e) => e.externalId)
+    const platzhalter = externIds.map(() => '?').join(', ')
+    const lokal = list('food_entries', {
+      includeDeleted: true,
+      where: externIds.length ? `day = ? OR external_id IN (${platzhalter})` : 'day = ?',
+      params: [tag, ...externIds],
+    }) as any[]
     const plan = reconcileFoodEntries({ day: tag, remote: eintraege, lokal, syncedAt })
 
+    // Ohne `exists`-Abfrage: Die Abfrage oben holt jede Zeile, die der Plan
+    // wiedererkennen könnte. Was hier ankommt, gibt es also wirklich noch nicht.
     for (const a of plan.anlegen) {
-      if (mutations.exists('food_entries', a.id)) continue
       mutations.create('food_entries', a.values)
       neu++
     }
@@ -326,10 +336,13 @@ function anwenden(
     }) as any[]
     const mp = planNutritionMetrics({ day: tag, werte, metriken, vorhanden: vorhandeneWerte, syncedAt })
 
-    for (const a of mp.anlegen) {
-      if (mutations.exists('metric_entries', a.id)) continue
-      mutations.create('metric_entries', a.values)
-    }
+    // Ohne `exists`-Abfrage, und das ist Absicht: `vorhanden` enthält ALLE
+    // Zeilen des Tages, auch die gelöschten, und die eigene Zeile wird an
+    // ihrer ID erkannt. Was hier als „anlegen" ankommt, gibt es also
+    // nachweislich noch nicht. Die frühere Abfrage übersprang dagegen still
+    // genau den Fall, den sie hätte melden müssen – eine vorhandene Zeile,
+    // die der Plan nicht wiedererkannt hatte.
+    for (const a of mp.anlegen) mutations.create('metric_entries', a.values)
     for (const a of mp.aendern) mutations.patch('metric_entries', a.id, a.patch)
     for (const w of mp.wiederherstellen) {
       mutations.restoreRow('metric_entries', w.id)

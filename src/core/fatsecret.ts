@@ -335,8 +335,18 @@ export function reconcileFoodEntries(opts: {
   const plan: LebensmittelPlan = { anlegen: [], aendern: [], wiederherstellen: [], entfernen: [] }
   const desTages = opts.lokal.filter((l) => l.day === opts.day)
 
+  // Die Zuordnung über die food_entry_id geht bewusst über ALLE übergebenen
+  // Zeilen, nicht nur über die dieses Tages.
+  //
+  // Grund: Die Zeilen-ID leitet sich allein aus der food_entry_id ab, nicht
+  // aus dem Tag. Verschiebt man einen Eintrag in FatSecret auf einen anderen
+  // Tag – das Abendessen war doch von gestern –, behält er seine Kennung.
+  // Wer nur den Tag ansieht, findet ihn dort nicht, will ihn neu anlegen und
+  // scheitert am schon vergebenen Primärschlüssel; am alten Tag fällt er
+  // gleichzeitig als „nicht mehr vorhanden" heraus. Der Eintrag wäre damit
+  // verschwunden statt umgezogen. So wandert er einfach mit.
   const lokalNachExtern = new Map<string, LokalesLebensmittel>()
-  for (const l of desTages) {
+  for (const l of opts.lokal) {
     if (l.source !== 'fatsecret' || !l.external_id) continue
     // Bei (theoretischen) Doppelten gewinnt die erste; die zweite fällt unten
     // als „nicht mehr in FatSecret vorhanden" heraus.
@@ -471,9 +481,24 @@ export function planNutritionMetrics(opts: {
     if (!(ERNAEHRUNGS_METRIKEN as readonly string[]).includes(metrik.key)) continue
     const wert = opts.werte[metrik.key as ErnaehrungsMetrik]
     const id = nutritionEntryId(metrik.key, opts.day)
-    const zeilen = opts.vorhanden.filter((z) => z.metric_id === metrik.id && z.day === opts.day)
-    const eigene = zeilen.find((z) => z.id === id)
-    const fremde = zeilen.filter((z) => z.id !== id && !z.deleted_at)
+    const desTages = opts.vorhanden.filter((z) => z.day === opts.day)
+
+    // Die eigene Zeile wird an ihrer ID erkannt, NICHT an der Metrik-ID.
+    //
+    // Das ist der Unterschied zwischen „funktioniert" und „Ballaststoffe
+    // kommen nie an". Die ID ist aus Schlüssel und Tag abgeleitet und damit
+    // auf jedem Gerät dieselbe; die Metrik-ID ist es nicht. Zeigt die Zeile
+    // aus historischen Gründen auf eine andere Metrik-ID (siehe unten), fand
+    // die frühere Fassung sie nicht, plante ein Anlegen – und das scheiterte
+    // still am schon vergebenen Primärschlüssel. Der Wert war geschrieben,
+    // aber unter einer Metrik, die es nicht mehr gab, und damit unsichtbar;
+    // und weil jeder weitere Abgleich dieselbe Entscheidung traf, blieb es
+    // dabei.
+    const eigene = desTages.find((z) => z.id === id)
+
+    // Fremde Zeilen sind nur die, die WIRKLICH auf diese Metrik zeigen –
+    // sonst würde ein Handeintrag einer anderen Metrik mit abgeräumt.
+    const fremde = desTages.filter((z) => z.metric_id === metrik.id && z.id !== id && !z.deleted_at)
 
     if (wert === null) {
       // FatSecret kennt zu diesem Tag keinen solchen Wert mehr. Der eigene
@@ -495,12 +520,18 @@ export function planNutritionMetrics(opts: {
       note: null,
       import_batch_id: null,
     }
+    // `metric_id` gehört in jeden Patch: Zeigt die vorhandene Zeile auf eine
+    // veraltete Metrik, wird sie damit beim nächsten Abgleich von selbst
+    // geradegezogen, ohne dass jemand etwas anstoßen muss.
+    const zeigtFalsch = !!eigene && eigene.metric_id !== metrik.id
     if (!eigene) {
       plan.anlegen.push({ id, values })
     } else if (eigene.deleted_at) {
-      plan.wiederherstellen.push({ id, patch: { value_num: wert, source: 'fatsecret' } })
-    } else if (Number(eigene.value_num) !== wert) {
-      plan.aendern.push({ id, patch: { value_num: wert, source: 'fatsecret' } })
+      plan.wiederherstellen.push({ id, patch: { value_num: wert, source: 'fatsecret', metric_id: metrik.id } })
+    } else if (Number(eigene.value_num) !== wert || zeigtFalsch) {
+      const patch: Record<string, any> = { value_num: wert, source: 'fatsecret' }
+      if (zeigtFalsch) patch.metric_id = metrik.id
+      plan.aendern.push({ id, patch })
     }
   }
   return plan
