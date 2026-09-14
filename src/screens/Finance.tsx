@@ -1147,7 +1147,21 @@ function FinanceDayTab({ navigate, params }: { navigate: (r: string) => void; pa
 
   const openItems = items.filter((i) => !done.has(i.key))
 
+  /**
+   * Den Abgleich speichern.
+   *
+   * Als EIN Stapel: je Konto bis zu zwei Zeilen plus der Protokolleintrag –
+   * einzeln geschrieben wären das bei acht Konten siebzehn vollständige
+   * Neuladungen des Datenbildes. Die Zustandsänderungen der Oberfläche und die
+   * Meldung stehen bewusst DANACH, außerhalb des Stapels.
+   */
   const saveReconciliation = () => {
+    const corrections = m.batch(() => schreibeAbgleich())
+    setActual({}); setNote(''); setDone(new Set())
+    m.toast(corrections ? `Abgeglichen · ${corrections} Korrekturbuchungen` : 'Abgeglichen · alles stimmte')
+  }
+
+  const schreibeAbgleich = (): number => {
     let corrections = 0
     for (const d of filled) {
       let correctionId: string | null = null
@@ -1175,8 +1189,7 @@ function FinanceDayTab({ navigate, params }: { navigate: (r: string) => void; pa
       }),
       completed_at: new Date().toISOString(), note: note || null,
     })
-    setActual({}); setNote(''); setDone(new Set())
-    m.toast(corrections ? `Abgeglichen · ${corrections} Korrekturbuchungen` : 'Abgeglichen · alles stimmte')
+    return corrections
   }
 
   return (

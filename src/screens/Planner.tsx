@@ -625,17 +625,29 @@ function WorkView() {
   }
 
   const save = () => {
-    let n = 0
-    for (const [day, typeId] of Object.entries(pending)) {
-      const existing = data.dayAssignments.find((x) => !x.deleted_at && x.day === day)
-      if (typeId === null) {
-        if (existing) { m.remove('day_assignments', existing.id); n++ }
-      } else if (existing) {
-        if (existing.day_type_id !== typeId) { m.patch('day_assignments', existing.id, { day_type_id: typeId }); n++ }
-      } else {
-        m.create('day_assignments', { day, day_type_id: typeId }); n++
+    // Als EIN Stapel: eine Datenbanktransaktion, ein Nachladen am Ende. Wer
+    // einen Monat bemalt, schreibt dreißig Zeilen – einzeln wären das dreißig
+    // vollständige Neuladungen des Datenbildes.
+    //
+    // Die Zuordnung Tag → vorhandene Zeile steht vorher als Nachschlagewerk
+    // bereit, statt für jeden Tag die ganze Liste zu durchsuchen.
+    const vorhanden = new Map(
+      data.dayAssignments.filter((x) => !x.deleted_at).map((x) => [x.day, x]),
+    )
+    const n = m.batch(() => {
+      let geschrieben = 0
+      for (const [day, typeId] of Object.entries(pending)) {
+        const existing = vorhanden.get(day)
+        if (typeId === null) {
+          if (existing) { m.removeQuiet('day_assignments', existing.id); geschrieben++ }
+        } else if (existing) {
+          if (existing.day_type_id !== typeId) { m.patch('day_assignments', existing.id, { day_type_id: typeId }); geschrieben++ }
+        } else {
+          m.create('day_assignments', { day, day_type_id: typeId }); geschrieben++
+        }
       }
-    }
+      return geschrieben
+    })
     setPending({})
     setEditMode(false)
     setBrush(null)
@@ -772,14 +784,22 @@ function BulkAssign() {
 
   const apply = () => {
     if (!typeId) return
-    let n = 0
-    for (const d of daysInRange(from, to)) {
-      if (skipWeekend && weekdayIndex(d) >= 6) continue
-      const existing = data.dayAssignments.find((a) => !a.deleted_at && a.day === d)
-      if (existing) m.patch('day_assignments', existing.id, { day_type_id: typeId })
-      else m.create('day_assignments', { day: d, day_type_id: typeId })
-      n++
-    }
+    // Ein Zeitraum kann ein ganzes Jahr sein. Ohne Stapel wären das 365
+    // vollständige Neuladungen – die App stünde dabei sichtbar still.
+    const vorhanden = new Map(
+      data.dayAssignments.filter((a) => !a.deleted_at).map((a) => [a.day, a]),
+    )
+    const n = m.batch(() => {
+      let gesetzt = 0
+      for (const d of daysInRange(from, to)) {
+        if (skipWeekend && weekdayIndex(d) >= 6) continue
+        const existing = vorhanden.get(d)
+        if (existing) m.patch('day_assignments', existing.id, { day_type_id: typeId })
+        else m.create('day_assignments', { day: d, day_type_id: typeId })
+        gesetzt++
+      }
+      return gesetzt
+    })
     m.toast(`${n} Tage gesetzt`)
   }
 

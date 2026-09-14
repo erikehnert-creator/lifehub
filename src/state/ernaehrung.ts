@@ -221,11 +221,17 @@ export function useFatSecret() {
    *
    * Tut nichts, wenn der letzte Lauf noch keine Viertelstunde her ist – außer
    * der historische Import läuft noch, dann geht der weiter.
+   *
+   * Zurück kommt, ob die Historie noch weitere Runden braucht. Der Aufrufer
+   * kann die nächste dann gleich anstoßen, statt auf den nächsten Takt zu
+   * warten – siehe App.tsx. Gemessen war genau das der Unterschied zwischen
+   * „drei Jahre Historie in einer halben Minute" und „in drei Minuten": Die
+   * Arbeit selbst dauert Sekunden, gewartet wurde auf die Uhr.
    */
-  const automatisch = useCallback(async (): Promise<void> => {
+  const automatisch = useCallback(async (): Promise<boolean> => {
     const stand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
     const faellig = abgleichFaellig(stand.zuletzt, Date.now())
-    if (!faellig && stand.fertig) return
+    if (!faellig && stand.fertig) return false
 
     try {
       if (faellig) {
@@ -244,10 +250,14 @@ export function useFatSecret() {
       // erreicht. Von außen sah das aus wie „der Import ist langsam".
       const danach = stand.fertig ? stand : (await importSchritt()).stand
       mutations.setSetting('fatsecret_import', { ...danach, zuletzt: nowIso() })
+      return !danach.fertig
     } catch (err) {
       // Leise: Der automatische Lauf soll niemanden mit einer Meldung
       // unterbrechen. Wer wissen will, woran es liegt, drückt den Knopf.
       setFehler(err instanceof FatSecretFehler ? err.message : String((err as Error)?.message ?? err))
+      // Nach einem Fehler NICHT sofort weitermachen: Sonst liefe der Lauf bei
+      // einer abgelaufenen Freigabe in einer engen Schleife gegen den Server.
+      return false
     }
   }, [settings.sync_url, settings.sync_key, mutations, data, importSchritt])
 

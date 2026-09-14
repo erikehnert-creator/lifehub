@@ -255,10 +255,21 @@ function Shell() {
     // gesamten Datenbild und bekommt bei jeder Änderung eine neue Identität.
     // Stünde es in den Abhängigkeiten, würde der Takt bei jeder Eingabe neu
     // aufgesetzt – und liefe damit praktisch nie bis zu einem Durchlauf.
+    // Steht nach einer Runde noch Historie aus, folgt die nächste kurz darauf,
+    // statt auf den Minutentakt zu warten. Gemessen: Ein Jahr Historie brauchte
+    // zwei Runden – und damit zwei Minuten, von denen fast zwei Minuten reines
+    // Warten waren. Die kurze Pause bleibt trotzdem, damit FatSecret nicht in
+    // einem Zug mit Anfragen überzogen wird.
+    let nachfolger = 0
     const lauf = async () => {
       if (cancelled || busy || document.hidden || !navigator.onLine) return
       busy = true
-      try { await automatischRef.current() } finally { busy = false }
+      let weiter = false
+      try { weiter = await automatischRef.current() } finally { busy = false }
+      if (weiter && !cancelled) {
+        window.clearTimeout(nachfolger)
+        nachfolger = window.setTimeout(() => { void lauf() }, 2000)
+      }
     }
 
     void lauf()
@@ -282,6 +293,7 @@ function Shell() {
     return () => {
       cancelled = true
       clearInterval(takt)
+      window.clearTimeout(nachfolger)
       window.removeEventListener('focus', beiSichtbar)
       document.removeEventListener('visibilitychange', beiSichtbar)
       window.removeEventListener('online', lauf)
@@ -315,7 +327,15 @@ function Shell() {
               mutations.toast(`Sync fehlgeschlagen: ${res.message}`)
             }
           }
-          mutations.reload()
+          // Nur nachladen, wenn wirklich etwas hereingekommen ist.
+          //
+          // Der Takt läuft alle zehn Minuten, bei jedem Fensterwechsel und kurz
+          // nach jeder Änderung. In den allermeisten Fällen hat der Abgleich
+          // nichts geholt – dann ist ein `reload()` ein vollständiges Einlesen
+          // aller rund vierzig Tabellen für nichts. Was das Senden am
+          // Datenbestand ändert (`_dirty` zurücksetzen), steht in keiner
+          // Anzeige; der Stand der Übertragung wird ohnehin getrennt gezählt.
+          if (res.pulled > 0 || res.conflicts > 0) mutations.reload()
         }
       } finally {
         busy = false

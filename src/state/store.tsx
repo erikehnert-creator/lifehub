@@ -454,9 +454,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Vor dem Schließen sicher speichern – ungesendete Änderungen dürfen nicht verloren gehen
   useEffect(() => {
     const handler = () => { void saveNow() }
+    // Der zweite Zuhörer braucht einen eigenen Namen. Vorher stand dort eine
+    // anonyme Funktion, die `removeEventListener` gar nicht treffen konnte:
+    // Der Zuhörer blieb hängen, und jedes weitere Einhängen legte einen
+    // weiteren obendrauf.
+    const beiWechsel = () => { if (document.hidden) handler() }
     window.addEventListener('pagehide', handler)
-    document.addEventListener('visibilitychange', () => { if (document.hidden) handler() })
-    return () => window.removeEventListener('pagehide', handler)
+    document.addEventListener('visibilitychange', beiWechsel)
+    return () => {
+      window.removeEventListener('pagehide', handler)
+      document.removeEventListener('visibilitychange', beiWechsel)
+    }
   }, [])
 
   useEffect(() => {

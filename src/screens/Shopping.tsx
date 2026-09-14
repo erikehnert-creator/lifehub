@@ -177,7 +177,10 @@ export function ShoppingScreen() {
             defaultAmountCents={erledigt.reduce((s, i) => s + (i.estimated_cents ?? 0), 0) || undefined}
             onDone={() => {
               setBuchungOffen(false)
-              for (const i of erledigt) m.remove('shopping_items', i.id)
+              // `removeQuiet` in der Schleife, eine zusammenfassende Meldung
+              // danach: `remove` zeigt je Zeile eine eigene Meldung samt
+              // Rückgängig-Knopf – bei zwölf Artikeln zwölf Stück.
+              m.batch(() => { for (const i of erledigt) m.removeQuiet('shopping_items', i.id) })
               m.toast(`${erledigt.length} Artikel gebucht und weggeräumt`)
             }} />
         </Modal>
@@ -188,7 +191,7 @@ export function ShoppingScreen() {
         confirmLabel="Wegräumen"
         onCancel={() => setAufraeumen(false)}
         onConfirm={() => {
-          for (const i of erledigt) m.remove('shopping_items', i.id)
+          m.batch(() => { for (const i of erledigt) m.removeQuiet('shopping_items', i.id) })
           setAufraeumen(false)
           m.toast(`${erledigt.length} Artikel weggeräumt`)
         }} />
