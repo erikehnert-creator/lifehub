@@ -22,6 +22,9 @@
  */
 import type { DayString } from './dates'
 import { stableId } from './ids'
+import {
+  NAEHRWERTE, NAEHRWERT_KEYS, type NaehrwertKey, type Naehrwertsatz,
+} from './naehrwerte'
 
 /* ------------------------------------------------------------------ Datum */
 
@@ -47,7 +50,7 @@ export function epochDayToDay(dateInt: number): DayString {
 
 export type Meal = 'breakfast' | 'lunch' | 'dinner' | 'other'
 
-export interface FatSecretEntry {
+export interface FatSecretEntry extends Naehrwertsatz {
   /** food_entry_id – der einzige stabile Anker, den FatSecret liefert. */
   externalId: string
   foodId: string | null
@@ -56,28 +59,6 @@ export interface FatSecretEntry {
   name: string
   servingDescription: string | null
   numberOfUnits: number | null
-  calories: number | null
-  protein_g: number | null
-  carbs_g: number | null
-  fat_g: number | null
-  fiber_g: number | null
-  sugar_g: number | null
-  saturated_fat_g: number | null
-  sodium_mg: number | null
-  /*
-   * Die übrigen Werte aus derselben FatSecret-Antwort. Laut Doku „where
-   * available" – fehlt einer, bleibt er `null` und wird nicht als 0 gezählt.
-   * Einheiten wie geliefert: Fette in g, Mineralien und Vitamin C in mg,
-   * Vitamin A in µg.
-   */
-  cholesterol_mg: number | null
-  potassium_mg: number | null
-  poly_fat_g: number | null
-  mono_fat_g: number | null
-  vitamin_a_ug: number | null
-  vitamin_c_mg: number | null
-  calcium_mg: number | null
-  iron_mg: number | null
 }
 
 /** FatSecret liefert alle Zahlen als Text – und fehlende Werte gar nicht. */
@@ -151,6 +132,12 @@ export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEn
     const dateInt = zahl(e?.date_int)
     const day = dateInt !== null ? epochDayToDay(dateInt) : fallbackDay
     if (!day) continue
+    // Die Nährwerte kommen aus der Liste in core/naehrwerte.ts, nicht aus
+    // sechzehn einzeln hingeschriebenen Zeilen. Ein neuer Wert ist dort ein
+    // Eintrag – und wird hier ohne weiteres Zutun mitgelesen.
+    const werte = {} as Naehrwertsatz
+    for (const n of NAEHRWERTE) werte[n.key] = zahl(e?.[n.feld])
+
     out.push({
       externalId,
       foodId: text(e?.food_id),
@@ -159,22 +146,7 @@ export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEn
       name: text(e?.food_entry_name) ?? text(e?.food_entry_description) ?? 'Unbenannt',
       servingDescription: text(e?.food_entry_description),
       numberOfUnits: zahl(e?.number_of_units),
-      calories: zahl(e?.calories),
-      protein_g: zahl(e?.protein),
-      carbs_g: zahl(e?.carbohydrate),
-      fat_g: zahl(e?.fat),
-      fiber_g: zahl(e?.fiber),
-      sugar_g: zahl(e?.sugar),
-      saturated_fat_g: zahl(e?.saturated_fat),
-      sodium_mg: zahl(e?.sodium),
-      cholesterol_mg: zahl(e?.cholesterol),
-      potassium_mg: zahl(e?.potassium),
-      poly_fat_g: zahl(e?.polyunsaturated_fat),
-      mono_fat_g: zahl(e?.monounsaturated_fat),
-      vitamin_a_ug: zahl(e?.vitamin_a),
-      vitamin_c_mg: zahl(e?.vitamin_c),
-      calcium_mg: zahl(e?.calcium),
-      iron_mg: zahl(e?.iron),
+      ...werte,
     })
   }
   return out
@@ -182,19 +154,18 @@ export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEn
 
 /* -------------------------------------------------------------- Tageswerte */
 
-/** Die Metriken, die aus dem Tagebuch berechnet werden – Schlüssel wie in seed.ts. */
-export const ERNAEHRUNGS_METRIKEN = [
-  'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g',
-  'saturated_fat_g', 'poly_fat_g', 'mono_fat_g', 'cholesterol_mg',
-  'sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg',
-  'vitamin_a_ug', 'vitamin_c_mg',
-] as const
-export type ErnaehrungsMetrik = (typeof ERNAEHRUNGS_METRIKEN)[number]
+/**
+ * Die Metriken, die aus dem Tagebuch berechnet werden.
+ *
+ * Abgeleitet aus core/naehrwerte.ts – der Metrikschlüssel IST der Name der
+ * Spalte in `food_entries`. Das ist kein Zufall, sondern die Voraussetzung
+ * dafür, dass `aggregateDay()` die Tagessummen ohne Übersetzungstabelle bilden
+ * kann.
+ */
+export const ERNAEHRUNGS_METRIKEN = NAEHRWERT_KEYS
+export type ErnaehrungsMetrik = NaehrwertKey
 
-/** Welche Metriken die Aufgabenstellung ausdrücklich verlangt. */
-export const PFLICHT_METRIKEN: ErnaehrungsMetrik[] = ['calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g']
-
-export type Tageswerte = Record<ErnaehrungsMetrik, number | null>
+export type Tageswerte = Naehrwertsatz
 
 /**
  * Tagessummen aus den einzelnen Lebensmitteln.
@@ -247,7 +218,7 @@ export function nutritionEntryId(metricKey: string, day: DayString): string {
 /* -------------------------------------------------------------- Abgleich */
 
 /** Was von einer bereits gespeicherten Zeile für den Abgleich zählt. */
-export interface LokalesLebensmittel {
+export interface LokalesLebensmittel extends Naehrwertsatz {
   id: string
   day: DayString
   external_id: string | null
@@ -257,28 +228,6 @@ export interface LokalesLebensmittel {
   name: string
   serving_description: string | null
   number_of_units: number | null
-  calories: number | null
-  protein_g: number | null
-  carbs_g: number | null
-  fat_g: number | null
-  fiber_g: number | null
-  sugar_g: number | null
-  saturated_fat_g: number | null
-  sodium_mg: number | null
-  /*
-   * Die übrigen Werte aus derselben FatSecret-Antwort. Laut Doku „where
-   * available" – fehlt einer, bleibt er `null` und wird nicht als 0 gezählt.
-   * Einheiten wie geliefert: Fette in g, Mineralien und Vitamin C in mg,
-   * Vitamin A in µg.
-   */
-  cholesterol_mg: number | null
-  potassium_mg: number | null
-  poly_fat_g: number | null
-  mono_fat_g: number | null
-  vitamin_a_ug: number | null
-  vitamin_c_mg: number | null
-  calcium_mg: number | null
-  iron_mg: number | null
 }
 
 export interface LebensmittelPlan {
@@ -300,12 +249,6 @@ export interface LebensmittelPlan {
  * auftaucht. `tests/fatsecret.test.ts` rechnet die Liste gegen die
  * Schnittstelle nach.
  */
-const NAEHRWERTE = [
-  'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g',
-  'saturated_fat_g', 'sodium_mg',
-  'cholesterol_mg', 'potassium_mg', 'poly_fat_g', 'mono_fat_g',
-  'vitamin_a_ug', 'vitamin_c_mg', 'calcium_mg', 'iron_mg',
-] as const
 
 function gleich(a: any, b: any): boolean {
   if (a === undefined) a = null
@@ -368,7 +311,7 @@ export function reconcileFoodEntries(opts: {
       external_food_id: e.foodId,
       sort_order: sort++,
     }
-    for (const k of NAEHRWERTE) werte[k] = e[k]
+    for (const k of NAEHRWERT_KEYS) werte[k] = e[k]
 
     if (!vorhanden) {
       plan.anlegen.push({
