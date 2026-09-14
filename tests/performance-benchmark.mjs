@@ -89,7 +89,18 @@ function monatsTage(monatEpoch) {
   return tage
 }
 
-const heute = new Date().toISOString().slice(0, 10)
+/**
+ * Der heutige Tag in ORTSZEIT – so, wie die App ihn sieht.
+ *
+ * `new Date().toISOString()` liefert das Datum in UTC. Östlich von Greenwich
+ * ist das zwischen 22 Uhr und Mitternacht noch der Vortag: Der Test legte sein
+ * Tagebuch dann auf den 14., während LifeHub den 15. anzeigte – und der Test
+ * meldete, es käme nichts an. Ein Fehler, der nur abends auftritt und tagsüber
+ * nicht nachzustellen ist.
+ */
+const ortsdatum = (d = new Date()) =>
+  new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const heute = ortsdatum()
 const aeltesterMonat = (() => {
   const [j, m] = heute.split('-').map(Number)
   const gesamt = j * 12 + (m - 1) - MONATE

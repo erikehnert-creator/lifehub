@@ -26,6 +26,7 @@
  */
 import { useMemo, useState } from 'react'
 import { Card, Collapsible, Empty } from '../ui/components'
+import { MetricInput } from '../ui/metricInput'
 import { useData, useMutations } from '../state/store'
 import { dayValue, evaluateZone, targetFor, type Zone } from '../core/metrics'
 import { formatNumber } from '../core/money'
@@ -192,14 +193,17 @@ export function TageswertKacheln({ day }: { day: string }) {
 export function ErnaehrungsTag({ day }: { day: string }) {
   const data = useData()
 
-  const weitere = useMemo(() => {
+  const { oben, weitere } = useMemo(() => {
     const nachKey = new Map(
       data.metrics.filter((x) => !x.deleted_at && x.is_enabled).map((x) => [x.key, x]),
     )
-    return NAEHRWERTE
-      .filter((n) => !(WICHTIGE_NAEHRWERTE as readonly string[]).includes(n.key))
-      .map((n) => nachKey.get(n.key))
-      .filter((x): x is Metric => !!x)
+    return {
+      oben: OBEN.map((k) => nachKey.get(k)).filter((x): x is Metric => !!x),
+      weitere: NAEHRWERTE
+        .filter((n) => !(WICHTIGE_NAEHRWERTE as readonly string[]).includes(n.key))
+        .map((n) => nachKey.get(n.key))
+        .filter((x): x is Metric => !!x),
+    }
   }, [data.metrics])
 
   const eintraege = useMemo(
@@ -220,6 +224,18 @@ export function ErnaehrungsTag({ day }: { day: string }) {
             </Collapsible>
           </div>
         )}
+
+        {/*
+          Von Hand eintragen bleibt möglich, steht aber nicht mehr vorn.
+          Gebraucht wird es an Tagen ohne FatSecret, für eine Korrektur, die
+          dort nicht hingehört, und für eine genaue Trinkmenge, die sich nicht
+          in Viertellitern ausdrücken lässt.
+        */}
+        <div className="mt8">
+          <Collapsible label="Von Hand eintragen">
+            {oben.map((metric) => <MetricInput key={metric.id} metric={metric} day={day} />)}
+          </Collapsible>
+        </div>
       </Card>
 
       <Mahlzeiten day={day} eintraege={eintraege} />

@@ -49,7 +49,18 @@ const pruefe = (name, ok, zusatz = '') => {
   else { console.log(`  FEHL ${name}${zusatz ? ' – ' + zusatz : ''}`); fehler++ }
 }
 
-const heute = new Date().toISOString().slice(0, 10)
+/**
+ * Der heutige Tag in ORTSZEIT – so, wie die App ihn sieht.
+ *
+ * `new Date().toISOString()` liefert das Datum in UTC. Östlich von Greenwich
+ * ist das zwischen 22 Uhr und Mitternacht noch der Vortag: Der Test legte sein
+ * Tagebuch dann auf den 14., während LifeHub den 15. anzeigte – und der Test
+ * meldete, es käme nichts an. Ein Fehler, der nur abends auftritt und tagsüber
+ * nicht nachzustellen ist.
+ */
+const ortsdatum = (d = new Date()) =>
+  new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const heute = ortsdatum()
 const epoch = (tag) => Math.floor(Date.parse(tag + 'T00:00:00Z') / 86400000)
 const ausEpoch = (n) => new Date(n * 86400000).toISOString().slice(0, 10)
 
@@ -141,7 +152,25 @@ const server = http.createServer((req, res) => {
 
 /* ------------------------------------------------------------ Browserablauf */
 
-const geh = async (p, hash) => { await p.goto(DATEI + '#' + hash); await p.waitForTimeout(900) }
+/**
+ * Zu einer Seite gehen – und warten, bis sie WIRKLICH da ist.
+ *
+ * `goto` auf eine Datei-Adresse lädt die ganze App neu; sie ist danach nicht
+ * sofort fertig, sondern erst, wenn Datenbank, Migrationen und Seed durch
+ * sind. Eine feste Wartezeit ist dafür der falsche Maßstab: Sie ist auf einer
+ * leeren Datenbank zu lang und auf einer vollen zu kurz – und dann liest der
+ * Test leere Felder ab und meldet einen Fehler, den es nicht gibt. Genau das
+ * ist hier passiert, als die Seite um ein paar Elemente wuchs.
+ */
+const geh = async (p, hash) => {
+  await p.goto(DATEI + '#' + hash)
+  const bis = Date.now() + 60000
+  while (Date.now() < bis) {
+    if (await p.$('.page')) break
+    await p.waitForTimeout(60)
+  }
+  await p.waitForTimeout(700)
+}
 
 async function warteAufApp(p, ms = 90000) {
   const bis = Date.now() + ms
@@ -193,7 +222,28 @@ async function abgleichen(p) {
 async function wertAufErnaehrungsseite(p, beschriftung) {
   await geh(p, '/tracking')
   await p.waitForTimeout(1200)
+  return await ableseWert(p, beschriftung)
+}
+
+/**
+ * Den Wert ablesen, so wie Erik ihn sieht.
+ *
+ * Seit die Ernährungsseite die Tageswerte als Kacheln zeigt, steht die Zahl
+ * nicht mehr in einem Eingabefeld. Gelesen wird deshalb die Kachel – was auch
+ * ehrlicher ist: Gemeint war nie „steht es in einem Feld", sondern „steht die
+ * Zahl da". Fällt nichts auf die Kachel, wird hilfsweise noch in den
+ * Eingabezeilen nachgesehen (Schlaf, Befinden, Körper stehen weiterhin dort).
+ */
+async function ableseWert(p, beschriftung) {
   return await p.evaluate((label) => {
+    const kacheln = [...document.querySelectorAll('.wert-kachel')]
+    const kachel = kacheln.find((k) =>
+      (k.querySelector('.wert-kachel-name')?.textContent ?? '').trim() === label)
+    if (kachel) {
+      const zahl = kachel.querySelector('.wert-kachel-zahl')
+      const roh = (zahl?.firstChild?.textContent ?? '').trim()
+      return roh === '–' ? '' : roh
+    }
     const zeilen = [...document.querySelectorAll('.progress-row')]
     const treffer = zeilen.find((z) => z.innerText.trim().startsWith(label))
     const input = treffer?.querySelector('input')

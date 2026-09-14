@@ -41,7 +41,18 @@ const pruefe = (name, ok, zusatz = '') => {
   else { console.log(`  FEHL ${name}${zusatz ? ' – ' + zusatz : ''}`); fehler++ }
 }
 
-const heute = new Date().toISOString().slice(0, 10)
+/**
+ * Der heutige Tag in ORTSZEIT – so, wie die App ihn sieht.
+ *
+ * `new Date().toISOString()` liefert das Datum in UTC. Östlich von Greenwich
+ * ist das zwischen 22 Uhr und Mitternacht noch der Vortag: Der Test legte sein
+ * Tagebuch dann auf den 14., während LifeHub den 15. anzeigte – und der Test
+ * meldete, es käme nichts an. Ein Fehler, der nur abends auftritt und tagsüber
+ * nicht nachzustellen ist.
+ */
+const ortsdatum = (d = new Date()) =>
+  new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const heute = ortsdatum()
 const tagVor = (n) => new Date(Date.parse(heute + 'T00:00:00Z') - n * 86400000).toISOString().slice(0, 10)
 
 /** Deterministischer Zufall – ein Test, der mal durchläuft und mal nicht, taugt nichts. */
@@ -107,7 +118,25 @@ const server = http.createServer((req, res) => {
 
 /* ------------------------------------------------------------ Browserablauf */
 
-const geh = async (p, hash) => { await p.goto(DATEI + '#' + hash); await p.waitForTimeout(900) }
+/**
+ * Zu einer Seite gehen – und warten, bis sie WIRKLICH da ist.
+ *
+ * `goto` auf eine Datei-Adresse lädt die ganze App neu; sie ist danach nicht
+ * sofort fertig, sondern erst, wenn Datenbank, Migrationen und Seed durch
+ * sind. Eine feste Wartezeit ist dafür der falsche Maßstab: Sie ist auf einer
+ * leeren Datenbank zu lang und auf einer vollen zu kurz – und dann liest der
+ * Test leere Felder ab und meldet einen Fehler, den es nicht gibt. Genau das
+ * ist hier passiert, als die Seite um ein paar Elemente wuchs.
+ */
+const geh = async (p, hash) => {
+  await p.goto(DATEI + '#' + hash)
+  const bis = Date.now() + 60000
+  while (Date.now() < bis) {
+    if (await p.$('.page')) break
+    await p.waitForTimeout(60)
+  }
+  await p.waitForTimeout(700)
+}
 
 async function warteAufApp(p, ms = 90000) {
   const bis = Date.now() + ms
