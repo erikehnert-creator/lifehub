@@ -345,6 +345,31 @@ async function main() {
   const gegessen = await p.evaluate(() => document.body.innerText)
   pruefe('Das Lebensmittel selbst steht darunter', /Haferflocken/.test(gegessen))
 
+  // Nebenbei, auf Wunsch: Die Ernährungsseite MIT Mahlzeiten fotografieren.
+  // Der Beispielbestand kennt keine einzelnen Lebensmittel, nur dieser Lauf.
+  //   LIFEHUB_ANSICHT=1 node tests/fatsecret-alltag-e2e.mjs
+  if (process.env.LIFEHUB_ANSICHT) {
+    const ziel = path.join(WURZEL, 'tests', 'ansichten')
+    fs.mkdirSync(ziel, { recursive: true })
+    for (const [geraet, groesse] of [['handy', { width: 390, height: 844 }], ['desktop', { width: 1400, height: 1000 }]]) {
+      for (const modus of ['light', 'dark']) {
+        await p.setViewportSize(groesse)
+        await p.emulateMedia({ colorScheme: modus })
+        await geh(p, '/tracking')
+        await p.waitForTimeout(900)
+        await p.screenshot({ path: path.join(ziel, `ernaehrung-mahlzeiten-${geraet}-${modus}.png`) })
+        const lang = await p.addStyleTag({ content:
+          'html,body,#root,.app,.main{height:auto!important;overflow:visible!important}' +
+          '.content{overflow:visible!important;flex:none!important}' })
+        await p.waitForTimeout(200)
+        await p.screenshot({ path: path.join(ziel, `ernaehrung-mahlzeiten-${geraet}-${modus}-lang.png`), fullPage: true })
+        await lang.evaluate((el) => el.remove())
+      }
+    }
+    await p.setViewportSize({ width: 1400, height: 1000 })
+    await p.emulateMedia({ colorScheme: 'light' })
+  }
+
   /* ---------------------------------------------- 4. Wasser bleibt manuell */
   pruefe('Wasser lässt sich von Hand eintragen', await wasserEintragen(p, '2,5'))
 

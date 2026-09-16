@@ -12,8 +12,13 @@
  * die auf dem Handy wirklich stören und die man auf einem Bild leicht
  * übersieht.
  *
+ * Fotografiert wird mit dem eingebauten Beispielbestand (6 Monate Buchungen,
+ * Tracking, Training) – eine leere App sieht anders aus als eine benutzte, und
+ * echte Daten gehören nicht in Bildschirmfotos.
+ *
  * Aufruf:  node tests/ansicht.mjs [seite ...]
  *          node tests/ansicht.mjs heute tracking
+ *          node tests/ansicht.mjs --unterseiten     auch die Reiter (hell)
  */
 import { chromium } from 'playwright'
 import { fileURLToPath } from 'node:url'
@@ -25,16 +30,46 @@ const DATEI = 'file:///' + path.join(WURZEL, process.env.LIFEHUB_HTML ?? 'LifeHu
 const ZIEL = path.join(WURZEL, 'tests', 'ansichten')
 
 const SEITEN = {
-  heute: '#/',
-  zusammenhaenge: '#/analysen/zusammenhaenge',
-  tracking: '#/tracking',
+  heute: '#/heute',
   finanzen: '#/finanzen',
   plan: '#/plan',
-  kalender: '#/kalender',
+  tracking: '#/tracking',
+  kalender: '#/plan/kalender',
   einkauf: '#/einkauf',
   ziele: '#/ziele',
   analysen: '#/analysen',
+  zusammenhaenge: '#/analysen/zusammenhaenge',
+  suche: '#/suche',
   einstellungen: '#/einstellungen',
+}
+
+/** Die Reiter unterhalb der Hauptseiten – nur hell, Handy und Schreibtisch. */
+const UNTERSEITEN = {
+  'finanzen-buchungen': '#/finanzen/buchungen',
+  'finanzen-konten': '#/finanzen/konten',
+  'finanzen-budgets': '#/finanzen/budgets',
+  'finanzen-wiederkehrend': '#/finanzen/wiederkehrend',
+  'finanzen-finanztag': '#/finanzen/finanztag',
+  'finanzen-investments': '#/finanzen/investments',
+  'plan-woche': '#/plan/woche',
+  'plan-inbox': '#/plan/inbox',
+  'plan-alle': '#/plan/alle',
+  'plan-arbeit': '#/plan/arbeit',
+  'plan-vorlagen': '#/plan/vorlagen',
+  'tracking-verlauf': '#/tracking/verlauf',
+  'tracking-training': '#/tracking/training',
+  'tracking-koerper': '#/tracking/koerper',
+  'tracking-ziele': '#/tracking/ziele',
+  'einstellungen-konten': '#/einstellungen/konten',
+  'einstellungen-kategorien': '#/einstellungen/kategorien',
+  'einstellungen-tracking': '#/einstellungen/tracking',
+  'einstellungen-ernaehrung': '#/einstellungen/ernaehrung',
+  'einstellungen-daten': '#/einstellungen/daten',
+  'einstellungen-sicherheit': '#/einstellungen/sicherheit',
+  'einstellungen-import': '#/einstellungen/import',
+  'einstellungen-papierkorb': '#/einstellungen/papierkorb',
+  'einstellungen-sync': '#/einstellungen/sync',
+  'einstellungen-ki': '#/einstellungen/ki',
 }
 
 const GERAETE = [
@@ -46,8 +81,21 @@ const GERAETE = [
 ]
 const MODI = ['light', 'dark']
 
-const gewuenscht = process.argv.slice(2)
+const argumente = process.argv.slice(2)
+const mitUnterseiten = argumente.includes('--unterseiten')
+const gewuenscht = argumente.filter((a) => !a.startsWith('--'))
 const seiten = Object.entries(SEITEN).filter(([k]) => !gewuenscht.length || gewuenscht.includes(k))
+
+/** Den Beispielbestand anlegen – derselbe Knopf, den Erik in den Einstellungen hat. */
+async function beispieldaten(p) {
+  await p.goto(DATEI + '#/einstellungen/daten')
+  const knopf = p.locator('button', { hasText: 'Beispieldaten erzeugen' })
+  for (let i = 0; i < 50 && !(await knopf.count()); i++) await p.waitForTimeout(100)
+  if (!(await knopf.count())) throw new Error('Knopf „Beispieldaten erzeugen" nicht gefunden')
+  await knopf.first().click()
+  await p.locator('text=/Beispieldatensätze angelegt/').first().waitFor({ timeout: 60000 })
+  await p.waitForTimeout(1500)
+}
 
 /** Was auf dem Handy wirklich stört – und sich messen lässt. */
 async function messen(p) {
@@ -117,18 +165,34 @@ async function main() {
       })
       const p = await ctx.newPage()
       await p.goto(DATEI)
-      // Auf die App warten, dann den Beispielbestand stehen lassen.
       for (let i = 0; i < 200 && !(await p.$('.page')); i++) await p.waitForTimeout(100)
       await p.waitForTimeout(1500)
+      await beispieldaten(p)
 
-      for (const [name, hash] of seiten) {
+      const liste = [...seiten]
+      if (mitUnterseiten && modus === 'light') liste.push(...Object.entries(UNTERSEITEN))
+      for (const [name, hash] of liste) {
         await p.goto(DATEI + hash)
         await p.waitForTimeout(900)
-        const datei = path.join(ZIEL, `${name}-${geraet.name}-${modus}.png`)
-        await p.screenshot({ path: datei, fullPage: geraet.name === 'handy' })
+        // Die Suche zeigt leer nur ein Eingabefeld – mit einem Begriff das, wofür sie da ist.
+        if (name === 'suche') {
+          await p.locator('input').first().fill('REWE')
+          await p.waitForTimeout(700)
+        }
+        // Zuerst der erste Bildschirm – das, was man ohne Scrollen sieht.
+        await p.screenshot({ path: path.join(ZIEL, `${name}-${geraet.name}-${modus}.png`) })
         if (geraet.name === 'handy' && modus === 'light') {
           befunde.push({ seite: name, ...(await messen(p)) })
         }
+        // Dann die ganze Seite. Gescrollt wird in .content, nicht im Dokument –
+        // `fullPage` allein sähe deshalb nur den ersten Bildschirm. Für die
+        // Aufnahme wird die Höhenbegrenzung kurz aufgehoben.
+        const lang = await p.addStyleTag({ content:
+          'html,body,#root,.app,.main{height:auto!important;overflow:visible!important}' +
+          '.content{overflow:visible!important;flex:none!important}' })
+        await p.waitForTimeout(200)
+        await p.screenshot({ path: path.join(ZIEL, `${name}-${geraet.name}-${modus}-lang.png`), fullPage: true })
+        await lang.evaluate((el) => el.remove())
       }
       await ctx.close()
     }
