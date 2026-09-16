@@ -933,3 +933,68 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .mehr-liste .ico { display: flex; }
 .mobile-nav button.active .ico { color: var(--accent); }
 .fab { font-size: 0; }
+
+.card-title { display: flex; align-items: center; gap: 7px; }
+.card-ico { display: inline-flex; color: var(--text-muted); }
+
+/* ------------------------------------------------------------------ Heute */
+/* Spalten statt Raster: Kurze Karten werden nicht auf die Höhe der langen
+   daneben gestreckt, und es bleibt keine leere Fläche unter ihnen stehen. */
+.heute-raster { columns: 2; column-gap: 14px; }
+.heute-raster > .card { break-inside: avoid; margin-bottom: 14px; display: block; }
+@media (max-width: 1080px) { .heute-raster { columns: 1; } }
+
+.list.kompakt .list-row { padding: 9px 0; }
+.list.kompakt .list-row:hover { background: none; }
+
+.kennzeilen { display: flex; flex-direction: column; }
+.kennzeile { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.kennzeile:last-child { border-bottom: 0; }
+.kennzeile-name { color: var(--text-muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; min-width: 96px; }
+.kennzeile-wert { margin-left: auto; font-weight: 560; text-align: right; font-variant-numeric: tabular-nums; }
+
+.kennzahlen-reihe { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.kennzahl { display: flex; flex-direction: column; min-width: 0; }
+.kennzahl-name { font-size: 12px; color: var(--text-muted); font-weight: 560; }
+.kennzahl-wert { font-size: 19px; font-weight: 680; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kennzahl-wert.klein { font-size: 15.5px; }
+.kennzahl-zusatz { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kennzahl-zusatz.warn { color: var(--warn-text); font-weight: 600; }
+.kennzahl-zusatz.crit { color: var(--critical); font-weight: 600; }
+.warnzeile { margin-top: 10px; font-size: 13px; color: var(--critical); }
+
+.mini-werte { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px 14px; }
+@media (max-width: 1400px) { .mini-werte { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.mini-wert { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mini-wert .meter { height: 5px; }
+.mini-wert-name { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-wert-zahl { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mini-wert-einheit { font-size: 11.5px; color: var(--text-muted); font-weight: 500; margin-left: 3px; }
+.mini-wert-ziel { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+
+.stapel.eng { gap: 8px; }
+.hinweis-zeile { padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface-2); }
+.hinweis-zeile.warn { box-shadow: inset 3px 0 0 var(--warning); }
+.hinweis-zeile.crit { box-shadow: inset 3px 0 0 var(--critical); }
+.hinweis-titel { font-weight: 600; font-size: 14px; }
+.hinweis-mehr { padding-left: 0; margin-top: 2px; }
+.hinweis-herleitung p { margin: 4px 0 8px; }
+.hinweis-herleitung dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+.hinweis-herleitung dt { font-weight: 600; }
+.hinweis-herleitung dd { margin: 0; overflow-wrap: anywhere; }
+
+.automatik-meldungen { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.automatik-meldung {
+  display: flex; align-items: center; gap: 9px; padding: 4px 4px 4px 12px;
+  border-radius: var(--r-sm); background: var(--surface-2); font-size: 13px;
+}
+.automatik-text { flex: 1; min-width: 0; }
+
+/* Terminband: hebt sich über Linie und Uhrzeit ab, nicht über eine Farbfläche. */
+.termin-band { border: 1px solid var(--border); border-left: 3px solid var(--bereich-plan); background: var(--surface-1); }
+.termin-band-titel { color: var(--text); display: inline-flex; align-items: center; gap: 7px; }
+.termin-band-titel .icon { color: var(--bereich-plan); }
+.termin-zeit { color: var(--text); }
+.termin-zeile { background: var(--surface-2); border-color: transparent; }
+.termin-zeile:hover { border-color: var(--border-strong); }
+.termin-pfeil { display: flex; }

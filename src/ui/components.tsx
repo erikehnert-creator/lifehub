@@ -1,17 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { registerInput } from '../core/money'
 import { parseDuration, durationToInput, formatDuration, liveDurationPreview } from '../core/dates'
+import { Icon, type IconName } from './icons'
 
-export function Card({ title, sub, action, children, className = '' }: {
+export function Card({ title, sub, action, children, className = '', icon, farbe }: {
   title?: React.ReactNode; sub?: React.ReactNode; action?: React.ReactNode
   children: React.ReactNode; className?: string
+  /** Symbol vor dem Titel – ordnet die Karte einem Bereich zu. */
+  icon?: IconName
+  /** Farbe des Symbols, üblicherweise eine Bereichsfarbe. Ohne: neutral. */
+  farbe?: string
 }) {
   return (
     <div className={`card ${className}`}>
       {(title || action) && (
         <div className="card-head">
           <div>
-            {title && <h3 className="card-title">{title}</h3>}
+            {title && (
+              <h3 className="card-title">
+                {icon && <span className="card-ico" style={{ color: farbe }}><Icon name={icon} size={16} /></span>}
+                {title}
+              </h3>
+            )}
             {sub && <div className="card-sub">{sub}</div>}
           </div>
           {action && <div className="card-action">{action}</div>}
