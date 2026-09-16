@@ -325,8 +325,12 @@ async function main() {
 
   const wartend = await p.evaluate(() => {
     const t = document.body.innerText
-    const m = t.match(/Wartende Änderungen\s*(\d+)/)
-    return m ? Number(m[1]) : -1
+    // Die Statuskarte nennt wartende Änderungen nur, wenn es welche gibt.
+    // Fehlt die Karte selbst, ist das ein Fehler (-1) und kein „nichts wartet".
+    const karte = [...document.querySelectorAll('.card')].some((c) => /^\s*Status/.test(c.textContent ?? ''))
+    if (!karte) return -1
+    const m = t.match(/([\d.]+) Änderungen warten auf Übertragung/)
+    return m ? Number(m[1].replace(/\./g, '')) : 0
   })
   pruefe('Kein Eintrag bleibt in der Outbox hängen', wartend === 0, `Wartende Änderungen: ${wartend}`)
 

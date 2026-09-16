@@ -60,16 +60,15 @@ const UNTERSEITEN = {
   'tracking-training': '#/tracking/training',
   'tracking-koerper': '#/tracking/koerper',
   'tracking-ziele': '#/tracking/ziele',
-  'einstellungen-konten': '#/einstellungen/konten',
-  'einstellungen-kategorien': '#/einstellungen/kategorien',
-  'einstellungen-tracking': '#/einstellungen/tracking',
-  'einstellungen-ernaehrung': '#/einstellungen/ernaehrung',
+  'einstellungen-allgemein': '#/einstellungen/allgemein',
+  'einstellungen-sync': '#/einstellungen/sync',
+  'einstellungen-quellen': '#/einstellungen/quellen',
+  'einstellungen-naehrwerte': '#/einstellungen/naehrwerte',
+  'einstellungen-darstellung': '#/einstellungen/darstellung',
+  'einstellungen-automatik': '#/einstellungen/automatik',
   'einstellungen-daten': '#/einstellungen/daten',
   'einstellungen-sicherheit': '#/einstellungen/sicherheit',
-  'einstellungen-import': '#/einstellungen/import',
-  'einstellungen-papierkorb': '#/einstellungen/papierkorb',
-  'einstellungen-sync': '#/einstellungen/sync',
-  'einstellungen-ki': '#/einstellungen/ki',
+  'einstellungen-erweitert': '#/einstellungen/erweitert',
 }
 
 const GERAETE = [
@@ -88,7 +87,7 @@ const seiten = Object.entries(SEITEN).filter(([k]) => !gewuenscht.length || gewu
 
 /** Den Beispielbestand anlegen – derselbe Knopf, den Erik in den Einstellungen hat. */
 async function beispieldaten(p) {
-  await p.goto(DATEI + '#/einstellungen/daten')
+  await p.goto(DATEI + '#/einstellungen/erweitert')
   const knopf = p.locator('button', { hasText: 'Beispieldaten erzeugen' })
   for (let i = 0; i < 50 && !(await knopf.count()); i++) await p.waitForTimeout(100)
   if (!(await knopf.count())) throw new Error('Knopf „Beispieldaten erzeugen" nicht gefunden')

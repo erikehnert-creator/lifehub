@@ -887,3 +887,49 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .befund-lag-balken span { display: block; width: 100%; background: var(--border-strong); }
 .befund-lag.stark .befund-lag-balken span { background: var(--accent); }
 .befund-lag-tag { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+/* ------------------------------------------------------------- Rhythmus
+ * Abstände kommen aus dem Behälter (gap), nicht aus mb16/mt12 am Element.
+ * So stoßen Karten nicht mehr aneinander, wenn eine Klasse vergessen wurde,
+ * und kleben Beschriftungen nicht am Hinweis darüber.
+ */
+.stapel { display: flex; flex-direction: column; gap: 14px; }
+.stapel > .mb16 { margin-bottom: 0; }
+.formular { display: flex; flex-direction: column; gap: 16px; }
+
+/* ------------------------------------------------------- Einstellungen */
+.einstellungen-raster { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+.einstellungen-nav { position: sticky; top: 0; display: flex; flex-direction: column; }
+.einstellungen-nav .nav-item { font-size: 13.5px; }
+.einstellungen-titel { font-size: 17px; margin-bottom: 14px; }
+.einstellungen-inhalt { min-width: 0; max-width: 880px; }
+.einstellung-ico {
+  width: 34px; height: 34px; border-radius: 9px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-2); color: var(--text-2);
+}
+.zurueck-knopf { padding-left: 4px; margin-bottom: 6px; }
+.schalter-zeile {
+  display: flex; align-items: flex-start; gap: 11px; padding: 11px 0;
+  border-bottom: 1px solid var(--border); cursor: pointer;
+}
+.schalter-zeile:last-child { border-bottom: 0; }
+.schalter-zeile input { margin-top: 3px; flex: none; }
+.schalter-text { display: flex; flex-direction: column; gap: 1px; }
+.schalter-titel { font-weight: 600; font-size: 14px; }
+
+/* ------------------------------------------------------ Navigation, Status */
+.nav-item .ico { width: 20px; height: 20px; }
+.nav-item.active .ico { color: var(--accent) !important; }
+.seiten-status {
+  margin-top: auto; display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 12px 18px 14px; font-size: 12.5px; color: var(--text-muted); text-align: left;
+}
+.seiten-status:hover { color: var(--text-2); }
+.seiten-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-punkt { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.mehr-liste .list-row { padding-left: 4px; padding-right: 4px; }
+.mehr-liste .list-row.aktiv .list-title { color: var(--accent); }
+.mehr-liste .ico { display: flex; }
+.mobile-nav button.active .ico { color: var(--accent); }
+.fab { font-size: 0; }

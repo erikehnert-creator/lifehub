@@ -16,7 +16,8 @@ export type IconName =
   | 'heute' | 'finanzen' | 'plan' | 'tracking' | 'kalender' | 'einkauf' | 'ziele'
   | 'analysen' | 'suche' | 'einstellungen' | 'mehr' | 'plus' | 'pfeil-rechts'
   | 'training' | 'ernaehrung' | 'schlaf' | 'gewicht' | 'aufgaben' | 'hinweis'
-  | 'sync' | 'schliessen' | 'bearbeiten'
+  | 'sync' | 'schliessen' | 'bearbeiten' | 'quelle' | 'darstellung' | 'automatik' | 'archiv'
+  | 'schloss' | 'regler' | 'zurueck'
 
 const PFADE: Record<IconName, React.ReactNode> = {
   heute: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" /></>,
@@ -41,6 +42,13 @@ const PFADE: Record<IconName, React.ReactNode> = {
   sync: <><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9" /><path d="M18.5 3v4.2h-4.2M5.5 21v-4.2h4.2" /></>,
   schliessen: <path d="M6 6l12 12M18 6 6 18" />,
   bearbeiten: <><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>,
+  quelle: <><ellipse cx="12" cy="6" rx="7.5" ry="2.8" /><path d="M4.5 6v12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" /></>,
+  darstellung: <><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none" /></>,
+  automatik: <path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3Z" />,
+  archiv: <><rect x="3.5" y="4" width="17" height="5" rx="1.5" /><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" /></>,
+  schloss: <><rect x="5" y="10.5" width="14" height="10" rx="2.5" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>,
+  regler: <><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></>,
+  zurueck: <path d="m14 6-6 6 6 6" />,
 }
 
 export function Icon({ name, size = 18, className, title }: {

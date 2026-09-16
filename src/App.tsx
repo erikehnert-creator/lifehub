@@ -26,6 +26,7 @@ import { useFatSecret } from './state/ernaehrung'
 import { automatikTaktMs, type AbgleichAnlass } from './core/fatsecretImport'
 import { pendingChangeCount, hasRemoteChanges } from './sync/engine'
 import { resolvedSyncUrl, resolvedSyncKey } from './sync/config'
+import { Icon, BEREICH_FARBE, type IconName } from './ui/icons'
 
 interface Route { area: string; sub: string; params: Record<string, string> }
 
@@ -62,47 +63,40 @@ function parseHash(): Route {
   return { area: area || 'heute', sub, params }
 }
 
-const NAV = [
-  { area: 'heute', route: '#/heute', icon: '🏠', label: 'Heute' },
-  { area: 'finanzen', route: '#/finanzen', icon: '💰', label: 'Finanzen' },
-  { area: 'plan', route: '#/plan', icon: '📅', label: 'Plan' },
-  { area: 'tracking', route: '#/tracking', icon: '📊', label: 'Tracking' },
+/*
+ * Die Seitenleiste zeigt nur Bereiche. Die Reiter eines Bereichs standen früher
+ * zusätzlich darunter – direkt neben derselben Reiterleiste auf der Seite.
+ */
+type NavEintrag = { area: string; route: string; icon: IconName; label: string }
+
+const NAV: NavEintrag[] = [
+  { area: 'heute', route: '#/heute', icon: 'heute', label: 'Heute' },
+  { area: 'finanzen', route: '#/finanzen', icon: 'finanzen', label: 'Finanzen' },
+  { area: 'plan', route: '#/plan', icon: 'plan', label: 'Plan' },
+  { area: 'tracking', route: '#/tracking', icon: 'tracking', label: 'Tracking' },
 ]
 
-const NAV_MORE = [
-  { area: 'kalender', route: '#/plan/kalender', icon: '🗓️', label: 'Kalender' },
-  { area: 'einkauf', route: '#/einkauf', icon: '🛒', label: 'Einkauf' },
-  { area: 'ziele', route: '#/ziele', icon: '🎯', label: 'Ziele' },
-  { area: 'analysen', route: '#/analysen', icon: '📈', label: 'Analysen' },
-  { area: 'suche', route: '#/suche', icon: '🔍', label: 'Suche' },
-  { area: 'einstellungen', route: '#/einstellungen', icon: '⚙️', label: 'Einstellungen' },
+const NAV_MORE: NavEintrag[] = [
+  { area: 'kalender', route: '#/plan/kalender', icon: 'kalender', label: 'Kalender' },
+  { area: 'einkauf', route: '#/einkauf', icon: 'einkauf', label: 'Einkauf' },
+  { area: 'ziele', route: '#/ziele', icon: 'ziele', label: 'Ziele' },
+  { area: 'analysen', route: '#/analysen', icon: 'analysen', label: 'Analysen' },
+  { area: 'suche', route: '#/suche', icon: 'suche', label: 'Suche' },
+  { area: 'einstellungen', route: '#/einstellungen', icon: 'einstellungen', label: 'Einstellungen' },
 ]
 
-const SUBNAV: Record<string, { route: string; label: string }[]> = {
-  finanzen: [
-    { route: '#/finanzen', label: 'Übersicht' },
-    { route: '#/finanzen/buchungen', label: 'Buchungen' },
-    { route: '#/finanzen/konten', label: 'Konten' },
-    { route: '#/finanzen/budgets', label: 'Budgets' },
-    { route: '#/finanzen/wiederkehrend', label: 'Wiederkehrend' },
-    { route: '#/finanzen/finanztag', label: 'Finanztag' },
-    { route: '#/finanzen/investments', label: 'Investments' },
-  ],
-  plan: [
-    { route: '#/plan', label: 'Heute' },
-    { route: '#/plan/kalender', label: 'Kalender' },
-    { route: '#/plan/woche', label: 'Woche' },
-    { route: '#/plan/inbox', label: 'Inbox' },
-    { route: '#/plan/alle', label: 'Alle Aufgaben' },
-    { route: '#/plan/arbeit', label: 'Arbeitsplan' },
-  ],
-  tracking: [
-    { route: '#/tracking', label: 'Tag' },
-    { route: '#/tracking/verlauf', label: 'Verlauf' },
-    { route: '#/tracking/training', label: 'Training' },
-    { route: '#/tracking/koerper', label: 'Körper' },
-    { route: '#/tracking/ziele', label: 'Zielbereiche' },
-  ],
+/** Der Kalender ist eine Unterseite von Plan, hat aber einen eigenen Eintrag. */
+function aktiverEintrag(route: Route): string {
+  if (route.area === 'plan' && route.sub === 'kalender') return 'kalender'
+  return route.area
+}
+
+function NavSymbol({ n, groesse = 18 }: { n: NavEintrag; groesse?: number }) {
+  return (
+    <span className="ico" style={{ color: BEREICH_FARBE[n.area] }}>
+      <Icon name={n.icon} size={groesse} />
+    </span>
+  )
 }
 
 function Shell() {
@@ -460,11 +454,7 @@ function Shell() {
     }
   }
 
-  const subnav = SUBNAV[route.area]
-  // Für die Hervorhebung zählt nur Bereich + Unterseite, nicht eine angehängte
-  // Filter-Query (z. B. „?uncategorised=1") – sonst würde der Tab bei einer
-  // gefilterten Verlinkung fälschlich als „nicht aktiv" erscheinen.
-  const currentPath = `#/${route.area}${route.sub ? '/' + route.sub : ''}`
+  const aktiv = aktiverEintrag(route)
 
   return (
     <div className="app">
@@ -472,70 +462,36 @@ function Shell() {
         <div className="brand"><span className="mark" /> LifeHub</div>
         <nav className="nav">
           {NAV.map((n) => (
-            <React.Fragment key={n.area}>
-              <button className={`nav-item ${route.area === n.area ? 'active' : ''}`} onClick={() => navigate(n.route)}>
-                <span className="ico">{n.icon}</span> {n.label}
-                {n.area === 'plan' && todayOpen > 0 && <span className="count">{todayOpen}</span>}
-              </button>
-              {route.area === n.area && subnav && (
-                <div style={{ marginLeft: 26, marginBottom: 6 }}>
-                  {subnav.map((s) => (
-                    <button key={s.route}
-                      className={`nav-item ${currentPath === s.route || (route.sub === '' && s.route === n.route) ? 'active' : ''}`}
-                      style={{ fontSize: 13, padding: '5px 10px' }}
-                      onClick={() => navigate(s.route)}>
-                      {s.label}
-                      {s.label === 'Inbox' && inboxCount > 0 && <span className="count">{inboxCount}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </React.Fragment>
+            <button key={n.area} className={`nav-item ${aktiv === n.area ? 'active' : ''}`} onClick={() => navigate(n.route)}>
+              <NavSymbol n={n} /> {n.label}
+              {n.area === 'plan' && todayOpen > 0 && <span className="count">{todayOpen}</span>}
+            </button>
           ))}
           <div className="nav-title">Mehr</div>
           {NAV_MORE.map((n) => (
-            <button key={n.area} className={`nav-item ${route.area === n.area ? 'active' : ''}`} onClick={() => navigate(n.route)}>
-              <span className="ico">{n.icon}</span> {n.label}
+            <button key={n.area} className={`nav-item ${aktiv === n.area ? 'active' : ''}`} onClick={() => navigate(n.route)}>
+              <NavSymbol n={n} /> {n.label}
             </button>
           ))}
         </nav>
-        <div style={{ marginTop: 'auto', padding: '10px 16px' }} className="small muted">
-          <div className="row" style={{ gap: 7 }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: !online ? 'var(--text-muted)' : saveState === 'saving' ? 'var(--warning)' : 'var(--good)',
-            }} />
-            {!online ? 'offline' : saveState === 'saving' ? 'speichert…' : 'gespeichert'}
-          </div>
-          {syncAktiv && (
-            <div className="row" style={{ gap: 7, marginTop: 4 }} title={currentSession()?.email ? `angemeldet als ${currentSession()?.email}` : undefined}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: syncFehler ? 'var(--critical)' : 'var(--series-1)' }} />
-              {abgeglichenText(lastSync)}
-              {currentSession()?.email && <span style={{ opacity: .7 }}>· {currentSession()?.email}</span>}
-            </div>
-          )}
-          {syncAktiv && syncFehler && (
-            <div className="row" style={{ gap: 7, marginTop: 4, color: 'var(--critical)' }} title={syncFehler}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--critical)' }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{syncFehler}</span>
-            </div>
-          )}
-          {syncAktiv && syncUrl && (
-            <div className="row" style={{ gap: 7, marginTop: 4, opacity: .55 }} title="Projekt-URL, mit der dieses Gerät synchronisiert – auf beiden Geräten muss hier dasselbe stehen">
-              <span style={{ width: 8, height: 8 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {String(syncUrl).replace(/^https?:\/\//, '')}
-              </span>
-            </div>
-          )}
-          {syncFehltNoch && (
-            <button className="row" style={{ gap: 7, marginTop: 4, background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'var(--warning)' }}
-              onClick={() => navigate('#/einstellungen/sync')}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--warning)' }} />
-              Sync eingerichtet, aber inaktiv – {syncFehltNoch}
-            </button>
-          )}
-        </div>
+        {/* Eine ruhige Zeile statt drei: gespeichert, abgeglichen, Projektadresse.
+            Die Einzelheiten stehen unter Einstellungen › Konto & Synchronisation. */}
+        <button className="seiten-status" onClick={() => navigate('#/einstellungen/sync')}
+          title={syncFehler ?? (currentSession()?.email ? `angemeldet als ${currentSession()?.email}` : undefined)}>
+          <span className="status-punkt" style={{
+            background: !online ? 'var(--text-muted)'
+              : syncAktiv && syncFehler ? 'var(--critical)'
+              : syncFehltNoch ? 'var(--warning)'
+              : saveState === 'saving' ? 'var(--text-muted)' : 'var(--good)',
+          }} />
+          <span className="seiten-status-text">
+            {!online ? 'offline'
+              : syncAktiv && syncFehler ? 'Abgleich fehlgeschlagen'
+              : syncAktiv ? abgeglichenText(lastSync)
+              : syncFehltNoch ? `Sync ${syncFehltNoch}`
+              : saveState === 'saving' ? 'speichert …' : 'gespeichert'}
+          </span>
+        </button>
       </aside>
 
       <main className="main">
@@ -546,7 +502,7 @@ function Shell() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span className="mark" style={{ width: 22, height: 22, borderRadius: 7 }} />
             <strong style={{ letterSpacing: '-.02em' }}>
-              {NAV.concat(NAV_MORE).find((n) => n.area === route.area)?.label ?? 'LifeHub'}
+              {NAV.concat(NAV_MORE).find((n) => n.area === aktiv)?.label ?? 'LifeHub'}
             </strong>
           </div>
           <span style={{ flex: 1 }} />
@@ -578,16 +534,16 @@ function Shell() {
         </div>
       </main>
 
-      <button className="fab" onClick={() => openQuickAdd()} aria-label="Neu erfassen">＋</button>
+      <button className="fab" onClick={() => openQuickAdd()} aria-label="Neu erfassen"><Icon name="plus" size={26} /></button>
 
       <nav className="mobile-nav">
         {NAV.map((n) => (
-          <button key={n.area} className={route.area === n.area ? 'active' : ''} onClick={() => navigate(n.route)}>
-            <span className="ico">{n.icon}</span>{n.label}
+          <button key={n.area} className={aktiv === n.area ? 'active' : ''} onClick={() => navigate(n.route)}>
+            <span className="ico"><Icon name={n.icon} size={21} /></span>{n.label}
           </button>
         ))}
-        <button className={NAV_MORE.some((n) => n.area === route.area) ? 'active' : ''} onClick={() => setMoreOpen(true)}>
-          <span className="ico">⋯</span>Mehr
+        <button className={NAV_MORE.some((n) => n.area === aktiv) ? 'active' : ''} onClick={() => setMoreOpen(true)}>
+          <span className="ico"><Icon name="mehr" size={21} /></span>Mehr
         </button>
       </nav>
 
@@ -597,21 +553,15 @@ function Shell() {
             <div className="modal-head"><div className="modal-title">Mehr</div>
               <button className="btn btn-ghost btn-sm" onClick={() => setMoreOpen(false)}>Schließen</button></div>
             <div className="modal-body">
-              {NAV_MORE.map((n) => (
-                <button key={n.area} className="btn btn-lg" style={{ justifyContent: 'flex-start' }} onClick={() => navigate(n.route)}>
-                  <span style={{ fontSize: 19 }}>{n.icon}</span> {n.label}
-                </button>
-              ))}
-              {subnav && (
-                <>
-                  <div className="field-label mt8">Bereich</div>
-                  <div className="chips">
-                    {subnav.map((s) => (
-                      <button key={s.route} className="chip" onClick={() => navigate(s.route)}>{s.label}</button>
-                    ))}
-                  </div>
-                </>
-              )}
+              <div className="list mehr-liste">
+                {NAV_MORE.map((n) => (
+                  <button key={n.area} className={`list-row${aktiv === n.area ? ' aktiv' : ''}`} onClick={() => navigate(n.route)}>
+                    <NavSymbol n={n} groesse={20} />
+                    <span className="list-main"><span className="list-title">{n.label}</span></span>
+                    <span className="muted"><Icon name="pfeil-rechts" size={16} /></span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

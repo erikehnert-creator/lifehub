@@ -34,6 +34,7 @@ import {
   type Session, type SyncRolle,
 } from '../sync/auth'
 import { resolvedSyncUrl, resolvedSyncKey, hasBuiltinSyncDefaults, PUBLIC_APP_URL } from '../sync/config'
+import { Icon, type IconName } from '../ui/icons'
 
 const STATES: [string, string][] = [
   ['BW', 'Baden-Württemberg'], ['BY', 'Bayern'], ['BE', 'Berlin'], ['BB', 'Brandenburg'],
@@ -43,153 +44,260 @@ const STATES: [string, string][] = [
   ['TH', 'Thüringen'],
 ]
 
+/**
+ * Die Gruppen der Einstellungen.
+ *
+ * Vorher elf gleichrangige Reiter – „Papierkorb" neben „Allgemein", „KI-Zugriff"
+ * neben „Konten" –, von denen am Handy drei zu sehen waren. Jetzt neun Gruppen
+ * nach dem, was man sucht, nicht nach dem, wie die App gebaut ist. Alles
+ * Technische sammelt sich unter „Erweitert".
+ */
+const GRUPPEN: { key: string; label: string; icon: IconName; hinweis: string }[] = [
+  { key: 'allgemein', label: 'Allgemein', icon: 'einstellungen', hinweis: 'Name, Bundesland, Tagesrhythmus, Standardkonto' },
+  { key: 'sync', label: 'Konto & Synchronisation', icon: 'sync', hinweis: 'Anmeldung und Abgleich zwischen Geräten' },
+  { key: 'quellen', label: 'Datenquellen', icon: 'quelle', hinweis: 'FatSecret, Import aus Dateien' },
+  { key: 'naehrwerte', label: 'Ernährung', icon: 'ernaehrung', hinweis: 'Welche Nährwerte erfasst werden' },
+  { key: 'darstellung', label: 'Darstellung', icon: 'darstellung', hinweis: 'Hell, dunkel, Startseite' },
+  { key: 'automatik', label: 'Automatisierung', icon: 'automatik', hinweis: 'Was LifeHub von selbst erledigt' },
+  { key: 'daten', label: 'Daten & Backup', icon: 'archiv', hinweis: 'Export, Sicherung, Papierkorb' },
+  { key: 'sicherheit', label: 'Sicherheit', icon: 'schloss', hinweis: 'PIN-Sperre, KI-Zugriff' },
+  { key: 'erweitert', label: 'Erweitert', icon: 'regler', hinweis: 'Trackingwerte, Datenbestand, Beispieldaten' },
+]
+
+/**
+ * Frühere Adressen, die weiter funktionieren müssen.
+ *
+ * `ernaehrung` ist die wichtigste: Dorthin leitet FatSecret nach der Freigabe
+ * zurück (core/fatsecret.ts, oauthRueckweg). Die übrigen sind Lesezeichen und
+ * Verweise aus älteren Fassungen.
+ */
+const ALTE_ADRESSEN: Record<string, string> = {
+  '': 'allgemein', ernaehrung: 'quellen', import: 'quellen', papierkorb: 'daten',
+  ki: 'sicherheit', tracking: 'erweitert',
+}
+
+function useIstHandy(): boolean {
+  const abfrage = '(max-width: 820px)'
+  const [handy, setHandy] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(abfrage).matches)
+  useEffect(() => {
+    const mq = window.matchMedia?.(abfrage)
+    if (!mq) return
+    const h = () => setHandy(mq.matches)
+    mq.addEventListener('change', h)
+    return () => mq.removeEventListener('change', h)
+  }, [])
+  return handy
+}
+
 export function SettingsScreen({ sub, navigate }: { sub: string; navigate: (r: string) => void }) {
-  const tabs = [
-    { key: '', label: 'Allgemein' },
-    { key: 'konten', label: 'Konten' },
-    { key: 'kategorien', label: 'Kategorien' },
-    { key: 'tracking', label: 'Trackingwerte' },
-    { key: 'ernaehrung', label: 'Ernährung' },
-    { key: 'daten', label: 'Daten & Backup' },
-    { key: 'sicherheit', label: 'Sicherheit' },
-    { key: 'import', label: 'Import' },
-    { key: 'papierkorb', label: 'Papierkorb' },
-    { key: 'sync', label: 'Synchronisation' },
-    { key: 'ki', label: 'KI-Zugriff' },
-  ]
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div>
-          <div className="page-title">Einstellungen</div>
-          <div className="page-sub">Alles, was die App an dich anpasst</div>
+  const handy = useIstHandy()
+  // Konten und Kategorien sind eigene Seiten ohne Gruppe – sie gehören zu
+  // Finanzen und werden von „Allgemein" aus verlinkt.
+  const eigeneSeite = sub === 'konten' || sub === 'kategorien'
+  const gruppe = eigeneSeite ? 'allgemein' : (ALTE_ADRESSEN[sub] ?? sub)
+  const aktuell = GRUPPEN.find((g) => g.key === gruppe) ?? GRUPPEN[0]
+  const titel = eigeneSeite ? (sub === 'konten' ? 'Konten' : 'Kategorien') : aktuell.label
+  const geh = (key: string) => navigate(`#/einstellungen/${key}`)
+
+  // Am Handy ist der Einstieg eine Liste der Gruppen, keine Unterseite.
+  if (handy && sub === '') {
+    return (
+      <div className="page">
+        <div className="page-head"><div className="page-title">Einstellungen</div></div>
+        <div className="card pad0">
+          <div className="list">
+            {GRUPPEN.map((g) => (
+              <button key={g.key} className="list-row" onClick={() => geh(g.key)}>
+                <span className="einstellung-ico"><Icon name={g.icon} /></span>
+                <span className="list-main">
+                  <span className="list-title">{g.label}</span>
+                  <span className="list-sub">{g.hinweis}</span>
+                </span>
+                <span className="muted"><Icon name="pfeil-rechts" size={16} /></span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-      <Tabs tabs={tabs} active={sub} onChange={(k) => navigate(`#/einstellungen${k ? '/' + k : ''}`)} />
-      {sub === '' && <GeneralTab />}
+    )
+  }
+
+  const inhalt = (
+    <>
       {sub === 'konten' && <AccountsSettings />}
       {sub === 'kategorien' && <CategoriesTab />}
-      {sub === 'tracking' && <MetricsSettings />}
-      {sub === 'ernaehrung' && <ErnaehrungTab />}
-      {sub === 'daten' && <DataTab />}
-      {sub === 'sicherheit' && <SecurityTab />}
-      {sub === 'import' && <ImportTab />}
-      {sub === 'papierkorb' && <TrashTab />}
-      {sub === 'sync' && <SyncTab />}
-      {sub === 'ki' && <AiTab />}
+      {!eigeneSeite && gruppe === 'allgemein' && <GeneralTab navigate={navigate} />}
+      {gruppe === 'sync' && <SyncTab />}
+      {gruppe === 'quellen' && <div className="stapel"><ErnaehrungTab /><ImportTab /></div>}
+      {gruppe === 'naehrwerte' && <MetricsSettings nurGruppe="nutrition" />}
+      {gruppe === 'darstellung' && <DarstellungTab navigate={navigate} />}
+      {gruppe === 'automatik' && <AutomatikTab />}
+      {gruppe === 'daten' && <div className="stapel"><DataTab /><TrashTab /></div>}
+      {gruppe === 'sicherheit' && <div className="stapel"><SecurityTab /><AiTab /></div>}
+      {gruppe === 'erweitert' && <ErweitertTab />}
+    </>
+  )
+
+  if (handy) {
+    return (
+      <div className="page">
+        <button className="btn btn-ghost btn-sm zurueck-knopf" onClick={() => navigate('#/einstellungen')}>
+          <Icon name="zurueck" size={16} /> Einstellungen
+        </button>
+        <div className="page-head"><div className="page-title">{titel}</div></div>
+        {inhalt}
+      </div>
+    )
+  }
+
+  return (
+    <div className="page">
+      <div className="page-head"><div className="page-title">Einstellungen</div></div>
+      <div className="einstellungen-raster">
+        <nav className="einstellungen-nav" aria-label="Einstellungen">
+          {GRUPPEN.map((g) => (
+            <button key={g.key} className={`nav-item${g.key === gruppe ? ' active' : ''}`} onClick={() => geh(g.key)}>
+              <span className="ico"><Icon name={g.icon} size={17} /></span>{g.label}
+            </button>
+          ))}
+        </nav>
+        <div className="einstellungen-inhalt">
+          <h2 className="einstellungen-titel">{titel}</h2>
+          {inhalt}
+        </div>
+      </div>
     </div>
   )
 }
 
 /* -------------------------------------------------------------- Allgemein */
 
-function GeneralTab() {
+function GeneralTab({ navigate }: { navigate: (r: string) => void }) {
   const data = useData()
   const m = useMutations()
   const s = data.settings
 
   return (
-    <div className="grid grid-2">
-      <Card title="Darstellung">
-        <Field label="Erscheinungsbild">
-          <Chips options={[
-            { value: 'system', label: 'Automatisch' },
-            { value: 'light', label: 'Hell' },
-            { value: 'dark', label: 'Dunkel' },
-          ]} value={s.theme} onChange={(v) => m.setSetting('theme', v as any)} />
-        </Field>
-        <Field label="Name" hint="Wird in der Begrüßung verwendet.">
-          <input className="input" value={s.user_name} onChange={(e) => m.setSetting('user_name', e.target.value)} placeholder="dein Vorname" />
-        </Field>
+    <div className="stapel">
+      <Card title="Persönlich">
+        <div className="formular">
+          <Field label="Name" hint="Wird in der Begrüßung verwendet.">
+            <input className="input" value={s.user_name} onChange={(e) => m.setSetting('user_name', e.target.value)} placeholder="dein Vorname" />
+          </Field>
+          <Field label="Bundesland" hint="Bestimmt die gesetzlichen Feiertage im Kalender.">
+            <select className="select" value={s.state} onChange={(e) => m.setSetting('state', e.target.value)}>
+              {STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            </select>
+          </Field>
+        </div>
       </Card>
 
       <Card title="Tagesrhythmus">
         <Field label="Geplanter Schlaf pro Nacht"
-          hint="Daraus ergibt sich, wie viel Zeit ein Tag überhaupt hergibt – 24 Stunden minus Schlaf. Feste Uhrzeiten musst du nicht mehr pflegen.">
-          <div className="row">
-            <input className="input" style={{ maxWidth: 90 }} inputMode="decimal"
+          hint={`Daraus ergibt sich, wie viel ein Tag hergibt: ${formatDuration(wakingMinutesFor(s.sleep_hours ?? 8))} verplanbar.`}>
+          <div className="chips">
+            {[6, 7, 7.5, 8, 8.5, 9].map((v) => (
+              <button key={v} className={`chip sm ${(s.sleep_hours ?? 8) === v ? 'active' : ''}`}
+                onClick={() => m.setSetting('sleep_hours', v)}>{String(v).replace('.', ',')} h</button>
+            ))}
+            <input className="input" style={{ maxWidth: 80 }} inputMode="decimal" aria-label="Eigener Wert in Stunden"
               value={String(s.sleep_hours ?? 8).replace('.', ',')}
               onChange={(e) => {
                 const v = Number(e.target.value.replace(',', '.'))
                 if (Number.isFinite(v) && v >= 0 && v <= 14) m.setSetting('sleep_hours', v)
               }} />
-            <span className="muted">Stunden</span>
-            <span className="small muted">→ {formatDuration(wakingMinutesFor(s.sleep_hours ?? 8))} verplanbar pro Tag</span>
           </div>
-          <div className="chips mt8">
-            {[6, 7, 7.5, 8, 8.5, 9].map((v) => (
-              <button key={v} className={`chip sm ${(s.sleep_hours ?? 8) === v ? 'active' : ''}`}
-                onClick={() => m.setSetting('sleep_hours', v)}>{String(v).replace('.', ',')} h</button>
-            ))}
-          </div>
-        </Field>
-        <Field label="Bundesland" hint="Bestimmt die gesetzlichen Feiertage im Kalender.">
-          <select className="select" value={s.state} onChange={(e) => m.setSetting('state', e.target.value)}>
-            {STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-          </select>
         </Field>
       </Card>
 
       <Card title="Finanzen">
-        <Field label="Standardkonto" hint="Wird in der Schnelleingabe vorausgewählt.">
-          <select className="select" value={s.default_account_id ?? ''} onChange={(e) => m.setSetting('default_account_id', e.target.value || null)}>
-            <option value="">kein Standard</option>
-            {data.accounts.filter((a) => !a.deleted_at).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Finanztag" hint="Wie oft du deine Finanzen durchgehen möchtest.">
-          <Chips options={[{ value: 'weekly', label: 'wöchentlich' }, { value: 'monthly', label: 'monatlich' }]}
-            value={s.finance_day_interval} onChange={(v) => m.setSetting('finance_day_interval', v as any)} />
-        </Field>
-      </Card>
-
-      {/* Was die App beim Öffnen von allein macht – abschaltbar, weil manche
-          Leute lieber selbst auf den Knopf drücken. */}
-      <Card title="Von allein erledigen" sub="Läuft einmal am Tag, wenn du die App öffnest.">
-        <label className="row" style={{ alignItems: 'flex-start', gap: 9 }}>
-          <input type="checkbox" style={{ marginTop: 4 }}
-            checked={s.auto_book_recurring !== false}
-            onChange={(e) => m.setSetting('auto_book_recurring', e.target.checked)} />
-          <span>
-            <strong>Fällige wiederkehrende Zahlungen buchen</strong>
-            <span className="small muted" style={{ display: 'block' }}>
-              Miete, Handyvertrag, Abos. Der Betrag der Regel gilt ab jetzt – schon gebuchte
-              Zahlungen bleiben unverändert.
-            </span>
-          </span>
-        </label>
-        <label className="row mt12" style={{ alignItems: 'flex-start', gap: 9 }}>
-          <input type="checkbox" style={{ marginTop: 4 }}
-            checked={s.carry_over_tasks !== false}
-            onChange={(e) => m.setSetting('carry_over_tasks', e.target.checked)} />
-          <span>
-            <strong>Offene Aufgaben von gestern mitnehmen</strong>
-            <span className="small muted" style={{ display: 'block' }}>
-              Was liegengeblieben ist, steht am nächsten Morgen wieder im Plan.
-              Aufgaben, die du als festen Termin markiert hast, bleiben an ihrem Tag.
-            </span>
-          </span>
-        </label>
-        <label className="row mt12" style={{ alignItems: 'flex-start', gap: 9 }}>
-          <input type="checkbox" style={{ marginTop: 4 }}
-            checked={s.auto_plan_templates !== false}
-            onChange={(e) => m.setSetting('auto_plan_templates', e.target.checked)} />
-          <span>
-            <strong>Aufgaben aus Vorlagen einplanen</strong>
-            <span className="small muted" style={{ display: 'block' }}>
-              Vier Wochen im Voraus. Es entsteht nur, was an dem Tag noch nicht aus
-              derselben Vorlage da ist – zweimal öffnen legt nichts doppelt an.
-            </span>
-          </span>
-        </label>
-      </Card>
-
-      <Card title="Über LifeHub">
-        <div className="small muted">
-          <p>Deine Daten liegen als echte SQLite-Datenbank auf diesem Gerät. Nichts wird ohne dein Zutun übertragen.</p>
-          <p>Exportformat-Version: {EXPORT_SCHEMA_VERSION} · Tabellen: {SYNCED_TABLES.length}</p>
+        <div className="formular">
+          <Field label="Standardkonto" hint="Wird in der Schnelleingabe vorausgewählt.">
+            <select className="select" value={s.default_account_id ?? ''} onChange={(e) => m.setSetting('default_account_id', e.target.value || null)}>
+              <option value="">kein Standard</option>
+              {data.accounts.filter((a) => !a.deleted_at).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+          <div className="row">
+            <button className="btn btn-sm" onClick={() => navigate('#/finanzen/konten')}>Konten verwalten</button>
+            <button className="btn btn-sm" onClick={() => navigate('#/einstellungen/kategorien')}>Kategorien verwalten</button>
+          </div>
         </div>
       </Card>
+    </div>
+  )
+}
+
+function DarstellungTab({ navigate }: { navigate: (r: string) => void }) {
+  const data = useData()
+  const m = useMutations()
+  return (
+    <div className="stapel">
+      <Card title="Erscheinungsbild">
+        <Chips options={[
+          { value: 'system', label: 'Automatisch' },
+          { value: 'light', label: 'Hell' },
+          { value: 'dark', label: 'Dunkel' },
+        ]} value={data.settings.theme} onChange={(v) => m.setSetting('theme', v as any)} />
+      </Card>
+      <Card title="Startseite" sub="Welche Blöcke auf „Heute“ stehen und in welcher Reihenfolge.">
+        <button className="btn btn-sm" onClick={() => navigate('#/heute')}>Auf „Heute" über „Anpassen" ändern</button>
+      </Card>
+    </div>
+  )
+}
+
+function AutomatikTab() {
+  const data = useData()
+  const m = useMutations()
+  const s = data.settings
+  const schalter: { key: 'auto_book_recurring' | 'carry_over_tasks' | 'auto_plan_templates'; titel: string; text: string }[] = [
+    { key: 'auto_book_recurring', titel: 'Fällige wiederkehrende Zahlungen buchen',
+      text: 'Miete, Handyvertrag, Abos. Schon gebuchte Zahlungen bleiben unverändert.' },
+    { key: 'carry_over_tasks', titel: 'Offene Aufgaben von gestern mitnehmen',
+      text: 'Was liegengeblieben ist, steht am nächsten Morgen wieder im Plan. Feste Termine bleiben an ihrem Tag.' },
+    { key: 'auto_plan_templates', titel: 'Aufgaben aus Vorlagen einplanen',
+      text: 'Vier Wochen im Voraus, ohne Doppel.' },
+  ]
+  return (
+    <div className="stapel">
+      <Card title="Von allein erledigen" sub="Läuft, wenn du die App öffnest. Was dabei passiert ist, steht auf „Heute“.">
+        <div className="list">
+          {schalter.map((x) => (
+            <label key={x.key} className="schalter-zeile">
+              <input type="checkbox" checked={s[x.key] !== false} onChange={(e) => m.setSetting(x.key, e.target.checked)} />
+              <span className="schalter-text">
+                <span className="schalter-titel">{x.titel}</span>
+                <span className="small muted">{x.text}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </Card>
+      <Card title="Finanztag" sub="Wie oft du deine Finanzen durchgehen möchtest.">
+        <Chips options={[{ value: 'weekly', label: 'wöchentlich' }, { value: 'monthly', label: 'monatlich' }]}
+          value={s.finance_day_interval} onChange={(v) => m.setSetting('finance_day_interval', v as any)} />
+      </Card>
+    </div>
+  )
+}
+
+/** Alles, was man selten braucht – und dann genau wissen will. */
+function ErweitertTab() {
+  return (
+    <div className="stapel">
+      <MetricsSettings />
+      <div className="grid grid-2">
+        <DatenbestandKarte />
+        <BeispieldatenKarte />
+      </div>
+      <Card title="Über LifeHub">
+        <div className="small muted">
+          Deine Daten liegen als SQLite-Datenbank auf diesem Gerät. Exportformat-Version {EXPORT_SCHEMA_VERSION},
+          {' '}{SYNCED_TABLES.length} synchronisierte Tabellen.
+        </div>
+      </Card>
+      <DatenLoeschenKarte />
     </div>
   )
 }
@@ -293,23 +401,9 @@ function CategoryEditor({ category, onClose }: { category: any | null; onClose: 
 function DataTab() {
   const data = useData()
   const m = useMutations()
-  const { toasts } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState('')
-  const [confirmWipe, setConfirmWipe] = useState(false)
   const [restoreMode, setRestoreMode] = useState<'replace' | 'merge'>('replace')
   const [pendingRestore, setPendingRestore] = useState<{ json: string; info: any } | null>(null)
-
-  const counts = useMemo(() => {
-    const out: { table: string; n: number }[] = []
-    for (const t of SYNCED_TABLES) {
-      const r = all<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t} WHERE deleted_at IS NULL`)
-      out.push({ table: t, n: Number(r[0]?.n ?? 0) })
-    }
-    return out.filter((x) => x.n > 0).sort((a, b) => b.n - a.n)
-  }, [data])
-
-  const totalRows = counts.reduce((s, c) => s + c.n, 0)
 
   const doExport = (kind: string) => {
     const stamp = timestampSuffix()
@@ -369,43 +463,6 @@ function DataTab() {
           <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void onRestoreFile(f); e.target.value = '' }} />
           <button className="btn" onClick={() => fileRef.current?.click()}>Export-Datei auswählen…</button>
-          <div className="mt16">
-            <Collapsible label="Alle Daten löschen">
-              <div className="hint-box mb8">
-                Setzt die Anwendung auf den Auslieferungszustand zurück. Lade vorher einen Vollexport herunter.
-              </div>
-              <button className="btn btn-danger" onClick={() => setConfirmWipe(true)}>Datenbank zurücksetzen</button>
-            </Collapsible>
-          </div>
-        </Card>
-      </div>
-
-      <div className="grid grid-2">
-        <Card title="Datenbestand" sub={`${totalRows.toLocaleString('de-DE')} Datensätze insgesamt`}>
-          <div className="scroll-x">
-            <table className="data">
-              <thead><tr><th>Tabelle</th><th className="num">Datensätze</th></tr></thead>
-              <tbody>
-                {counts.map((c) => <tr key={c.table}><td>{c.table}</td><td className="num">{c.n.toLocaleString('de-DE')}</td></tr>)}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card title="Beispieldaten" sub="Zum Ausprobieren – erzeugt 6 Monate realistische Buchungen, Tracking- und Trainingsdaten.">
-          <div className="hint-box mb16">
-            Nützlich, um die Auswertungen zu sehen, bevor du eigene Daten erfasst. Alles Erzeugte lässt sich
-            über den Papierkorb oder das Zurücksetzen wieder entfernen.
-          </div>
-          <button className="btn" disabled={!!busy} onClick={() => {
-            setBusy('demo')
-            setTimeout(() => {
-              const n = seedDemoData()
-              m.reload()
-              m.toast(`${n} Beispieldatensätze angelegt`)
-              setBusy('')
-            }, 30)
-          }}>{busy === 'demo' ? 'Erzeuge…' : 'Beispieldaten erzeugen'}</button>
         </Card>
       </div>
 
@@ -441,12 +498,66 @@ function DataTab() {
         </Modal>
       )}
 
+    </>
+  )
+}
+
+function DatenbestandKarte() {
+  const data = useData()
+  const counts = useMemo(() => {
+    const out: { table: string; n: number }[] = []
+    for (const t of SYNCED_TABLES) {
+      const r = all<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t} WHERE deleted_at IS NULL`)
+      out.push({ table: t, n: Number(r[0]?.n ?? 0) })
+    }
+    return out.filter((x) => x.n > 0).sort((a, b) => b.n - a.n)
+  }, [data])
+  const totalRows = counts.reduce((s, c) => s + c.n, 0)
+  return (
+    <Card title="Datenbestand" sub={`${totalRows.toLocaleString('de-DE')} Datensätze insgesamt`}>
+      <Collapsible label="Je Tabelle anzeigen">
+        <div className="scroll-x">
+          <table className="data">
+            <thead><tr><th>Tabelle</th><th className="num">Datensätze</th></tr></thead>
+            <tbody>
+              {counts.map((c) => <tr key={c.table}><td>{c.table}</td><td className="num">{c.n.toLocaleString('de-DE')}</td></tr>)}
+            </tbody>
+          </table>
+        </div>
+      </Collapsible>
+    </Card>
+  )
+}
+
+function BeispieldatenKarte() {
+  const m = useMutations()
+  const [busy, setBusy] = useState(false)
+  return (
+    <Card title="Beispieldaten" sub="Sechs Monate erfundene Buchungen, Tracking- und Trainingsdaten – zum Ausprobieren.">
+      <button className="btn" disabled={busy} onClick={() => {
+        setBusy(true)
+        setTimeout(() => {
+          const n = seedDemoData()
+          m.reload()
+          m.toast(`${n} Beispieldatensätze angelegt`)
+          setBusy(false)
+        }, 30)
+      }}>{busy ? 'Erzeuge…' : 'Beispieldaten erzeugen'}</button>
+    </Card>
+  )
+}
+
+function DatenLoeschenKarte() {
+  const [confirmWipe, setConfirmWipe] = useState(false)
+  return (
+    <Card title="Alle Daten löschen" sub="Setzt LifeHub auf den Auslieferungszustand zurück. Vorher einen Vollexport herunterladen.">
+      <button className="btn btn-danger" onClick={() => setConfirmWipe(true)}>Datenbank zurücksetzen</button>
       <Confirm open={confirmWipe} title="Wirklich alle Daten löschen?"
         message="Alle Konten, Buchungen, Aufgaben und Trackingwerte werden entfernt. Das lässt sich nur über einen Export rückgängig machen."
         confirmLabel="Endgültig löschen" danger
         onCancel={() => setConfirmWipe(false)}
         onConfirm={async () => { await wipeDatabase(); location.reload() }} />
-    </>
+    </Card>
   )
 }
 
@@ -811,17 +922,31 @@ function SyncTab() {
     }
   }
 
+  // Der Zustand, den man wirklich wissen will. Vorher stand hier „Verbindung:
+  // online", sobald der Browser Netz hatte – auch ohne Anmeldung, also genau
+  // dann, wenn gar nichts synchronisiert wurde.
+  const zustand = syncZustand({ configured, angemeldet: !!session, rolle: !!rolle, online })
+
   return (
     <>
-      <div className="grid grid-3 keep2 mb16">
-        <Card><Stat label="Verbindung" value={online ? 'online' : 'offline'} /></Card>
-        <Card><Stat label="Wartende Änderungen" value={String(pending)} /></Card>
-        <Card><Stat label="Offene Konflikte" value={String(conflicts)} /></Card>
-      </div>
+      <Card className="mb16" title="Status">
+        <div className="row">
+          <span className={`pill ${zustand.ton}`}>{zustand.text}</span>
+          <span className="small muted">{zustand.detail}</span>
+        </div>
+        {(pending > 0 || conflicts > 0) && (
+          <div className="small muted mt8">
+            {pending > 0 && `${pending.toLocaleString('de-DE')} Änderungen warten auf Übertragung`}
+            {pending > 0 && conflicts > 0 && ' · '}
+            {conflicts > 0 && <span style={{ color: 'var(--warn-text)' }}>{conflicts} offene Konflikte</span>}
+          </div>
+        )}
+      </Card>
 
       <DublettenKarte />
 
-      <Card className="mb16" title="Wie die Synchronisation funktioniert">
+      <div className="mb16">
+      <Collapsible label="Wie funktioniert die Synchronisation?">
         <div className="hint-box">
           <p style={{ marginTop: 0 }}>
             Die App ist <strong>local first</strong>: Jede Änderung wird sofort auf dem Gerät gespeichert und in ein
@@ -838,7 +963,8 @@ function SyncTab() {
             nichts heraus – der öffentliche Schlüssel allein reicht nicht.
           </p>
         </div>
-      </Card>
+      </Collapsible>
+      </div>
 
       {nutztWerkseinstellung ? (
         <Card className="mb16" title="Server">
@@ -993,6 +1119,22 @@ function SyncTab() {
         onConfirm={() => { setConfirmPush(false); void doSync('senden') }} />
     </>
   )
+}
+
+/**
+ * Was die Synchronisation gerade tut – in einem Wort und einem Satz.
+ *
+ * `online` allein sagt nur, ob der Browser Netz hat. Ob abgeglichen wird,
+ * hängt zusätzlich an Serverangaben, Anmeldung und der einmaligen Rollenwahl.
+ */
+export function syncZustand({ configured, angemeldet, rolle, online }: {
+  configured: boolean; angemeldet: boolean; rolle: boolean; online: boolean
+}): { text: string; detail: string; ton: '' | 'good' | 'warn' } {
+  if (!configured) return { text: 'Nur auf diesem Gerät', detail: 'Kein Server eingetragen – es wird nichts übertragen.', ton: '' }
+  if (!angemeldet) return { text: 'Nicht angemeldet', detail: 'Unten anmelden, dann gleicht LifeHub von selbst ab.', ton: 'warn' }
+  if (!rolle) return { text: 'Erstverbindung offen', detail: 'Einmal festlegen, woher die richtigen Daten kommen.', ton: 'warn' }
+  if (!online) return { text: 'Offline', detail: 'Änderungen werden übertragen, sobald wieder Netz da ist.', ton: 'warn' }
+  return { text: 'Verbunden', detail: 'Gleicht beim Öffnen und kurz nach jeder Änderung ab.', ton: 'good' }
 }
 
 /**
@@ -1161,27 +1303,25 @@ const METRIC_GROUPS: { value: string; label: string }[] = [
   { value: 'wellbeing', label: 'Befinden' },
 ]
 
-function MetricsSettings() {
+function MetricsSettings({ nurGruppe }: { nurGruppe?: string } = {}) {
   const data = useData()
   const m = useMutations()
   const [editing, setEditing] = useState<any | 'new' | null>(null)
 
   const metrics = data.metrics.filter((x) => !x.deleted_at)
-  const grouped = METRIC_GROUPS.map((g) => ({ ...g, items: metrics.filter((x) => x.group_key === g.value) }))
+  const grouped = METRIC_GROUPS.filter((g) => !nurGruppe || g.value === nurGruppe)
+    .map((g) => ({ ...g, items: metrics.filter((x) => x.group_key === g.value) }))
     .filter((g) => g.items.length > 0)
 
   return (
     <>
-      <Card className="mb16" title="Was möchtest du tracken?"
-        sub="Nur eingeschaltete Werte erscheinen im Tageseintrag. Eigene Werte kannst du jederzeit hinzufügen."
-        action={<button className="btn btn-sm btn-primary" onClick={() => setEditing('new')}>+ Eigener Wert</button>}>
-        <div className="hint-box">
-          Ausschalten löscht nichts – bereits erfasste Werte bleiben erhalten und tauchen wieder auf,
-          sobald du den Wert erneut einschaltest.
-        </div>
+      <Card className="mb16" title={nurGruppe ? 'Welche Nährwerte erfasst werden' : 'Trackingwerte'}
+        sub="Ausschalten löscht nichts – erfasste Werte bleiben und tauchen beim Einschalten wieder auf. Zielbereiche stellst du unter Tracking › Zielbereiche ein."
+        action={<button className="btn btn-sm" onClick={() => setEditing('new')}>+ Eigener Wert</button>}>
+        {null}
       </Card>
 
-      <div className="grid grid-2">
+      <div className={nurGruppe ? 'stapel' : 'grid grid-2'}>
         {grouped.map((g) => (
           <Card key={g.value} title={g.label} sub={`${g.items.filter((x) => x.is_enabled).length} von ${g.items.length} aktiv`}>
             {g.items.map((metric) => (
@@ -1551,8 +1691,8 @@ function ErnaehrungTab() {
         )}
 
         <div className="row mb12">
-          <Stat small label="Verbindung" value={verbunden ? 'verbunden' : 'getrennt'} />
-          <Stat small label="Importierte Tage" value={String(importierteTage)} />
+          <span className={`pill ${verbunden ? 'good' : ''}`}>{verbunden ? 'Verbunden' : 'Nicht verbunden'}</span>
+          <span className="small muted">{importierteTage.toLocaleString('de-DE')} {importierteTage === 1 ? 'Tag' : 'Tage'} importiert</span>
         </div>
 
         {verbunden && (
@@ -1621,14 +1761,10 @@ function ErnaehrungTab() {
           </div>
         )}
 
-        <div className="hint-box small mt12">
-          Die Freigabe erteilst du bei FatSecret selbst – LifeHub fragt dein FatSecret-Passwort
-          nie ab und speichert es auch nicht. Der Zugriff läuft über den eigenen Server; auf
-          diesem Gerät liegt kein Zugangstoken.
-        </div>
       </Card>
 
-      <Card title="Was übernommen wird">
+      <Card title="So funktioniert FatSecret in LifeHub">
+      <Collapsible label="Was übernommen wird">
         <div className="small">
           Aus jedem abgeglichenen Tag übernimmt LifeHub die einzelnen Lebensmittel – mit
           Mahlzeit, Portion und Nährwerten – und rechnet daraus die Tageswerte für
@@ -1645,9 +1781,8 @@ function ErnaehrungTab() {
             doppelt an.
           </div>
         </div>
-      </Card>
-
-      <Card title="Grenzen der FatSecret-Schnittstelle">
+      </Collapsible>
+      <Collapsible label="Grenzen der Schnittstelle">
         <div className="small">
           <strong>Nur lesen.</strong> LifeHub kann Einträge holen, aber keine nach FatSecret
           zurückschreiben. Erfasst wird weiterhin dort.
@@ -1666,7 +1801,12 @@ function ErnaehrungTab() {
             Papierkorb verschoben, damit nicht beide Werte zusammengezählt werden – die Meldung
             nach dem Abgleich sagt, wenn das passiert ist.
           </div>
+          <div className="mt8">
+            <strong>Kein Passwort in LifeHub.</strong> Die Freigabe erteilst du bei FatSecret selbst;
+            der Zugriff läuft über den eigenen Server, auf diesem Gerät liegt kein Zugangstoken.
+          </div>
         </div>
+      </Collapsible>
       </Card>
     </div>
   )
