@@ -27,6 +27,17 @@ const HAFERFLOCKEN = {
   number_of_units: '1', calories: '370', protein: '13.5', carbohydrate: '58.7',
   fat: '7', fiber: '10', sugar: '1.1', saturated_fat: '1.3', sodium: '8',
 }
+/** Ein Eintrag, bei dem FatSecret ALLE Naehrwerte mitliefert. */
+const VOLLSTAENDIG = {
+  food_entry_id: '999', food_id: 'f-voll', date_int: String(TAG_INT), meal: 'lunch',
+  food_entry_name: 'Vollstaendig', number_of_units: '1',
+  calories: '500', protein: '30', carbohydrate: '40', fat: '20',
+  fiber: '6', sugar: '9', saturated_fat: '4', sodium: '600',
+  trans_fat: '0.3', polyunsaturated_fat: '2.5', monounsaturated_fat: '8.1',
+  cholesterol: '75', potassium: '450', added_sugars: '3',
+  vitamin_a: '120', vitamin_c: '15', vitamin_d: '2.5', calcium: '210', iron: '4.2',
+}
+
 const HAEHNCHEN = {
   food_entry_id: '222', food_id: 'f-huhn', date_int: String(TAG_INT), meal: 'lunch',
   food_entry_name: 'Hähnchenbrust', food_entry_description: '200 g',
@@ -286,5 +297,66 @@ describe('Tageswerte landen im bestehenden Metriksystem', () => {
     const p = planNutritionMetrics({ day: TAG, werte, metriken: [METRIKEN[0]], vorhanden, syncedAt: jetzt })
     expect(p.anlegen).toHaveLength(0)
     expect(p.wiederherstellen).toHaveLength(1)
+  })
+})
+
+describe('Alle Naehrwerte, nicht nur die acht bekannten', () => {
+  it('uebernimmt jeden Wert, den FatSecret mitschickt', () => {
+    const [e] = parseFoodEntries(roh([VOLLSTAENDIG]))
+    // Die acht von vorher ...
+    expect(e.calories).toBe(500)
+    expect(e.protein_g).toBe(30)
+    expect(e.carbs_g).toBe(40)
+    expect(e.fat_g).toBe(20)
+    expect(e.fiber_g).toBe(6)
+    expect(e.sugar_g).toBe(9)
+    expect(e.saturated_fat_g).toBe(4)
+    expect(e.sodium_mg).toBe(600)
+    // ... und die, die bisher stillschweigend weggeworfen wurden.
+    expect(e.trans_fat_g).toBe(0.3)
+    expect(e.polyunsaturated_fat_g).toBe(2.5)
+    expect(e.monounsaturated_fat_g).toBe(8.1)
+    expect(e.cholesterol_mg).toBe(75)
+    expect(e.potassium_mg).toBe(450)
+    expect(e.added_sugars_g).toBe(3)
+    expect(e.vitamin_a_mcg).toBe(120)
+    expect(e.vitamin_c_mg).toBe(15)
+    expect(e.vitamin_d_mcg).toBe(2.5)
+    expect(e.calcium_mg).toBe(210)
+    expect(e.iron_mg).toBe(4.2)
+  })
+
+  it('laesst fehlende Angaben leer, statt sie als 0 zu erfinden', () => {
+    // Haferflocken bringen nur die acht alten Werte mit.
+    const [e] = parseFoodEntries(roh([HAFERFLOCKEN]))
+    expect(e.calories).toBe(370)
+    expect(e.iron_mg).toBeNull()
+    expect(e.vitamin_c_mg).toBeNull()
+    expect(e.cholesterol_mg).toBeNull()
+  })
+
+  it('schreibt die neuen Werte auch wirklich in die Zeile', () => {
+    const plan = reconcileFoodEntries({
+      day: TAG, remote: parseFoodEntries(roh([VOLLSTAENDIG])), lokal: [], syncedAt: 'jetzt',
+    })
+    expect(plan.anlegen).toHaveLength(1)
+    const werte = plan.anlegen[0].values
+    expect(werte.iron_mg).toBe(4.2)
+    expect(werte.potassium_mg).toBe(450)
+    expect(werte.trans_fat_g).toBe(0.3)
+  })
+
+  it('erkennt eine Aenderung an einem der neuen Werte', () => {
+    const remote = parseFoodEntries(roh([VOLLSTAENDIG]))
+    const vorhanden = reconcileFoodEntries({ day: TAG, remote, lokal: [], syncedAt: 'jetzt' })
+      .anlegen[0]
+    const lokal = [{
+      ...vorhanden.values, id: vorhanden.id, deleted_at: null,
+      iron_mg: 1.0,   // in FatSecret nachtraeglich korrigiert
+    }] as unknown as LokalesLebensmittel[]
+    const plan = reconcileFoodEntries({ day: TAG, remote, lokal, syncedAt: 'jetzt' })
+    expect(plan.anlegen).toHaveLength(0)
+    expect(plan.aendern).toHaveLength(1)
+    expect(plan.aendern[0].patch.iron_mg).toBe(4.2)
   })
 })

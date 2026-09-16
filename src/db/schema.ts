@@ -557,6 +557,32 @@ export const MIGRATIONS: Migration[] = [
     DROP TABLE _sortierung;
     `,
   },
+  {
+    id: 10,
+    name: 'vollstaendige_naehrwerte',
+    sql: `
+    ------------------------------------------------------- Naehrwerte komplett
+    -- FatSecret liefert zu jedem Eintrag deutlich mehr als die acht Werte, die
+    -- bisher uebernommen wurden. Der Rest wurde beim Abgleich stillschweigend
+    -- weggeworfen -- und war damit auch rueckwirkend verloren, denn ein
+    -- zweiter Abgleich holt nur, was noch im Tagebuch steht.
+    --
+    -- Alle Spalten sind REAL und duerfen leer bleiben: Nicht jedes Lebensmittel
+    -- hat zu jedem Wert eine Angabe, und ein fehlender Wert ist etwas anderes
+    -- als eine Null.
+    ALTER TABLE food_entries ADD COLUMN trans_fat_g REAL;
+    ALTER TABLE food_entries ADD COLUMN polyunsaturated_fat_g REAL;
+    ALTER TABLE food_entries ADD COLUMN monounsaturated_fat_g REAL;
+    ALTER TABLE food_entries ADD COLUMN cholesterol_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN potassium_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN added_sugars_g REAL;
+    ALTER TABLE food_entries ADD COLUMN vitamin_a_mcg REAL;
+    ALTER TABLE food_entries ADD COLUMN vitamin_c_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN vitamin_d_mcg REAL;
+    ALTER TABLE food_entries ADD COLUMN calcium_mg REAL;
+    ALTER TABLE food_entries ADD COLUMN iron_mg REAL;
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */

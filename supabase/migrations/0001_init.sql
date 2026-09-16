@@ -991,6 +991,19 @@ DROP TRIGGER IF EXISTS trg_investment_moves_rev ON investment_moves;
 CREATE TRIGGER trg_investment_moves_rev BEFORE INSERT OR UPDATE ON investment_moves
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+-- Migration 10: die restlichen Naehrwerte aus dem FatSecret-Tagebuch
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS trans_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS polyunsaturated_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS monounsaturated_fat_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS cholesterol_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS potassium_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS added_sugars_g double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_a_mcg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_c_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_d_mcg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS calcium_mg double precision;
+ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS iron_mg double precision;
+
 ALTER TABLE food_entries ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
 CREATE INDEX IF NOT EXISTS ix_food_entries_rev ON food_entries(server_rev);
 DROP TRIGGER IF EXISTS trg_food_entries_rev ON food_entries;

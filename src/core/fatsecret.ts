@@ -64,6 +64,17 @@ export interface FatSecretEntry {
   sugar_g: number | null
   saturated_fat_g: number | null
   sodium_mg: number | null
+  trans_fat_g: number | null
+  polyunsaturated_fat_g: number | null
+  monounsaturated_fat_g: number | null
+  cholesterol_mg: number | null
+  potassium_mg: number | null
+  added_sugars_g: number | null
+  vitamin_a_mcg: number | null
+  vitamin_c_mg: number | null
+  vitamin_d_mcg: number | null
+  calcium_mg: number | null
+  iron_mg: number | null
 }
 
 /** FatSecret liefert alle Zahlen als Text – und fehlende Werte gar nicht. */
@@ -126,6 +137,17 @@ export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEn
       sugar_g: zahl(e?.sugar),
       saturated_fat_g: zahl(e?.saturated_fat),
       sodium_mg: zahl(e?.sodium),
+      trans_fat_g: zahl(e?.trans_fat),
+      polyunsaturated_fat_g: zahl(e?.polyunsaturated_fat),
+      monounsaturated_fat_g: zahl(e?.monounsaturated_fat),
+      cholesterol_mg: zahl(e?.cholesterol),
+      potassium_mg: zahl(e?.potassium),
+      added_sugars_g: zahl(e?.added_sugars),
+      vitamin_a_mcg: zahl(e?.vitamin_a),
+      vitamin_c_mg: zahl(e?.vitamin_c),
+      vitamin_d_mcg: zahl(e?.vitamin_d),
+      calcium_mg: zahl(e?.calcium),
+      iron_mg: zahl(e?.iron),
     })
   }
   return out
@@ -213,6 +235,19 @@ export interface LokalesLebensmittel {
   sugar_g: number | null
   saturated_fat_g: number | null
   sodium_mg: number | null
+  // Ab Migration 10. Zeilen, die vorher entstanden sind, haben diese Spalten
+  // gar nicht – deshalb optional und nicht bloss null.
+  trans_fat_g?: number | null
+  polyunsaturated_fat_g?: number | null
+  monounsaturated_fat_g?: number | null
+  cholesterol_mg?: number | null
+  potassium_mg?: number | null
+  added_sugars_g?: number | null
+  vitamin_a_mcg?: number | null
+  vitamin_c_mg?: number | null
+  vitamin_d_mcg?: number | null
+  calcium_mg?: number | null
+  iron_mg?: number | null
 }
 
 export interface LebensmittelPlan {
@@ -225,6 +260,7 @@ export interface LebensmittelPlan {
 const NAEHRWERTE = [
   'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g',
   'saturated_fat_g', 'sodium_mg',
+  'trans_fat_g', 'polyunsaturated_fat_g', 'monounsaturated_fat_g', 'cholesterol_mg', 'potassium_mg', 'added_sugars_g', 'vitamin_a_mcg', 'vitamin_c_mg', 'vitamin_d_mcg', 'calcium_mg', 'iron_mg',
 ] as const
 
 function gleich(a: any, b: any): boolean {
