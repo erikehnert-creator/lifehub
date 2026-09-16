@@ -235,14 +235,31 @@ async function abgleich(p, url) {
   return '(keine Rückmeldung)'
 }
 
-/** Die Fassung vor Migration 9 – gesucht wie in migration-e2e.mjs. */
+/**
+ * Um WELCHE Migration es hier geht – und zwar fest.
+ *
+ * Das ist der Unterschied zu migration-e2e.mjs: Dort heißt „vorher" immer
+ * „eine Migration weniger als HEAD", weil dort die jeweils neueste Migration
+ * geprüft wird. Dieser Test prüft dagegen einen bestimmten, abgeschlossenen
+ * Vorgang – den Sortierwert 23,5, an dem sich der Abgleich von `metrics`
+ * festgefahren hatte.
+ *
+ * Als die Prüfung entstand, war Migration 9 zugleich die neueste; „vorher =
+ * eine weniger als HEAD" und „vorher = vor Migration 9" waren dasselbe. Mit
+ * Migration 10 fielen sie auseinander: Als Ausgangspunkt wurde plötzlich eine
+ * Fassung gewählt, die den Fehler schon BEHOBEN hatte – Schritt 1 konnte ihn
+ * also gar nicht mehr zeigen, und die Prüfung meldete zu Recht, dass der
+ * Server „überhaupt nichts abgelehnt" hat.
+ */
+const GEPRUEFTE_MIGRATION = 9
+
+/** Die letzte Fassung VOR der geprüften Migration. */
 function basisFassung() {
   if (process.env.LIFEHUB_MIGRATION_BASIS) return process.env.LIFEHUB_MIGRATION_BASIS.trim()
   const hoechste = (t) => {
     const tr = [...t.matchAll(/^\s*id:\s*(\d+),\s*$/gm)].map((x) => Number(x[1]))
     return tr.length ? Math.max(...tr) : 0
   }
-  const jetzt = hoechste(fs.readFileSync(path.join(WURZEL, 'src/db/schema.ts'), 'utf8'))
   const commits = execSync('git log --format=%H -- src/db/schema.ts', { cwd: WURZEL })
     .toString().trim().split(String.fromCharCode(10)).filter(Boolean)
   for (const c of commits) {
@@ -250,10 +267,10 @@ function basisFassung() {
     try {
       schema = execSync(`git show ${c}:src/db/schema.ts`, { cwd: WURZEL, maxBuffer: 16 * 1024 * 1024 }).toString()
     } catch { continue }
-    if (hoechste(schema) >= jetzt) continue
+    if (hoechste(schema) >= GEPRUEFTE_MIGRATION) continue
     try { execSync(`git cat-file -e ${c}:LifeHub.html`, { cwd: WURZEL }); return c } catch { /* weiter */ }
   }
-  throw new Error('Keine Fassung mit einer niedrigeren Migration gefunden.')
+  throw new Error(`Keine Fassung vor Migration ${GEPRUEFTE_MIGRATION} gefunden.`)
 }
 
 async function main() {
