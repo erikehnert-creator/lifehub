@@ -70,9 +70,12 @@ export function MetricInput({ metric, day }: { metric: Metric; day: string }) {
           ))}
         </div>
       ) : metric.value_type === 'scale' ? (
-        <div className="chips">
+        // Eine Zeile, gleich breite Felder: Als umbrechende Chips stand die „10"
+        // am Handy allein in einer zweiten Zeile – viermal auf einer Seite.
+        <div className="skala" role="group" aria-label={metric.name}>
           {Array.from({ length: (metric.scale_max ?? 10) - (metric.scale_min ?? 1) + 1 }, (_, i) => (metric.scale_min ?? 1) + i).map((n) => (
-            <button key={n} className={`chip sm ${value === n ? 'active' : ''}`} onClick={() => commit(String(n))}>{n}</button>
+            <button key={n} type="button" className={value === n ? 'active' : ''} aria-pressed={value === n}
+              onClick={() => commit(String(n))}>{n}</button>
           ))}
         </div>
       ) : metric.key === 'sleep_h' ? (

@@ -41,6 +41,7 @@ import { duePayments, reconcileTemplateTasks, VORPLANUNG_TAGE } from '../core/au
 import { formatMoney } from '../core/money'
 import { todayString } from '../core/dates'
 import { list } from '../db/repo'
+import { automatikMelden } from './meldungen'
 
 const UEBERTRAG_GELAUFEN = 'lifehub.automatik.gelaufen'
 
@@ -157,7 +158,9 @@ export function useAutomatik() {
         try { localStorage.setItem(UEBERTRAG_GELAUFEN, heute) } catch { /* nicht verfügbar */ }
       }
 
-      if (meldungen.length) mutations.toast(meldungen.join(' · '))
+      // Nicht als Toast: Der erschien auf jeder beliebigen Seite. Die Meldung
+      // steht jetzt auf „Heute" (siehe state/meldungen.ts).
+      for (const text of meldungen) automatikMelden(text)
     }, verzoegerung)
 
     return () => window.clearTimeout(timer)

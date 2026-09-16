@@ -111,8 +111,24 @@ export function Tabs({ tabs, active, onChange }: {
   active: string
   onChange: (k: string) => void
 }) {
+  // Ob die Leiste über den Rand läuft, lässt sich in CSS nicht fragen. Ohne
+  // diese Angabe sähe am Handy ein abgeschnittener Reiter aus wie ein Fehler.
+  const ref = useRef<HTMLDivElement>(null)
+  const [lage, setLage] = useState({ ueberlauf: false, amEnde: false })
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const messen = () => setLage({
+      ueberlauf: el.scrollWidth > el.clientWidth + 2,
+      amEnde: el.scrollLeft + el.clientWidth >= el.scrollWidth - 2,
+    })
+    messen()
+    el.addEventListener('scroll', messen, { passive: true })
+    window.addEventListener('resize', messen)
+    return () => { el.removeEventListener('scroll', messen); window.removeEventListener('resize', messen) }
+  }, [tabs.length])
   return (
-    <div className="tabs">
+    <div ref={ref} className={`tabs${lage.ueberlauf ? ' ueberlauf' : ''}${lage.amEnde ? ' am-ende' : ''}`}>
       {tabs.map((t) => (
         <button key={t.key} className={`tab-btn${active === t.key ? ' active' : ''}`}
           onClick={() => onChange(t.key)}>{t.label}</button>
@@ -121,9 +137,37 @@ export function Tabs({ tabs, active, onChange }: {
   )
 }
 
-export function Empty({ icon = '📭', title, hint, action }: {
-  icon?: string; title: string; hint?: string; action?: React.ReactNode
+/** Zweite Auswahlebene innerhalb einer Seite – statt einer zweiten Reiterleiste. */
+export function Segment<T extends string>({ options, value, onChange, label }: {
+  options: { value: T; label: React.ReactNode }[]
+  value: T
+  onChange: (v: T) => void
+  label?: string
 }) {
+  return (
+    <div className="segment" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" className={value === o.value ? 'active' : ''}
+          aria-pressed={value === o.value} onClick={() => onChange(o.value)}>{o.label}</button>
+      ))}
+    </div>
+  )
+}
+
+export function Empty({ icon = '📭', title, hint, action, kompakt }: {
+  icon?: string; title: string; hint?: string; action?: React.ReactNode
+  /** In einer Karte: eine Textzeile statt einer gestrichelten Fläche. */
+  kompakt?: boolean
+}) {
+  if (kompakt) {
+    return (
+      <div className="empty kompakt">
+        <span className="empty-titel">{title}</span>
+        {hint && <span className="small">{hint}</span>}
+        {action && <span className="empty-aktion">{action}</span>}
+      </div>
+    )
+  }
   return (
     <div className="empty">
       <div className="empty-icon">{icon}</div>

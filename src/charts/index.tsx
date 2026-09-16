@@ -32,6 +32,48 @@ function useTooltip() {
 }
 
 /**
+ * Die tatsächliche Breite des Diagramms in Pixeln.
+ *
+ * Gezeichnet wurde früher immer auf 640 Einheiten, die der Browser dann auf die
+ * Kartenbreite streckte. Am Handy (rund 330 px) schrumpfte dadurch jede Schrift
+ * auf etwa die Hälfte: Achsen mit 5 px, also unlesbar. Jetzt ist eine Einheit
+ * ein Pixel, und 10,5 px Schrift bleiben 10,5 px.
+ */
+function useBreite(ref: React.RefObject<HTMLDivElement>, vorgabe = 640): number {
+  const [breite, setBreite] = useState(vorgabe)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const messen = () => { const b = el.clientWidth; if (b > 0) setBreite(Math.round(b)) }
+    messen()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(messen)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return breite
+}
+
+/**
+ * Achsenwerte ohne Doppel.
+ *
+ * Eine Ganzzahl-Formatierung macht aus 0,5 und 1 zweimal „1" – so stand
+ * „1, 1, 0, 0, −1" an einem Diagramm, in dem nur Nullen vorkamen. Werte, die
+ * dieselbe Beschriftung ergeben wie ihr Vorgänger, entfallen.
+ */
+export function eindeutigeTicks(ticks: number[], format: (n: number) => string): number[] {
+  const out: number[] = []
+  let vorher: string | null = null
+  for (const t of ticks) {
+    const text = format(t)
+    if (text === vorher) continue
+    vorher = text
+    out.push(t)
+  }
+  return out
+}
+
+/**
  * Runde Werte für die Y-Achse.
  *
  * Ohne beschriftete Achse ist ein Balkendiagramm nur ein Bild: Man sieht,
@@ -80,8 +122,8 @@ export function BarChart({
   formatAxis?: (n: number) => string
 }) {
   const { setTip, ref, node } = useTooltip()
-  const padL = 76, padR = 8, padB = 22, padT = 10
-  const W = 640
+  const W = Math.max(260, useBreite(ref))
+  const padL = W < 480 ? 58 : 76, padR = 8, padB = 22, padT = 10
   const H = height
   const innerH = H - padB - padT
 
@@ -106,7 +148,9 @@ export function BarChart({
   const barW = stacked ? Math.min(30, groupW * 0.5) : Math.min(18, (groupW * 0.62) / Math.max(1, nSeries))
 
   const achse = formatAxis ?? formatValue
-  const ticks = niceTicks(min, max, Math.max(3, Math.round(innerH / 44)))
+  const ticks = eindeutigeTicks(niceTicks(min, max, Math.max(3, Math.round(innerH / 44))), achse)
+  // Unter 30 px je Gruppe stoßen die Monatsnamen aneinander – dann nur jeden zweiten.
+  const labelEvery = groupW < 30 ? 2 : 1
   const yFuer = (v: number) => padT + innerH - ((v - min) / span) * innerH
 
   return (
@@ -121,7 +165,7 @@ export function BarChart({
             </text>
           </g>
         ))}
-        {axisLabel && (
+        {axisLabel && W >= 480 && (
           <text x={11} y={padT + innerH / 2} fontSize={10.5} fill="var(--text-muted)"
             textAnchor="middle" transform={`rotate(-90 11 ${padT + innerH / 2})`}>{axisLabel}</text>
         )}
@@ -155,8 +199,10 @@ export function BarChart({
                     onMouseLeave={() => setTip(null)} />
                 )
               })}
-              <text x={gx + groupW / 2} y={H - 6} textAnchor="middle"
-                fontSize={11} fill="var(--text-muted)">{d.label}</text>
+              {i % labelEvery === 0 && (
+                <text x={gx + groupW / 2} y={H - 6} textAnchor="middle"
+                  fontSize={11} fill="var(--text-muted)">{d.label}</text>
+              )}
             </g>
           )
         })}
@@ -193,7 +239,8 @@ export function LineChart({
   formatAxis?: (n: number) => string
 }) {
   const { setTip, ref, node } = useTooltip()
-  const W = 640, H = height, padL = 76, padR = 10, padB = 22, padT = 10
+  const W = Math.max(260, useBreite(ref))
+  const H = height, padL = W < 480 ? 58 : 76, padR = 10, padB = 22, padT = 10
   const innerH = H - padT - padB
   const innerW = W - padL - padR
   const n = series[0]?.points.length ?? 0
@@ -204,7 +251,11 @@ export function LineChart({
   let max = allValues.length ? Math.max(...allValues) : 1
   if (zeroBased) min = Math.min(0, min)
   const pad = (max - min) * 0.12 || 1
-  min -= pad; max += pad
+  // Werte, die nie negativ sind (Anzahlen, Kilogramm, Stunden), bekommen auch
+  // keine negative Achse – ein Diagramm voller Nullen zeigte sonst „−1".
+  const nieNegativ = allValues.every((v) => v >= 0)
+  min = nieNegativ ? Math.max(0, min - pad) : min - pad
+  max += pad
   const scaleY = (v: number) => padT + innerH - ((v - min) / (max - min)) * innerH
   const scaleX = (i: number) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW)
 
@@ -227,21 +278,22 @@ export function LineChart({
     return `${top} L${scaleX(valid[valid.length - 1].i).toFixed(1)},${baseY} L${scaleX(valid[0].i).toFixed(1)},${baseY} Z`
   }
 
-  const labelEvery = Math.max(1, Math.ceil(n / 8))
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(3, Math.floor(innerW / 48))))
+  const achse = formatAxis ?? formatValue
 
   return (
     <div className="chart-wrap" ref={ref}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img"
         aria-label={`Liniendiagramm: ${series.map((s) => s.name).join(', ')}`} style={{ display: 'block' }}>
-        {niceTicks(min, max, Math.max(3, Math.round(innerH / 44))).map((t) => (
+        {eindeutigeTicks(niceTicks(min, max, Math.max(3, Math.round(innerH / 44))), achse).map((t) => (
           <g key={t}>
             <line x1={padL} x2={W - padR} y1={scaleY(t)} y2={scaleY(t)} stroke="var(--grid)" strokeWidth={1} />
             <text x={padL - 7} y={scaleY(t) + 3.5} textAnchor="end" fontSize={10.5} fill="var(--text-muted)">
-              {(formatAxis ?? formatValue)(t)}
+              {achse(t)}
             </text>
           </g>
         ))}
-        {axisLabel && (
+        {axisLabel && W >= 480 && (
           <text x={11} y={padT + innerH / 2} fontSize={10.5} fill="var(--text-muted)"
             textAnchor="middle" transform={`rotate(-90 11 ${padT + innerH / 2})`}>{axisLabel}</text>
         )}
@@ -391,10 +443,13 @@ export function Sparkline({ values, height = 34, color = 'var(--series-1)' }: {
 
 // ----------------------------------------------------------------- Messanzeige
 
-export function Meter({ percent, status = 'good', markerPercent }: {
-  percent: number; status?: 'good' | 'warning' | 'critical'; markerPercent?: number
+export function Meter({ percent, status = 'good', markerPercent, farbe }: {
+  percent: number; status?: 'good' | 'warning' | 'critical' | 'neutral'; markerPercent?: number
+  /** Fortschritt ohne Bewertung – etwa die Bereichsfarbe. Geht vor `status`. */
+  farbe?: string
 }) {
-  const color = status === 'critical' ? 'var(--critical)' : status === 'warning' ? 'var(--warning)' : 'var(--good)'
+  const color = farbe ?? (status === 'critical' ? 'var(--critical)' : status === 'warning' ? 'var(--warning)'
+    : status === 'neutral' ? 'var(--fortschritt)' : 'var(--good)')
   return (
     <div className="meter" style={{ position: 'relative' }}>
       <div className="meter-fill" style={{ width: `${Math.min(100, Math.max(0, percent))}%`, background: color }} />

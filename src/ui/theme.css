@@ -102,6 +102,26 @@
 }
 
 
+/* ------------------------------------------------------ Bereichsfarben
+   Vier Bereiche tragen eine eigene, zurückhaltende Farbe – für Symbol,
+   Linie und Fortschritt, nie als Kartenfläche. Alle liegen abseits von
+   Grün, Bernstein, Orange und Rot: Diese bedeuten ausschließlich Zustand.
+   Blau (--accent) bleibt für Knöpfe, Links und Auswahl.                   */
+:root {
+  --bereich-finanzen: #1f7a8c;
+  --bereich-plan:     #5357c9;
+  --bereich-tracking: #9b4d8c;
+  --bereich-ziele:    #52627a;
+  --fortschritt:      #8a8f99;
+}
+:root[data-theme='dark'] {
+  --bereich-finanzen: #4fb3c4;
+  --bereich-plan:     #8c90f0;
+  --bereich-tracking: #d08ac3;
+  --bereich-ziele:    #9ba9bf;
+  --fortschritt:      #7d828c;
+}
+
 /* ------------------------------------------------------ Kategoriefarben
    24 Farben für die Ausgabenkategorien. Die Farbtöne liegen im Goldenen
    Winkel auseinander, dazu wechseln drei Helligkeitsstufen. Dadurch liegen
@@ -320,6 +340,17 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.012em; }
 }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* Läuft die Reiterleiste über den Rand, blendet sie rechts aus – sonst sieht
+   ein abgeschnittenes „Alle Au…" aus wie ein Fehler statt wie „es geht weiter". */
+.tabs { scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs.ueberlauf { -webkit-mask-image: linear-gradient(to right, #000 82%, transparent); mask-image: linear-gradient(to right, #000 82%, transparent); }
+.tabs.ueberlauf.am-ende { -webkit-mask-image: none; mask-image: none; }
+
+/* Zweite Ebene innerhalb einer Seite: Segmentschalter statt zweiter Reiterleiste. */
+.segment { display: inline-flex; background: var(--surface-2); border-radius: var(--r-sm); padding: 3px; gap: 2px; }
+.segment button { padding: 5px 12px; border-radius: 5px; font-size: 13px; font-weight: 560; color: var(--text-2); }
+.segment button.active { background: var(--surface-1); color: var(--text); box-shadow: var(--sh-1); }
 
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field-label { font-size: 12.5px; font-weight: 620; color: var(--text-2); }
@@ -337,6 +368,17 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.012em; }
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: 10px 12px; font-size: 12.5px; color: var(--text-2);
 }
+
+/* Skala 1–10: eine Zeile, gleich breite Felder – passt auf 330 px. */
+.skala { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; max-width: 460px; }
+.skala button {
+  min-width: 0; padding: 6px 0; border-radius: var(--r-sm); font-size: 13px; font-weight: 560;
+  border: 1px solid var(--border-strong); background: var(--surface-1); color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.skala button:hover { background: var(--surface-2); }
+.skala button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (pointer: coarse) { .skala button { min-height: 40px; } }
 
 /* ---------------------------------------------------------------- Listen */
 
@@ -392,6 +434,19 @@ table.data tbody tr:hover { background: var(--surface-2); }
 
 .empty { padding: 32px 18px; text-align: center; color: var(--text-muted); border: 1px dashed var(--border-strong); border-radius: var(--r); }
 .empty-icon { font-size: 28px; margin-bottom: 8px; }
+/* Leer in einer Karte: eine Zeile, keine Fläche. Dass etwas fehlt, ist die
+   unwichtigste Nachricht auf einer Seite und soll auch so aussehen. */
+.empty.kompakt {
+  padding: 4px 0; text-align: left; border: 0; border-radius: 0;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px;
+}
+.empty.kompakt .empty-titel { font-weight: 500; }
+.empty.kompakt .empty-aktion { margin-left: auto; }
+
+/* ---------------------------------------------------------------- Symbole */
+.icon { display: block; flex: none; }
+.nav-item .ico, .mobile-nav .ico { display: flex; align-items: center; justify-content: center; }
+.bereich-ico { color: var(--bereich, var(--text-2)); }
 
 .progress-row { display: flex; flex-direction: column; gap: 6px; padding: 11px 0; border-bottom: 1px solid var(--border); }
 .progress-row:last-child { border-bottom: 0; }
