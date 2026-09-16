@@ -16,9 +16,9 @@
  * vollständigen, aktuellen Serverschema (supabase/migrations/0001_init.sql).
  */
 import { chromium } from 'playwright'
+import { startOptionen, EINZELDATEI, DIST } from './_browser.mjs'
 import pg from 'pg'
 
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
 const SUPA = 'http://127.0.0.1:54321'
 const ANON = 'anon-test-key'
 const MAIL = 'erik@test.de'
@@ -37,11 +37,11 @@ function pruefeWahr(name, bedingung) {
 
 async function neuesGeraet(profil) {
   const ctx = await chromium.launchPersistentContext(profil, {
-    executablePath: EXE, viewport: { width: 1280, height: 900 },
+    viewport: { width: 1280, height: 900 },
     args: ['--disable-background-networking', '--disable-sync', '--no-first-run'],
   })
   const page = ctx.pages()[0] ?? await ctx.newPage()
-  await page.goto('file:///home/claude/lifehub/app/LifeHub.html')
+  await page.goto(EINZELDATEI)
   await page.waitForSelector('#root > *', { timeout: 40000 })
   await page.waitForTimeout(1500)
   return { ctx, page }

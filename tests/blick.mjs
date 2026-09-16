@@ -3,38 +3,37 @@
  * und melden, wenn dabei ein Fehler in der Konsole auftaucht.
  */
 import { chromium } from 'playwright'
+import { startOptionen, EINZELDATEI, DIST, ECHTDATEN, brauche } from './_browser.mjs'
 import fs from 'node:fs'
 
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
 const ZIEL = '/tmp/blick'
 fs.rmSync(ZIEL, { recursive: true, force: true })
 fs.mkdirSync(ZIEL, { recursive: true })
 fs.rmSync('/tmp/blick-profil', { recursive: true, force: true })
 
 const ctx = await chromium.launchPersistentContext('/tmp/blick-profil', {
-  executablePath: EXE, viewport: { width: 1280, height: 950 },
 })
 const page = ctx.pages()[0] ?? await ctx.newPage()
 const fehler = []
 page.on('pageerror', (e) => fehler.push(String(e)))
 page.on('console', (m) => { if (m.type() === 'error') fehler.push(m.text()) })
 
-await page.goto('file:///home/claude/lifehub/LifeHub.html')
+await page.goto(EINZELDATEI)
 await page.waitForSelector('#root > *', { timeout: 40000 })
 await page.waitForTimeout(3000)
 
 // Echte Daten einspielen
-await page.goto('file:///home/claude/lifehub/LifeHub.html#/einstellungen')
+await page.goto(EINZELDATEI + '#/einstellungen')
 await page.waitForTimeout(1200)
 await page.locator('button', { hasText: 'Daten & Backup' }).first().click()
 await page.waitForTimeout(600)
-await page.locator('input[type=file][accept*="json"]').first().setInputFiles('/home/claude/lifehub/LifeHub-Daten-Erik.json')
+await page.locator('input[type=file][accept*="json"]').first().setInputFiles(ECHTDATEN)
 await page.waitForTimeout(1500)
 await page.locator('.modal .btn-primary').first().click()
 await page.waitForTimeout(4000)
 
 const schuss = async (name, hash, warten = 1800) => {
-  await page.goto('file:///home/claude/lifehub/LifeHub.html#' + hash)
+  await page.goto(EINZELDATEI + '#' + hash)
   await page.waitForTimeout(warten)
   await page.screenshot({ path: `${ZIEL}/${name}.png`, fullPage: false })
   console.log('  ', name)
@@ -58,7 +57,7 @@ for (const [n, h] of [
 ]) await schuss(n, h)
 
 // Kontoansicht öffnen
-await page.goto('file:///home/claude/lifehub/LifeHub.html#/finanzen/konten')
+await page.goto(EINZELDATEI + '#/finanzen/konten')
 await page.waitForTimeout(1500)
 await page.locator('.konto-kopf').first().click()
 await page.waitForTimeout(2000)
@@ -67,7 +66,7 @@ console.log('   13-kontoansicht')
 await page.keyboard.press('Escape')
 
 // Diagramm groß
-await page.goto('file:///home/claude/lifehub/LifeHub.html#/finanzen')
+await page.goto(EINZELDATEI + '#/finanzen')
 await page.waitForTimeout(1800)
 await page.locator('.chart-tap').first().click()
 await page.waitForTimeout(1200)
@@ -76,7 +75,7 @@ console.log('   14-diagramm-gross')
 await page.keyboard.press('Escape')
 
 // Kalender: Woche und Termin-Editor
-await page.goto('file:///home/claude/lifehub/LifeHub.html#/plan/kalender')
+await page.goto(EINZELDATEI + '#/plan/kalender')
 await page.waitForTimeout(1500)
 await page.locator('.tabs').nth(1).locator('.tab-btn', { hasText: 'Woche' }).click()
 await page.waitForTimeout(1200)
@@ -89,7 +88,7 @@ console.log('   16-termin-editor')
 await page.keyboard.press('Escape')
 
 // Aufgaben-Editor
-await page.goto('file:///home/claude/lifehub/LifeHub.html#/plan/alle')
+await page.goto(EINZELDATEI + '#/plan/alle')
 await page.waitForTimeout(1500)
 const zeile = page.locator('.aufgabe .list-main').first()
 if (await zeile.count()) {
@@ -111,7 +110,7 @@ for (const [n, h] of [
   ['h4-einkauf', '/einkauf'],
   ['h5-plan', '/plan'],
 ]) {
-  await handy.goto('file:///home/claude/lifehub/LifeHub.html#' + h)
+  await handy.goto(EINZELDATEI + '#' + h)
   await handy.waitForTimeout(2200)
   await handy.screenshot({ path: `${ZIEL}/${n}.png` })
   console.log('  ', n)

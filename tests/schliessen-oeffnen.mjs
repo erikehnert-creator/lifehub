@@ -9,16 +9,16 @@
  * Der Weg zurück zum PC wird in tests/repair-e2e.mjs geprüft.
  */
 import { chromium } from 'playwright'
+import { startOptionen, EINZELDATEI, DIST } from './_browser.mjs'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import pg from 'pg'
 
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }
 const site = http.createServer((req, res) => {
   const rel = decodeURIComponent(req.url.split('?')[0])
-  const file = path.join('/home/claude/lifehub/app/dist', rel === '/' ? 'index.html' : rel)
+  const file = path.join(DIST, rel === '/' ? 'index.html' : rel)
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream' })
   res.end(fs.readFileSync(file))
@@ -47,7 +47,7 @@ async function anmelden(page, basis) {
 
 const oeffneHandy = async () => {
   const ctx = await chromium.launchPersistentContext('/tmp/rep-handy', {
-    executablePath: EXE, viewport: { width: 390, height: 844 },
+    viewport: { width: 390, height: 844 },
   })
   const page = ctx.pages()[0] ?? await ctx.newPage()
   await page.goto('http://127.0.0.1:8081/#/heute')
