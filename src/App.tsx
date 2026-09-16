@@ -23,6 +23,7 @@ import { exportFullJson, download, timestampSuffix } from './io/exporters'
 import { verifyPin, markUnlocked, isUnlockedInSession, clearUnlocked } from './core/lock'
 import { isSignedIn, syncRolle, currentSession } from './sync/auth'
 import { useFatSecret } from './state/ernaehrung'
+import { automatikTaktMs, type AbgleichAnlass } from './core/fatsecretImport'
 import { pendingChangeCount, hasRemoteChanges } from './sync/engine'
 import { resolvedSyncUrl, resolvedSyncKey } from './sync/config'
 
@@ -232,25 +233,31 @@ function Shell() {
   /**
    * FatSecret von selbst nachholen – ohne dass jemand „Abgleichen" drückt.
    *
-   * Zwei Takte, weil zwei verschiedene Dinge zu tun sind:
+   * Angestoßen wird von Gelegenheiten, nicht von einer Uhr: App-Start, zurück
+   * ins Fenster, wieder online. Jede nennt ihren Anlass, und `automatisch()`
+   * entscheidet daran, ob der letzte Abruf lange genug her ist
+   * (MINDESTABSTAND_MS). Einen Zeitgeber gibt es nur, solange der Erstimport
+   * läuft (automatikTaktMs).
    *
-   *   langsam  Die letzten Tage erneut ansehen. FatSecret meldet sich nicht,
-   *            wenn dort etwas nachgetragen wird, also muss gefragt werden –
-   *            aber jeder Lauf kostet einen Aufruf je Tag. Eine Viertelstunde
-   *            Abstand (siehe abgleichFaellig) reicht dafür.
-   *   schnell  Der historische Import, solange er noch läuft. Der soll zügig
-   *            vorankommen, während das Fenster offen ist, und hört danach
-   *            von selbst auf.
+   * Doppelte Anfragen verhindern zwei Riegel: `busy` innerhalb dieses Fensters
+   * (Fokus und visibilitychange kommen beim Zurückkehren fast gleichzeitig),
+   * und eine Web-Lock-Sperre über Fenster hinweg – am PC sind LifeHub.html und
+   * die Webfassung gern gleichzeitig offen.
    *
-   * `automatisch()` entscheidet selbst, ob überhaupt etwas zu tun ist, und
-   * bleibt still, wenn nicht. Fehler unterbrechen hier niemanden – wer wissen
-   * will, woran es liegt, findet es auf der Ernährungsseite.
+   * Fehler unterbrechen hier niemanden – wer wissen will, woran es liegt,
+   * findet es auf der Ernährungsseite.
    */
   useEffect(() => {
     if (!ready || !fatsecretVerbunden) return
 
     let cancelled = false
     let busy = false
+    const mitSperre = (fn: () => Promise<boolean>): Promise<boolean> => {
+      const locks = (navigator as any).locks
+      if (!locks?.request) return fn()
+      return locks.request('lifehub-fatsecret', { ifAvailable: true },
+        (sperre: unknown) => (sperre ? fn() : false))
+    }
     // Über eine Ref, nicht über die Abhängigkeiten: `automatisch` hängt am
     // gesamten Datenbild und bekommt bei jeder Änderung eine neue Identität.
     // Stünde es in den Abhängigkeiten, würde der Takt bei jeder Eingabe neu
@@ -261,42 +268,34 @@ function Shell() {
     // Warten waren. Die kurze Pause bleibt trotzdem, damit FatSecret nicht in
     // einem Zug mit Anfragen überzogen wird.
     let nachfolger = 0
-    const lauf = async () => {
+    const lauf = async (anlass: AbgleichAnlass) => {
       if (cancelled || busy || document.hidden || !navigator.onLine) return
       busy = true
       let weiter = false
-      try { weiter = await automatischRef.current() } finally { busy = false }
+      try { weiter = await mitSperre(() => automatischRef.current(anlass)) } finally { busy = false }
       if (weiter && !cancelled) {
         window.clearTimeout(nachfolger)
-        nachfolger = window.setTimeout(() => { void lauf() }, 2000)
+        nachfolger = window.setTimeout(() => { void lauf('weiter') }, 2000)
       }
     }
 
-    void lauf()
-    // Zwei verschiedene Takte, weil zwei verschiedene Dinge anstehen:
-    //
-    //   Erstimport läuft   Eine Runde je Minute. Das ist kein Nachfragen,
-    //                      sondern Arbeit, die abgearbeitet werden will.
-    //   Erstimport fertig  Alle 15 Minuten – und auch dann tut `automatisch()`
-    //                      nur etwas, wenn der letzte Lauf lange genug her ist.
-    //                      Ein Minutentakt wäre hier reines Klopfen an eine
-    //                      Tür, hinter der nichts passiert ist.
-    //
-    // Der eigentliche Anstoß kommt ohnehin von den Ereignissen darunter:
-    // App-Start, zurück ins Fenster, wieder online. Das deckt Eriks Alltag ab –
-    // morgens in FatSecret eintragen, später LifeHub öffnen.
-    const takt = setInterval(lauf, importLaeuft ? 60 * 1000 : 15 * 60 * 1000)
-    const beiSichtbar = () => { if (!document.hidden) void lauf() }
+    void lauf('start')
+    // Morgens in FatSecret eintragen, später LifeHub öffnen: Das deckt der
+    // Start ab. Zurück ins Fenster und wieder online die übrigen Fälle.
+    const taktMs = automatikTaktMs(importLaeuft)
+    const takt = taktMs ? setInterval(() => { void lauf('weiter') }, taktMs) : undefined
+    const beiSichtbar = () => { if (!document.hidden) void lauf('vordergrund') }
+    const beiOnline = () => { void lauf('online') }
     window.addEventListener('focus', beiSichtbar)
     document.addEventListener('visibilitychange', beiSichtbar)
-    window.addEventListener('online', lauf)
+    window.addEventListener('online', beiOnline)
     return () => {
       cancelled = true
-      clearInterval(takt)
+      if (takt) clearInterval(takt)
       window.clearTimeout(nachfolger)
       window.removeEventListener('focus', beiSichtbar)
       document.removeEventListener('visibilitychange', beiSichtbar)
-      window.removeEventListener('online', lauf)
+      window.removeEventListener('online', beiOnline)
     }
   }, [ready, fatsecretVerbunden, importLaeuft])
 

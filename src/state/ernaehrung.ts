@@ -23,8 +23,9 @@ import {
   planNutritionMetrics, reconcileFoodEntries, type FatSecretEntry,
 } from '../core/fatsecret'
 import {
-  LEERER_STAND, abgleichFaellig, ersterTagDesMonats, nachzuholendeTage, naechsteMonate,
-  standFuerNeuenLauf, standNachMonaten, type ImportStand, type MonatsBefund,
+  LEERER_STAND, MINDESTABSTAND_MS, abgleichFaellig, ersterTagDesMonats, nachzuholendeTage,
+  naechsteMonate, standFuerNeuenLauf, standNachMonaten,
+  type AbgleichAnlass, type ImportStand, type MonatsBefund,
 } from '../core/fatsecretImport'
 import { PUBLIC_APP_URL } from '../sync/config'
 import {
@@ -57,6 +58,25 @@ const MONATE_JE_RUNDE = 12
  * unnötig viele Runden.
  */
 const TAGE_JE_ANFRAGE = 10
+
+/**
+ * Wann DIESES Gerät zuletzt die letzten Tage geholt hat.
+ *
+ * Bewusst nicht in den Einstellungen: Die werden synchronisiert, und dann
+ * hielte ein Abgleich am PC das Handy davon ab, beim Öffnen nachzusehen.
+ * Fehlt der Speicher (privates Fenster), gilt der Wert für die Sitzung.
+ */
+export const GERAET_ZULETZT_KEY = 'lifehub.fatsecret.geraetZuletzt'
+let geraetZuletztFluechtig: string | null = null
+
+function geraetZuletzt(): string | null {
+  try { return localStorage.getItem(GERAET_ZULETZT_KEY) ?? geraetZuletztFluechtig } catch { return geraetZuletztFluechtig }
+}
+
+function geraetZuletztMerken(wann: string): void {
+  geraetZuletztFluechtig = wann
+  try { localStorage.setItem(GERAET_ZULETZT_KEY, wann) } catch { /* bleibt flüchtig */ }
+}
 
 export interface AbgleichErgebnis {
   ok: boolean
@@ -144,6 +164,7 @@ export function useFatSecret() {
       const tage = abzugleichendeTage(anzahlTage)
       const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
       const ergebnis = mutations.batch(() => anwenden(tage, roh, mutations, data))
+      geraetZuletztMerken(nowIso())
       setStatus((s) => (s ? { ...s, last_sync_at: nowIso() } : s))
       return ergebnis
     } catch (err) {
@@ -219,8 +240,9 @@ export function useFatSecret() {
    * nicht durch ist. Beides zusammen ist der Grund, warum man den Knopf
    * „Jetzt abgleichen" im Alltag nicht mehr braucht.
    *
-   * Tut nichts, wenn der letzte Lauf noch keine Viertelstunde her ist – außer
-   * der historische Import läuft noch, dann geht der weiter.
+   * Tut nichts, wenn dieses Gerät die letzten Tage für den jeweiligen Anlass
+   * gerade erst geholt hat (MINDESTABSTAND_MS) – außer der historische Import
+   * läuft noch, dann geht der weiter.
    *
    * Zurück kommt, ob die Historie noch weitere Runden braucht. Der Aufrufer
    * kann die nächste dann gleich anstoßen, statt auf den nächsten Takt zu
@@ -228,17 +250,20 @@ export function useFatSecret() {
    * „drei Jahre Historie in einer halben Minute" und „in drei Minuten": Die
    * Arbeit selbst dauert Sekunden, gewartet wurde auf die Uhr.
    */
-  const automatisch = useCallback(async (): Promise<boolean> => {
+  const automatisch = useCallback(async (anlass: AbgleichAnlass = 'weiter'): Promise<boolean> => {
     const stand: ImportStand = { ...LEERER_STAND, ...(data.settings.fatsecret_import ?? {}) }
-    const faellig = abgleichFaellig(stand.zuletzt, Date.now())
+    const faellig = abgleichFaellig(geraetZuletzt(), Date.now(), MINDESTABSTAND_MS[anlass])
     if (!faellig && stand.fertig) return false
 
+    const dreiTageHolen = async () => {
+      const tage = nachzuholendeTage(todayString(), addDays)
+      const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
+      mutations.batch(() => anwenden(tage, roh, mutations, data))
+      geraetZuletztMerken(nowIso())
+    }
+
     try {
-      if (faellig) {
-        const tage = nachzuholendeTage(todayString(), addDays)
-        const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
-        mutations.batch(() => anwenden(tage, roh, mutations, data))
-      }
+      if (faellig) await dreiTageHolen()
       // Der Stand NACH dem Importschritt – und zwar der, den der Schritt
       // zurückgibt, nicht der aus `data`.
       //
@@ -249,6 +274,10 @@ export function useFatSecret() {
       // 3531 geholte Tage, obwohl es nur 168 gab, und „fertig" wurde nie
       // erreicht. Von außen sah das aus wie „der Import ist langsam".
       const danach = stand.fertig ? stand : (await importSchritt()).stand
+      // Eben fertig geworden: Die drei Tage noch einmal frisch holen. Ein
+      // Erstimport über Jahre dauert, und was währenddessen in FatSecret
+      // eingetragen wurde, soll nicht bis zum nächsten Öffnen warten.
+      if (!stand.fertig && danach.fertig && !faellig) await dreiTageHolen()
       mutations.setSetting('fatsecret_import', { ...danach, zuletzt: nowIso() })
       return !danach.fertig
     } catch (err) {

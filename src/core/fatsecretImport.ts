@@ -189,13 +189,46 @@ export function nachzuholendeTage(
 /**
  * Ist ein Abgleich fällig?
  *
- * Der Abstand ist kein Geschmack, sondern Rücksicht: FatSecret meldet sich
- * nicht von selbst, wenn sich etwas ändert – abgefragt werden muss also
- * regelmäßig, aber jeder Lauf kostet einen Aufruf je Tag. Eine Viertelstunde
- * ist häufig genug, dass man das Nachtragen vom Handy am PC bemerkt, und
- * selten genug, dass ein offener Browser keine Last erzeugt.
+ * FatSecret meldet sich nicht von selbst, wenn sich etwas ändert. Gefragt wird
+ * deshalb nicht im Takt, sondern bei Gelegenheiten, zu denen jemand hinschaut –
+ * und wie lange der letzte Abruf her sein muss, hängt an der Gelegenheit:
+ *
+ *   start        Die App wird geöffnet. Genau hier soll das Frühstück dastehen,
+ *                das vorhin in FatSecret eingetragen wurde. Die kurze Sperre
+ *                fängt nur ein hastiges Neuladen ab.
+ *   vordergrund  Zurück ins Fenster. Ein kurzer Blick in eine andere App ist
+ *                keine Pause, nach der sich ein Abruf lohnt.
+ *   online       Wieder Netz. Wie vordergrund – oft kommt beides zugleich.
+ *   weiter       Folgerunden des Erstimports. Die drei Tage wurden dort gerade
+ *                erst geholt.
+ *
+ * Gemessen wird am Zeitpunkt DIESES Geräts, nicht am mitsynchronisierten
+ * `ImportStand.zuletzt`: Hat der PC um 7:00 abgeglichen und wird um 7:10 das
+ * Handy geöffnet, darf dessen Start nicht übersprungen werden – sonst fehlt
+ * das Frühstück von 7:05.
  */
-export const ABGLEICH_ABSTAND_MS = 15 * 60 * 1000
+export type AbgleichAnlass = 'start' | 'vordergrund' | 'online' | 'weiter'
+
+export const MINDESTABSTAND_MS: Record<AbgleichAnlass, number> = {
+  start: 15 * 1000,
+  vordergrund: 5 * 60 * 1000,
+  online: 5 * 60 * 1000,
+  weiter: 15 * 60 * 1000,
+}
+
+export const ABGLEICH_ABSTAND_MS = MINDESTABSTAND_MS.weiter
+
+/**
+ * Braucht die Automatik einen Zeitgeber?
+ *
+ * Nur solange der Erstimport läuft – das ist Arbeit, die abgearbeitet werden
+ * will, und der Takt setzt sie nach einem Fehler wieder in Gang. Danach nicht:
+ * Ein Zeitgeber, der alle paar Minuten an FatSecret klopft, fragt meist nach
+ * etwas, das sich nicht geändert hat. Start, Vordergrund und Netz genügen.
+ */
+export function automatikTaktMs(importLaeuft: boolean): number | null {
+  return importLaeuft ? 60 * 1000 : null
+}
 
 export function abgleichFaellig(
   zuletzt: string | null, jetzt: number, abstand = ABGLEICH_ABSTAND_MS,

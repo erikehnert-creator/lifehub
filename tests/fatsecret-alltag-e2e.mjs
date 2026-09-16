@@ -316,6 +316,30 @@ async function main() {
   // Mit einer Nachkommastelle, seit Migration 11: FatSecret nennt 27,4 g, und
   // wer die Zahlen nebeneinanderlegt, soll keinen Rundungsfehler suchen.
   pruefe('Ballaststoffe stehen auf der Ernährungsseite', ballast === '6,0', `abgelesen: ${ballast}`)
+  const zahl = (s) => (s == null || s === '' ? null : Number(String(s).replace(/\./g, '').replace(',', '.')))
+  const kh = await ableseWert(p, 'Kohlenhydrate')
+  pruefe('Kohlenhydrate stehen auf der Ernährungsseite', zahl(kh) === 50, `abgelesen: ${kh}`)
+  const fett = await ableseWert(p, 'Fett')
+  pruefe('Fett steht auf der Ernährungsseite', zahl(fett) === 10, `abgelesen: ${fett}`)
+
+  // Die übrigen elf stehen eingeklappt darunter – ebenfalls ohne Knopfdruck
+  // angekommen, nur zum Nachsehen weggeräumt.
+  await p.locator('text=/Weitere Nährwerte/').first().click()
+  await p.waitForTimeout(400)
+  const weitere = await p.evaluate(() => Object.fromEntries(
+    [...document.querySelectorAll('.naehrwert-zeile')].map((z) => [
+      z.querySelector('.naehrwert-name')?.textContent?.trim(),
+      (z.querySelector('.naehrwert-wert')?.firstChild?.textContent ?? '').trim(),
+    ])))
+  const erwartet = {
+    'Zucker': 5, 'Gesättigte Fettsäuren': 2, 'Mehrfach ungesättigte Fettsäuren': 1,
+    'Einfach ungesättigte Fettsäuren': 3, 'Cholesterin': 15, 'Natrium': 90, 'Kalium': 250,
+    'Calcium': 60, 'Eisen': 3, 'Vitamin A': 30, 'Vitamin C': 8,
+  }
+  const abweichend = Object.entries(erwartet)
+    .filter(([name, w]) => zahl(weitere[name]) !== w)
+    .map(([name, w]) => `${name}: ${weitere[name] ?? 'fehlt'} statt ${w}`)
+  pruefe('Alle elf weiteren Nährwerte stehen da', abweichend.length === 0, abweichend.join('; '))
 
   /* ----------------------------------- 3. Einzelne Lebensmittel sind da */
   const gegessen = await p.evaluate(() => document.body.innerText)
@@ -349,6 +373,53 @@ async function main() {
   await p.waitForTimeout(4000)
   pruefe('Drei Ereignisse kurz nacheinander lösen keinen Abruf aus',
     diaryAufrufe.length === 0, `${diaryAufrufe.length} Abruf(e)`)
+
+  /* ------------- 6a. Morgens in FatSecret eintragen, später LifeHub öffnen */
+  // Der Kern des Alltags – ohne Knopf. Der letzte Abruf liegt nur Sekunden
+  // zurück (der Erstimport eben): Genau so steht es auf dem Handy, wenn der
+  // PC kurz vorher abgeglichen hat. Das Öffnen darf trotzdem nicht leer ausgehen.
+  tagebuch.set(heute, [
+    eintrag('e-heute', 'Haferflocken'),
+    eintrag('e-fruehstueck', 'Rührei', { calories: '250', protein: '18', fiber: '0' }),
+  ])
+  await p.waitForTimeout(16000)
+  diaryAufrufe = []
+  await p.goto('about:blank')
+  await p.goto(DATEI + '#/tracking')
+  await warteAufApp(p)
+  let spaeter = ''
+  for (let i = 0; i < 40 && spaeter !== '650'; i++) {
+    await p.waitForTimeout(500)
+    spaeter = await ableseWert(p, 'Kalorien')
+  }
+  pruefe('Später geöffnet: das Frühstück steht ohne Knopfdruck da', spaeter === '650', `abgelesen: ${spaeter}`)
+  const nachStart = diaryAufrufe.length
+  pruefe('Das Öffnen hat genau einmal abgerufen', nachStart === 1, `${nachStart} Abruf(e)`)
+
+  /* ---------------- 6b. Nach einer Pause zurück in den Vordergrund */
+  // Die Pause wird nicht abgewartet, sondern vordatiert: Der Abruf-Zeitpunkt
+  // dieses Geräts liegt sechs Minuten zurück.
+  tagebuch.set(heute, [
+    eintrag('e-heute', 'Haferflocken'),
+    eintrag('e-fruehstueck', 'Rührei', { calories: '250', protein: '18', fiber: '0' }),
+    eintrag('e-apfel', 'Apfel', { calories: '50', protein: '0', fiber: '2' }),
+  ])
+  await p.evaluate(() => localStorage.setItem('lifehub.fatsecret.geraetZuletzt',
+    new Date(Date.now() - 6 * 60 * 1000).toISOString()))
+  diaryAufrufe = []
+  await p.evaluate(() => {
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('focus'))
+  })
+  let zurueck = ''
+  for (let i = 0; i < 40 && zurueck !== '700'; i++) {
+    await p.waitForTimeout(500)
+    zurueck = await ableseWert(p, 'Kalorien')
+  }
+  pruefe('Nach einer Pause zurück: der Apfel kommt von selbst an', zurueck === '700', `abgelesen: ${zurueck}`)
+  pruefe('Fokus und Sichtbarkeit zugleich ergeben einen Abruf, nicht zwei',
+    diaryAufrufe.length === 1, `${diaryAufrufe.length} Abruf(e)`)
+  tagebuch.set(heute, [eintrag('e-heute', 'Haferflocken')])
 
   /* ------------------------ 7. Korrektur von gestern kommt an */
   await p.goto(DATEI + '#/einstellungen/ernaehrung')

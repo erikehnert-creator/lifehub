@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 633 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 639 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -168,13 +168,18 @@ npx supabase functions deploy fatsecret --no-verify-jwt
 
 Seit dem 13.09.2026 holt LifeHub die Ernaehrung ohne Knopfdruck: `automatisch()`
 in `state/ernaehrung.ts`, angestossen aus `App.tsx` beim Start, beim Zurueck-
-kehren ins Fenster und im Minutentakt. Der Knopf bleibt fuer den Notfall.
+kehren ins Fenster und bei Wieder-online. Einen Zeitgeber gibt es NUR, solange
+der Erstimport laeuft (`automatikTaktMs`). Der Knopf bleibt fuer den Notfall.
 
 Zwei Dinge laufen dort getrennt:
 
-  laufend      Die letzten 14 Tage erneut holen (dort wird nachgetragen und
-               korrigiert), hoechstens alle 15 Minuten - siehe
-               `abgleichFaellig` in `core/fatsecretImport.ts`.
+  laufend      Heute, gestern, vorgestern erneut holen (dort wird nachgetragen
+               und korrigiert). Wie lange der letzte Abruf her sein muss, haengt
+               am Anlass (`MINDESTABSTAND_MS`: Start 15 s, Vordergrund/online
+               5 min) und wird je GERAET gemessen (localStorage), nicht am
+               synchronisierten `zuletzt` - sonst ueberspringt das Handy beim
+               Oeffnen das Fruehstueck, weil der PC eben abgeglichen hat.
+               `fatsecret-alltag-e2e.mjs` prueft genau das.
   historisch   Monat fuer Monat rueckwaerts. `food_entries.get_month.v2`
                nennt je Monat NUR die Tage mit Eintraegen, deshalb kostet ein
                Jahr zwoelf Aufrufe statt 365.

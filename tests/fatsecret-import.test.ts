@@ -17,7 +17,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  FRUEHESTER_MONAT, LEERER_STAND, LEERE_MONATE_BIS_ENDE, abgleichFaellig,
+  FRUEHESTER_MONAT, LEERER_STAND, LEERE_MONATE_BIS_ENDE, MINDESTABSTAND_MS, abgleichFaellig,
+  automatikTaktMs,
   ersterTagDesMonats, monatVon, nachzuholendeTage, naechsteMonate, standNachMonaten,
   standFuerNeuenLauf, vorherigerMonat, type ImportStand, type MonatsBefund,
 } from '../src/core/fatsecretImport'
@@ -247,5 +248,37 @@ describe('Wann automatisch abgeglichen wird', () => {
   it('auch bei einem unbrauchbaren Zeitstempel', () => {
     // Lieber einmal zu viel abgleichen als wegen eines kaputten Werts nie.
     expect(abgleichFaellig('kein-datum', jetzt)).toBe(true)
+  })
+
+  const vor = (ms: number) => new Date(jetzt - ms).toISOString()
+
+  it('beim Öffnen der App auch dann, wenn der letzte Abruf erst Minuten her ist', () => {
+    // Frühstück um 7:05 eingetragen, zuletzt um 7:00 abgeglichen, um 7:10 geöffnet.
+    expect(abgleichFaellig(vor(10 * 60_000), jetzt, MINDESTABSTAND_MS.start)).toBe(true)
+  })
+
+  it('beim Öffnen nicht, wenn nur hastig neu geladen wurde', () => {
+    expect(abgleichFaellig(vor(5_000), jetzt, MINDESTABSTAND_MS.start)).toBe(false)
+  })
+
+  it('nach kurzem Blick in eine andere App nicht, nach einer Pause schon', () => {
+    expect(abgleichFaellig(vor(60_000), jetzt, MINDESTABSTAND_MS.vordergrund)).toBe(false)
+    expect(abgleichFaellig(vor(6 * 60_000), jetzt, MINDESTABSTAND_MS.vordergrund)).toBe(true)
+  })
+
+  it('der Öffnen-Anlass ist nie strenger als die übrigen', () => {
+    for (const a of ['vordergrund', 'online', 'weiter'] as const) {
+      expect(MINDESTABSTAND_MS.start).toBeLessThan(MINDESTABSTAND_MS[a])
+    }
+  })
+})
+
+describe('Zeitgeber der Automatik', () => {
+  it('läuft nur, solange der Erstimport noch Arbeit hat', () => {
+    expect(automatikTaktMs(true)).toBeGreaterThan(0)
+  })
+
+  it('fehlt danach ganz – kein Klopfen an FatSecret im Takt', () => {
+    expect(automatikTaktMs(false)).toBeNull()
   })
 })
