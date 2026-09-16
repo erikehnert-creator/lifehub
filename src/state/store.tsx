@@ -134,53 +134,98 @@ const EMPTY: AppData = {
   monthlyClosings: [], attachments: [], importBatches: [], shopping: [], foodEntries: [],
 }
 
-function loadAll(): AppData {
+/**
+ * Welche Tabelle hinter welchem Feld des Datenbildes steckt – an EINER Stelle.
+ *
+ * Vorher stand diese Zuordnung nur implizit in einem vierzigzeiligen
+ * `loadAll()`. Damit ließ sich nur alles oder nichts nachladen: Ein Haken an
+ * einer Aufgabe las auch 12.000 Lebensmittel und 20.000 Messwerte neu. Als
+ * Liste ist dieselbe Zuordnung auch rückwärts benutzbar – „lade genau die
+ * Tabellen, die sich geändert haben".
+ */
+interface Lader {
+  key: Exclude<keyof AppData, 'settings'>
+  table: SyncedTable
+  orderBy?: string
+}
+
+const LADER: Lader[] = [
+  { key: 'accounts', table: 'accounts', orderBy: 'sort_order, name' },
+  { key: 'categories', table: 'categories', orderBy: 'sort_order, name' },
+  { key: 'transactions', table: 'transactions', orderBy: 'booked_on DESC, created_at DESC' },
+  { key: 'budgets', table: 'budgets' },
+  { key: 'recurring', table: 'recurring_rules', orderBy: 'title' },
+  { key: 'tasks', table: 'tasks', orderBy: 'sort_order, created_at DESC' },
+  { key: 'projects', table: 'projects', orderBy: 'name' },
+  { key: 'events', table: 'calendar_events', orderBy: 'day, start_time' },
+  { key: 'dayTypes', table: 'day_types', orderBy: 'sort_order' },
+  { key: 'dayAssignments', table: 'day_assignments', orderBy: 'day' },
+  { key: 'shiftPatterns', table: 'shift_patterns' },
+  { key: 'holidays', table: 'holidays', orderBy: 'day' },
+  { key: 'timeBlocks', table: 'time_blocks', orderBy: 'day, start_time' },
+  { key: 'metrics', table: 'metrics', orderBy: 'sort_order' },
+  { key: 'metricEntries', table: 'metric_entries', orderBy: 'day' },
+  { key: 'metricTargets', table: 'metric_targets' },
+  { key: 'exercises', table: 'exercises', orderBy: 'name' },
+  { key: 'workoutPlans', table: 'workout_plans' },
+  { key: 'workoutPlanDays', table: 'workout_plan_days', orderBy: 'week_index, weekday' },
+  { key: 'workoutPlanExercises', table: 'workout_plan_exercises', orderBy: 'sort_order' },
+  { key: 'workoutSessions', table: 'workout_sessions', orderBy: 'day DESC' },
+  { key: 'workoutSets', table: 'workout_sets', orderBy: 'set_index' },
+  { key: 'bodyMeasurements', table: 'body_measurements', orderBy: 'day DESC' },
+  { key: 'dayNotes', table: 'day_notes', orderBy: 'day DESC' },
+  { key: 'investments', table: 'investments', orderBy: 'name' },
+  { key: 'investmentMoves', table: 'investment_moves', orderBy: 'day DESC' },
+  { key: 'goals', table: 'goals' },
+  { key: 'goalContributions', table: 'goal_contributions', orderBy: 'day DESC' },
+  { key: 'taskTemplates', table: 'task_templates', orderBy: 'weekday, title' },
+  { key: 'accountChecks', table: 'account_checks', orderBy: 'day DESC' },
+  { key: 'notes', table: 'notes', orderBy: 'created_at DESC' },
+  { key: 'insights', table: 'insights', orderBy: 'created_at DESC' },
+  { key: 'financeDayRuns', table: 'finance_day_runs', orderBy: 'ran_on DESC' },
+  { key: 'monthlyClosings', table: 'monthly_closings', orderBy: 'year_month DESC' },
+  { key: 'attachments', table: 'attachments' },
+  { key: 'importBatches', table: 'import_batches', orderBy: 'imported_at DESC' },
+  { key: 'shopping', table: 'shopping_items', orderBy: 'is_checked, sort_order, name' },
+  { key: 'foodEntries', table: 'food_entries', orderBy: 'day DESC, meal, sort_order' },
+]
+
+function ladeEinstellungen(): AppSettings {
   const settingRows = list<{ key: string; value_json: string }>('settings')
   const settings: any = { ...DEFAULT_SETTINGS }
   for (const r of settingRows) {
     try { settings[r.key] = JSON.parse(r.value_json) } catch { /* defekter Eintrag wird ignoriert */ }
   }
-  return {
-    settings: settings as AppSettings,
-    accounts: list<Account>('accounts', { orderBy: 'sort_order, name' }),
-    categories: list<Category>('categories', { orderBy: 'sort_order, name' }),
-    transactions: list<Transaction>('transactions', { orderBy: 'booked_on DESC, created_at DESC' }),
-    budgets: list<Budget>('budgets'),
-    recurring: list<RecurringRule>('recurring_rules', { orderBy: 'title' }),
-    tasks: list<Task>('tasks', { orderBy: 'sort_order, created_at DESC' }),
-    projects: list('projects', { orderBy: 'name' }),
-    events: list<CalendarEvent>('calendar_events', { orderBy: 'day, start_time' }),
-    dayTypes: list<DayType>('day_types', { orderBy: 'sort_order' }),
-    dayAssignments: list<DayAssignment>('day_assignments', { orderBy: 'day' }),
-    shiftPatterns: list('shift_patterns'),
-    holidays: list('holidays', { orderBy: 'day' }),
-    timeBlocks: list<TimeBlock>('time_blocks', { orderBy: 'day, start_time' }),
-    metrics: list<Metric>('metrics', { orderBy: 'sort_order' }),
-    metricEntries: list<MetricEntry>('metric_entries', { orderBy: 'day' }),
-    metricTargets: list<MetricTarget>('metric_targets'),
-    exercises: list<Exercise>('exercises', { orderBy: 'name' }),
-    workoutPlans: list<WorkoutPlan>('workout_plans'),
-    workoutPlanDays: list<WorkoutPlanDay>('workout_plan_days', { orderBy: 'week_index, weekday' }),
-    workoutPlanExercises: list('workout_plan_exercises', { orderBy: 'sort_order' }),
-    workoutSessions: list<WorkoutSession>('workout_sessions', { orderBy: 'day DESC' }),
-    workoutSets: list<WorkoutSet>('workout_sets', { orderBy: 'set_index' }),
-    bodyMeasurements: list<BodyMeasurement>('body_measurements', { orderBy: 'day DESC' }),
-    dayNotes: list<DayNote>('day_notes', { orderBy: 'day DESC' }),
-    investments: list<Investment>('investments', { orderBy: 'name' }),
-    investmentMoves: list<InvestmentMove>('investment_moves', { orderBy: 'day DESC' }),
-    goals: list<Goal>('goals'),
-    goalContributions: list('goal_contributions', { orderBy: 'day DESC' }),
-    taskTemplates: list('task_templates', { orderBy: 'weekday, title' }),
-    accountChecks: list('account_checks', { orderBy: 'day DESC' }),
-    notes: list('notes', { orderBy: 'created_at DESC' }),
-    insights: list<Insight>('insights', { orderBy: 'created_at DESC' }),
-    financeDayRuns: list('finance_day_runs', { orderBy: 'ran_on DESC' }),
-    monthlyClosings: list('monthly_closings', { orderBy: 'year_month DESC' }),
-    attachments: list('attachments'),
-    importBatches: list('import_batches', { orderBy: 'imported_at DESC' }),
-    shopping: list<ShoppingItem>('shopping_items', { orderBy: 'is_checked, sort_order, name' }),
-    foodEntries: list<FoodEntry>('food_entries', { orderBy: 'day DESC, meal, sort_order' }),
+  return settings as AppSettings
+}
+
+function loadAll(): AppData {
+  const out: any = { settings: ladeEinstellungen() }
+  for (const l of LADER) out[l.key] = list(l.table, l.orderBy ? { orderBy: l.orderBy } : {})
+  return out as AppData
+}
+
+/**
+ * Nur die genannten Tabellen neu lesen, alles andere unverändert übernehmen.
+ *
+ * Das „unverändert" ist der eigentliche Gewinn und nicht nur die gesparte
+ * Abfrage: Jedes Feld, das nicht neu gelesen wird, behält seine Referenz.
+ * Damit laufen die useMemo-Berechnungen der anderen Seiten nicht neu, und die
+ * Automatik (state/automatik.ts) startet ihren Zeitgeber nicht mehr neu, bloß
+ * weil auf der Einkaufsliste ein Haken gesetzt wurde.
+ *
+ * Gemessen an einem Bestand aus mehreren Jahren (tests/ladezeit.test.ts):
+ * alles lesen 317 ms, nur die Aufgaben lesen 39 ms.
+ */
+function loadTables(prev: AppData, tables: readonly SyncedTable[]): AppData {
+  const gesucht = new Set<string>(tables)
+  const out: any = { ...prev }
+  if (gesucht.has('settings')) out.settings = ladeEinstellungen()
+  for (const l of LADER) {
+    if (!gesucht.has(l.table)) continue
+    out[l.key] = list(l.table, l.orderBy ? { orderBy: l.orderBy } : {})
   }
+  return out as AppData
 }
 
 /* ------------------------------------------------------------------ Kontext */
@@ -203,7 +248,14 @@ export interface Mutations {
   /** Gibt es diese Zeile schon – auch als gelöschte? Siehe db/repo.ts. */
   exists: (table: SyncedTable, id: string) => boolean
   setSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void
-  reload: () => void
+  /**
+   * Mehrere Schreibvorgänge bündeln und danach EINMAL nachladen.
+   * Die Rückgabe nennt die angefassten Tabellen; ohne Angabe wird alles
+   * neu gelesen.
+   */
+  batch: (fn: () => readonly SyncedTable[] | void) => void
+  /** Ohne Angabe: alles. Mit Angabe: nur diese Tabellen. */
+  reload: (tables?: readonly SyncedTable[]) => void
   toast: (text: string, undo?: () => void) => void
 }
 
@@ -246,52 +298,74 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), undo ? 7000 : 3000)
   }, [])
 
+  // Nach einer Änderung nur die betroffene Tabelle neu lesen. Alles andere
+  // behält seine Referenz – siehe loadTables().
+  const frisch = useCallback((table: SyncedTable) => {
+    setData((prev) => loadTables(prev, [table]))
+  }, [])
+
   const mutations = useMemo<Mutations>(() => ({
     create(table, values, toastText) {
       const id = insert(table, values)
-      setData(loadAll())
-      if (toastText) toast(toastText, () => { softDelete(table, id); setData(loadAll()) })
+      frisch(table)
+      if (toastText) toast(toastText, () => { softDelete(table, id); frisch(table) })
       return id
     },
     patch(table, id, values, toastText) {
       const before = byId<Record<string, any>>(table, id)
       update(table, id, values)
-      setData(loadAll())
+      frisch(table)
       if (toastText) {
         toast(toastText, before ? () => {
           const revert: Record<string, any> = {}
           for (const k of Object.keys(values)) revert[k] = before[k]
           update(table, id, revert)
-          setData(loadAll())
+          frisch(table)
         } : undefined)
       }
     },
     remove(table, id, toastText) {
       softDelete(table, id)
-      setData(loadAll())
-      toast(toastText ?? 'Gelöscht', () => { restore(table, id); setData(loadAll()) })
+      frisch(table)
+      toast(toastText ?? 'Gelöscht', () => { restore(table, id); frisch(table) })
     },
     removeQuiet(table, id) {
       softDelete(table, id)
-      setData(loadAll())
+      frisch(table)
     },
     restoreRow(table, id, toastText) {
       restore(table, id)
-      setData(loadAll())
+      frisch(table)
       if (toastText) toast(toastText)
     },
     purge(table, id) {
       hardDelete(table, id)
-      setData(loadAll())
+      frisch(table)
     },
     exists: existsById,
     setSetting(key, value) {
       upsertByKey('settings', 'key', key as string, { value_json: JSON.stringify(value) })
-      setData(loadAll())
+      frisch('settings')
     },
-    reload() { setData(loadAll()) },
+    /**
+     * Mehrere Schreibvorgänge, EIN Nachladen.
+     *
+     * Ohne das zahlt eine Schleife ihr Nachladen je Durchgang: Ein Import mit
+     * 500 Zeilen las den gesamten Bestand 500-mal neu. Der Rückgabewert der
+     * übergebenen Funktion sagt, welche Tabellen angefasst wurden; wird nichts
+     * genannt, wird alles neu gelesen (sicher, aber langsam).
+     */
+    batch(fn) {
+      const beruehrt = fn()
+      if (beruehrt && beruehrt.length) setData((prev) => loadTables(prev, beruehrt))
+      else setData(loadAll())
+    },
+    reload(tables) {
+      if (tables && tables.length) setData((prev) => loadTables(prev, tables))
+      else setData(loadAll())
+    },
     toast,
-  }), [toast])
+  }), [toast, frisch])
 
   useEffect(() => {
     let cancelled = false

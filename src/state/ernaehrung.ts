@@ -166,13 +166,20 @@ function anwenden(
     const lokal = list('food_entries', { includeDeleted: true, where: 'day = ?', params: [tag] }) as any[]
     const plan = reconcileFoodEntries({ day: tag, remote: eintraege, lokal, syncedAt })
 
-    for (const a of plan.anlegen) {
-      if (mutations.exists('food_entries', a.id)) continue
-      mutations.create('food_entries', a.values)
-      neu++
-    }
-    for (const a of plan.aendern) { mutations.patch('food_entries', a.id, a.patch); geaendert++ }
-    for (const e of plan.entfernen) { mutations.removeQuiet('food_entries', e.id); entfernt++ }
+    // Ein Nachladen je Tag statt eines je Lebensmittel: Ein Import über 30 Tage
+    // schrieb sonst ein paar hundert Mal einzeln und las jedes Mal den ganzen
+    // Bestand neu. Die Tagesgrenze bleibt die Fehlergrenze – geht ein Tag
+    // schief, sind die anderen unberührt.
+    mutations.batch(() => {
+      for (const a of plan.anlegen) {
+        if (mutations.exists('food_entries', a.id)) continue
+        mutations.create('food_entries', a.values)
+        neu++
+      }
+      for (const a of plan.aendern) { mutations.patch('food_entries', a.id, a.patch); geaendert++ }
+      for (const e of plan.entfernen) { mutations.removeQuiet('food_entries', e.id); entfernt++ }
+      return ['food_entries']
+    })
 
     /* ------------------------------------------------------- Tagessummen */
     // Bewusst aus den EBEN geschriebenen Einträgen gerechnet, nicht aus dem
@@ -184,17 +191,20 @@ function anwenden(
     }) as any[]
     const mp = planNutritionMetrics({ day: tag, werte, metriken, vorhanden: vorhandeneWerte, syncedAt })
 
-    for (const a of mp.anlegen) {
-      if (mutations.exists('metric_entries', a.id)) continue
-      mutations.create('metric_entries', a.values)
-    }
-    for (const a of mp.aendern) mutations.patch('metric_entries', a.id, a.patch)
-    for (const w of mp.wiederherstellen) {
-      mutations.restoreRow('metric_entries', w.id)
-      mutations.patch('metric_entries', w.id, w.patch)
-    }
-    for (const e of mp.ersetzen) { mutations.removeQuiet('metric_entries', e.id); ersetzt++ }
-    for (const e of mp.entfernen) mutations.removeQuiet('metric_entries', e.id)
+    mutations.batch(() => {
+      for (const a of mp.anlegen) {
+        if (mutations.exists('metric_entries', a.id)) continue
+        mutations.create('metric_entries', a.values)
+      }
+      for (const a of mp.aendern) mutations.patch('metric_entries', a.id, a.patch)
+      for (const w of mp.wiederherstellen) {
+        mutations.restoreRow('metric_entries', w.id)
+        mutations.patch('metric_entries', w.id, w.patch)
+      }
+      for (const e of mp.ersetzen) { mutations.removeQuiet('metric_entries', e.id); ersetzt++ }
+      for (const e of mp.entfernen) mutations.removeQuiet('metric_entries', e.id)
+      return ['metric_entries']
+    })
 
     verarbeitet++
   }

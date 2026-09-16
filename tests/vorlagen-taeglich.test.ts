@@ -57,7 +57,7 @@ function geraet(templates: TaskTemplate[] = [DEHNUNG], assignments: { day: strin
       })
       if (!plan.anlegen.length && !plan.aendern.length && !plan.entfernen.length) return
       for (const a of plan.anlegen) {
-        const row = {
+        const row: any = {
           ...a.values, deleted_at: null, carried_count: 0, carried_from: null,
           pinned_day: 0, scheduled_end_on: null, due_on: null, show_from: null,
         }

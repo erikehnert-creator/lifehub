@@ -429,21 +429,23 @@ function MetricForm({ onDone }: { onDone: () => void }) {
   const metrics = data.metrics.filter((x) => x.is_enabled && x.show_in_daily_form)
 
   const submit = () => {
-    let count = 0
-    for (const metric of metrics) {
-      const raw = values[metric.id]
-      if (raw === undefined || raw === '') continue
-      const num = Number(raw.replace(',', '.'))
-      if (!Number.isFinite(num)) continue
-      const existing = data.metricEntries.find((e) => !e.deleted_at && e.metric_id === metric.id && e.day === day)
-      if (existing) m.patch('metric_entries', existing.id, { value_num: num })
-      else m.create('metric_entries', {
-        metric_id: metric.id, day, at_time: null, value_num: num,
-        value_text: null, note: null, source: 'manual', import_batch_id: null,
-      })
-      count++
-    }
-    m.reload()
+    // Alle Werte des Tages in einem Rutsch: Vorher las jeder einzelne Wert den
+    // gesamten Bestand neu, und danach noch einmal alles obendrauf.
+    m.batch(() => {
+      for (const metric of metrics) {
+        const raw = values[metric.id]
+        if (raw === undefined || raw === '') continue
+        const num = Number(raw.replace(',', '.'))
+        if (!Number.isFinite(num)) continue
+        const existing = data.metricEntries.find((e) => !e.deleted_at && e.metric_id === metric.id && e.day === day)
+        if (existing) m.patch('metric_entries', existing.id, { value_num: num })
+        else m.create('metric_entries', {
+          metric_id: metric.id, day, at_time: null, value_num: num,
+          value_text: null, note: null, source: 'manual', import_batch_id: null,
+        })
+      }
+      return ['metric_entries']
+    })
     onDone()
   }
 
