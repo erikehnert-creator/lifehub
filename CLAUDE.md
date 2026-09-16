@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 271 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 411 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -46,6 +46,19 @@ die gebaute `LifeHub.html`, also vorher `npm run build:single`:
 node tests/automatik-e2e.mjs     # plant ein, zieht nach, räumt auf, dreht sich nicht
 node tests/heute-mobil-e2e.mjs   # misst nach, ob die Termine ohne Scrollen dastehen
 ```
+
+Bei Änderungen an Buchungen oder am Buchungsformular zusätzlich:
+
+```
+node tests/umbuchung-e2e.mjs     # legt eine echte Umbuchung an und rechnet die
+                                 # Salden nach – der Speichern-Knopf war einmal
+                                 # grundlos gesperrt, und das sah man nur hier
+```
+
+Die Prüfungen suchen ihren Browser selbst (tests/_browser.mjs). Ein fester
+Pfad wird nur noch benutzt, wenn es ihn gibt oder `LIFEHUB_CHROMIUM` ihn nennt.
+Die Prüfungen gegen den nachgebauten Supabase-Server (`sync-e2e*.mjs`) brauchen
+zusätzlich ein lokales Postgres; Zugang über `PGUSER`/`PGPASSWORD`.
 
 Bei einer neuen Migration in `src/db/schema.ts` zusätzlich:
 
