@@ -7,6 +7,7 @@
  */
 import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js'
 import { MIGRATIONS } from './schema'
+import { fremdeMigration10Angleichen } from './altstand'
 
 const IDB_NAME = 'lifehub'
 const IDB_STORE = 'files'
@@ -193,6 +194,8 @@ function runMigrations(database: Database): void {
   const applied = new Set<number>()
   const res = database.exec('SELECT id FROM _migrations')
   if (res.length) for (const row of res[0].values) applied.add(Number(row[0]))
+  // Vor der Schleife: Nummer 10 gilt dort schon als angewandt (siehe altstand.ts).
+  if (applied.has(10)) fremdeMigration10Angleichen(database)
 
   for (const m of MIGRATIONS) {
     if (applied.has(m.id)) continue

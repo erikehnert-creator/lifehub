@@ -5,11 +5,12 @@
  * anschließend ohne Netz?
  */
 import { chromium } from 'playwright'
+import { startOptionen, EINZELDATEI, DIST } from './_browser.mjs'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 
-const ROOT = '/home/claude/lifehub/app/dist'
+const ROOT = DIST
 const PREFIX = '/lifehub'
 const TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -40,7 +41,6 @@ const pruefe = (name, ist, soll) => {
 const dir = '/tmp/pages-check'
 fs.rmSync(dir, { recursive: true, force: true })
 const ctx = await chromium.launchPersistentContext(dir, {
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   viewport: { width: 390, height: 844 },
 })
 const page = ctx.pages()[0] ?? await ctx.newPage()

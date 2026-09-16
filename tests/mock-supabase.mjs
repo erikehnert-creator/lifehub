@@ -24,8 +24,21 @@ const USERS = new Map([
 const tokens = new Map()   // access_token -> { user, email, exp }
 const refresh = new Map()  // refresh_token -> access_token-Ausstellung
 
+// Zugangsdaten der Testdatenbank. Fest verdrahtet waren sie nur so lange
+// richtig, wie alle dieselbe Wegwerf-Instanz benutzten – auf einem Rechner mit
+// eigenem Postgres schlug die Anmeldung fehl, und zwar erst mitten im Test.
 const pool = new pg.Pool({
-  host: '127.0.0.1', user: 'postgres', password: 'test', database: 'postgres', port: 5432,
+  host: process.env.PGHOST ?? '127.0.0.1',
+  user: process.env.PGUSER ?? 'postgres',
+  password: process.env.PGPASSWORD ?? 'test',
+  database: process.env.PGDATABASE ?? 'postgres',
+  port: Number(process.env.PGPORT ?? 5432),
+})
+
+pool.query('select 1').catch((e) => {
+  console.error(`Die Testdatenbank ist nicht erreichbar: ${e.message}`)
+  console.error('Zugang ggf. ueber PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGPORT setzen.')
+  process.exit(1)
 })
 
 function send(res, status, body, extra = {}) {

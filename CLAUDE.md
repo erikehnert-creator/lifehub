@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 594 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 633 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -83,6 +83,14 @@ ausgeschlossen, und ihr Inhalt gehört niemals in einen Commit, eine Notiz oder
 einen Bericht.
 
 Der frühere Ordner `Dokumente/Projekte/LifeHub-Projekt` wird nicht mehr benutzt.
+
+Genau das ist trotzdem passiert: Am 16.09.2026 entstanden dort neun Commits,
+teils Dinge, die es hier schon gab – darunter eine ZWEITE Migration 10 mit
+anderen Spalten. Sie wurden per Merge übernommen (keine History umgeschrieben);
+die doppelt gebauten Teile nahmen die Fassung dieses Ordners, weil sie zum
+Server passt. Datenbanken, die die fremde Migration 10 schon trugen, gleicht
+`src/db/altstand.ts` beim Öffnen an. **Vor jeder Arbeit prüfen, dass der
+Arbeitsordner dieser hier ist** (`git rev-parse --show-toplevel`).
 
 ## Eindeutige Spalten: die ID muss sich daraus ableiten
 

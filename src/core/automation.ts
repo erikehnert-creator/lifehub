@@ -70,6 +70,11 @@ export interface VorlagenPlan {
   entfernen: { id: string; titel: string; grund: 'vorlage-weg' | 'tag-passt-nicht' | 'doppelt' }[]
 }
 
+/** Titel vergleichbar machen: Groß-/Kleinschreibung und Randleerzeichen egal. */
+function titelSchluessel(titel: string | null | undefined): string {
+  return (titel ?? '').trim().toLowerCase()
+}
+
 /** Leere Werte einheitlich behandeln: '' und undefined sind dasselbe wie NULL. */
 function leer(v: any): any {
   return v === undefined || v === '' ? null : v
@@ -145,45 +150,81 @@ export function reconcileTemplateTasks(opts: {
   // Ein Schlüssel gilt als belegt, sobald irgendeine Zeile dazu existiert –
   // auch eine gelöschte. Sonst käme eine von Hand entfernte Aufgabe zurück.
   const belegt = new Set<string>()
+  // Alle lebenden Aufgaben je Vorlagentag. Früher entschied hier die
+  // Reihenfolge der Liste, wer bei einem Doppel überlebt – und das traf
+  // regelmäßig die Zeile mit der wiederholbaren ID. Jetzt liegen erst alle
+  // Kandidaten eines Tages beisammen, dann wird bewusst ausgewählt.
+  const proTag = new Map<string, VorlagenAufgabe[]>()
+  // Von Hand angelegte Aufgaben je Tag, nach Titel. Wer „Dehnung" heute selbst
+  // einträgt, soll sie nicht ein zweites Mal von der Automatik bekommen.
+  const vonHand = new Map<string, Set<string>>()
 
   for (const t of opts.tasks) {
-    if (!t.template_id || !t.scheduled_on) continue
+    if (!t.scheduled_on) continue
+    if (!t.template_id) {
+      if (t.deleted_at || t.status === 'cancelled') continue
+      const titel = vonHand.get(t.scheduled_on)
+      if (titel) titel.add(titelSchluessel(t.title))
+      else vonHand.set(t.scheduled_on, new Set([titelSchluessel(t.title)]))
+      continue
+    }
     const key = `${t.template_id}|${t.scheduled_on}`
-    const bereitsGesehen = belegt.has(key)
     belegt.add(key)
-
     if (t.deleted_at) continue
+    const liste = proTag.get(key)
+    if (liste) liste.push(t)
+    else proTag.set(key, [t])
+  }
 
-    const vergangen = t.scheduled_on < today
-    const erledigt = t.status === 'done' || t.status === 'cancelled'
-    const weitergeschoben = (t.carried_count ?? 0) > 0
-    if (vergangen || erledigt || weitergeschoben) continue
+  /**
+   * Bestandsschutz: Was vorbei, erledigt oder schon einmal weitergeschoben ist,
+   * gehört nicht mehr der Vorlage – es wird weder geändert noch entfernt.
+   */
+  const geschuetzt = (t: VorlagenAufgabe): boolean =>
+    t.scheduled_on! < today || t.status === 'done' || t.status === 'cancelled'
+    || (t.carried_count ?? 0) > 0
 
+  for (const [key, liste] of proTag) {
     const ziel = soll.get(key)
     if (!ziel) {
       // Die Vorlage ist weg oder pausiert, oder dieser Tag passt nicht mehr.
-      const nochAktiv = opts.templates.some((x) => x.id === t.template_id && !x.deleted_at && x.is_active)
-      plan.entfernen.push({ id: t.id, titel: t.title, grund: nochAktiv ? 'tag-passt-nicht' : 'vorlage-weg' })
-      continue
-    }
-    if (bereitsGesehen) {
-      // Zwei Aufgaben für denselben Vorlagentag – aus der Zeit vor den
-      // wiederholbaren IDs. Eine reicht.
-      plan.entfernen.push({ id: t.id, titel: t.title, grund: 'doppelt' })
+      const vorlageId = liste[0].template_id
+      const nochAktiv = opts.templates.some((x) => x.id === vorlageId && !x.deleted_at && x.is_active)
+      for (const t of liste) {
+        if (geschuetzt(t)) continue
+        plan.entfernen.push({ id: t.id, titel: t.title, grund: nochAktiv ? 'tag-passt-nicht' : 'vorlage-weg' })
+      }
       continue
     }
 
+    // Wer den Tag vertritt: bevorzugt die Zeile mit der wiederholbaren ID.
+    // Wird die weggeräumt, sperrt ihre gelöschte Zeile den Tag für immer gegen
+    // ein Neuanlegen – genau daran ist die tägliche Vorlage gescheitert.
+    const kanonisch = templateTaskId(ziel.tpl.id, ziel.day)
+    const haupt = liste.find((t) => t.id === kanonisch)
+      ?? liste.find((t) => !geschuetzt(t))
+      ?? liste[0]
+
+    for (const t of liste) {
+      if (t.id === haupt.id || geschuetzt(t)) continue
+      // Zwei Aufgaben für denselben Vorlagentag. Eine reicht.
+      plan.entfernen.push({ id: t.id, titel: t.title, grund: 'doppelt' })
+    }
+
+    if (geschuetzt(haupt)) continue
     const patch: Record<string, any> = {}
     for (const feld of VORGEGEBENE_FELDER) {
       const wunsch = leer((ziel.tpl as any)[feld])
-      if (!gleich((t as any)[feld], wunsch)) patch[feld] = wunsch
+      if (!gleich((haupt as any)[feld], wunsch)) patch[feld] = wunsch
     }
-    if (Object.keys(patch).length) plan.aendern.push({ id: t.id, titel: t.title, patch })
+    if (Object.keys(patch).length) plan.aendern.push({ id: haupt.id, titel: haupt.title, patch })
   }
 
   /* -------------------------------------------------------------- Fehlende */
   for (const [key, { tpl, day }] of soll) {
     if (belegt.has(key)) continue
+    // Heute schon von Hand eingetragen? Dann ist der Tag versorgt.
+    if (vonHand.get(day)?.has(titelSchluessel(tpl.title))) continue
     const id = templateTaskId(tpl.id, day)
     // Doppelte Absicherung gegen einen Schlüsselkonflikt: Wenn die Zeile schon
     // existiert, die Zuordnung über template_id|Tag sie aber nicht gefunden

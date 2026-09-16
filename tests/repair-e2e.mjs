@@ -9,12 +9,12 @@
  *   4. Probe: Änderung am Handy taucht am PC auf – ohne Knopfdruck
  */
 import { chromium } from 'playwright'
+import { startOptionen, EINZELDATEI, DIST, ECHTDATEN, brauche } from './_browser.mjs'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import pg from 'pg'
 
-const EXE = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
 const SUPA = 'http://127.0.0.1:54321'
 const ANON = 'anon-test-key'
 const MAIL = 'erik@test.de'
@@ -23,8 +23,8 @@ const PASS = 'geheim123'
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }
 const site = http.createServer((req, res) => {
   const rel = decodeURIComponent(req.url.split('?')[0])
-  const file = path.join('/home/claude/lifehub/app/dist', rel === '/' ? 'index.html' : rel)
-  if (!file.startsWith('/home/claude/lifehub/app/dist') || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+  const file = path.join(DIST, rel === '/' ? 'index.html' : rel)
+  if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404); res.end('nicht gefunden'); return
   }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream' })
@@ -45,7 +45,7 @@ const pruefe = (name, ist, soll) => {
 async function starte(name, url, viewport) {
   const dir = `/tmp/rep-${name}`
   fs.rmSync(dir, { recursive: true, force: true })
-  const ctx = await chromium.launchPersistentContext(dir, { executablePath: EXE, viewport })
+  const ctx = await chromium.launchPersistentContext(dir, startOptionen({ viewport }))
   const page = ctx.pages()[0] ?? await ctx.newPage()
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
@@ -98,7 +98,7 @@ const vermoegen = async (d) => {
 /* =============================================== Ausgangslage nachstellen */
 
 console.log('\n0) Zwei frische Geräte, beide schieben ihre Beispielkonten hoch')
-const pc = await starte('pc', 'file:///home/claude/lifehub/LifeHub.html', { width: 1280, height: 900 })
+const pc = await starte('pc', EINZELDATEI, { width: 1280, height: 900 })
 const handy = await starte('handy', 'http://127.0.0.1:8081/', { width: 390, height: 844 })
 pruefe('PC angemeldet', await anmelden(pc), 'true')
 pruefe('Handy angemeldet', await anmelden(handy), 'true')
@@ -126,7 +126,7 @@ console.log('\n2) PC: Excel-Daten einspielen')
 await geh(pc, '/einstellungen')
 await pc.page.locator('button', { hasText: 'Daten & Backup' }).first().click()
 await pc.page.waitForTimeout(500)
-await pc.page.locator('input[type=file][accept*="json"]').first().setInputFiles('/home/claude/lifehub/LifeHub-Daten-Erik.json')
+await pc.page.locator('input[type=file][accept*="json"]').first().setInputFiles(ECHTDATEN)
 await pc.page.waitForTimeout(1500)
 await pc.page.locator('.modal .btn-primary').first().click()
 await pc.page.waitForTimeout(4500)

@@ -234,23 +234,83 @@ export function dringlichkeit(
 }
 
 /**
+ * Von mehreren offenen Aufgaben derselben Vorlage bleibt genau eine für heute
+ * übrig – die IDs aller anderen liefert diese Funktion zurück.
+ *
+ * Warum das nötig ist: Eine tägliche Vorlage wie „Dehnung" legt für JEDEN Tag
+ * eine Aufgabe an. Wird eine davon nicht abgehakt, schob der Tagesübertrag sie
+ * früher auf heute – genau dorthin, wo die Vorlage ohnehin schon eine Aufgabe
+ * für heute hingelegt hatte. Aus zwei Zeilen für denselben Vorlagentag machte
+ * der Abgleich danach wieder eine, indem er eine davon wegräumte. Traf es die
+ * Zeile mit der wiederholbaren ID (und das tat es jeden Tag, siehe
+ * core/automation.ts), war dieser Tag anschließend für immer belegt: Die
+ * gelöschte Zeile sperrt ihre eigene ID gegen ein Neuanlegen. Verschwand dann
+ * die übriggebliebene Kopie, stand für den Tag gar nichts mehr da und die
+ * Automatik konnte das nicht mehr heilen. Genau so fiel „Dehnung" aus.
+ *
+ * Die Regel dagegen ist einfach: Eine Vorlage ist an einem Tag mit EINER
+ * Aufgabe vertreten. Liegt die heutige schon da, bleiben ältere offene
+ * Aufgaben derselben Vorlage in ihrer Vergangenheit stehen – nicht abgehakt
+ * ist nicht abgehakt, das gehört zum jeweiligen Tag. Nur wenn die Vorlage für
+ * heute nichts vorsieht (etwa „jeden Dienstag" an einem Mittwoch), wandert die
+ * älteste offene Aufgabe wie bisher mit.
+ *
+ * Es wird dabei nichts gelöscht: Die verdeckten Aufgaben bleiben als Historie
+ * an ihrem Tag erhalten, sie drängen sich nur nicht alle in den heutigen Plan.
+ */
+export function verdeckteVorlagenAufgaben(
+  tasks: Task[],
+  today: DayString = todayString(),
+): Set<string> {
+  const proVorlage = new Map<string, Task[]>()
+  for (const t of tasks) {
+    if (t.deleted_at || t.status === 'done' || t.status === 'cancelled') continue
+    if (!t.template_id || !t.scheduled_on) continue
+    if ((t.scheduled_end_on ?? t.scheduled_on) > today) continue
+    const liste = proVorlage.get(t.template_id)
+    if (liste) liste.push(t)
+    else proVorlage.set(t.template_id, [t])
+  }
+  const verdeckt = new Set<string>()
+  for (const liste of proVorlage.values()) {
+    if (liste.length < 2) continue
+    // Vorrang hat die Aufgabe, die WIRKLICH für heute angelegt wurde: eine, die
+    // heute liegt und noch nie geschoben wurde. Erst danach eine geschobene von
+    // heute. Sieht die Vorlage für heute nichts vor, wandert die älteste mit.
+    // Die Reihenfolge der Liste darf dabei nichts entscheiden – sie ist bei
+    // einem Doppel genau die Zufälligkeit, die den Fehler erzeugt hat.
+    const heutigeOriginal = liste.find((t) => t.scheduled_on === today && !(t.carried_count ?? 0))
+    const sichtbar = heutigeOriginal
+      ?? liste.find((t) => t.scheduled_on === today)
+      ?? liste.reduce((a, b) => ((a.scheduled_on ?? '') <= (b.scheduled_on ?? '') ? a : b))
+    for (const t of liste) if (t.id !== sichtbar.id) verdeckt.add(t.id)
+  }
+  return verdeckt
+}
+
+/**
  * Offene Aufgaben von gestern auf heute mitnehmen.
  *
  * Was fest an seinem Tag hängt, bleibt liegen – ein Termin von gestern gehört
  * nicht in den heutigen Plan. Alles andere wandert mit und merkt sich, wie oft
  * es schon geschoben wurde; das ist ein ehrliches Signal dafür, dass eine
  * Aufgabe entweder zu groß ist oder gar nicht wirklich ansteht.
+ *
+ * Aufgaben aus Vorlagen wandern nur, solange die Vorlage für heute nicht schon
+ * selbst gesorgt hat – siehe verdeckteVorlagenAufgaben().
  */
 export function carryOverPatches(
   tasks: Task[],
   today: DayString = todayString(),
 ): { id: string; patch: Record<string, any> }[] {
   const out: { id: string; patch: Record<string, any> }[] = []
+  const verdeckt = verdeckteVorlagenAufgaben(tasks, today)
   for (const t of tasks) {
     if (t.deleted_at || t.status === 'done' || t.status === 'cancelled') continue
     if (t.pinned_day) continue
     if (!t.scheduled_on || (t.scheduled_end_on ?? t.scheduled_on) >= today) continue
     if (t.bucket === 'someday') continue
+    if (verdeckt.has(t.id)) continue
     out.push({
       id: t.id,
       patch: {
@@ -265,9 +325,13 @@ export function carryOverPatches(
 }
 
 export function tasksForDay(tasks: Task[], day: DayString, today: DayString = todayString()): Task[] {
+  // Nur für den heutigen Tag nötig: Dort sammelt sich sonst alles, was die
+  // Vorlage an den Tagen davor angelegt hat (siehe verdeckteVorlagenAufgaben).
+  const verdeckt = day === today ? verdeckteVorlagenAufgaben(tasks, today) : null
   return tasks
     .filter((t) => {
       if (t.deleted_at || t.status === 'cancelled') return false
+      if (verdeckt?.has(t.id)) return false
       if (t.scheduled_on && day >= t.scheduled_on && day <= (t.scheduled_end_on ?? t.scheduled_on)) return true
       if (day !== today || t.status === 'done') return false
       // Was liegengeblieben ist, bleibt sichtbar – auch wenn der Übertrag

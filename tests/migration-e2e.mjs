@@ -47,6 +47,30 @@ async function warteAufApp(p, ms = 60000) {
   return false
 }
 
+/**
+ * Spalten von food_entries, gelesen aus der Datei, die die App wirklich in
+ * IndexedDB abgelegt hat – nicht aus dem, was eine Ansicht davon zeigt.
+ */
+async function nahrungsSpalten(p) {
+  const bytes = await p.evaluate(async () => {
+    const idb = await new Promise((ok, nein) => {
+      const r = indexedDB.open('lifehub'); r.onsuccess = () => ok(r.result); r.onerror = () => nein(r.error)
+    })
+    const wert = await new Promise((ok, nein) => {
+      const r = idb.transaction('files').objectStore('files').get('lifehub.db')
+      r.onsuccess = () => ok(r.result); r.onerror = () => nein(r.error)
+    })
+    idb.close()
+    return wert ? Array.from(new Uint8Array(wert)) : null
+  })
+  if (!bytes) return []
+  const SQL = await (await import('sql.js')).default()
+  const db = new SQL.Database(new Uint8Array(bytes))
+  const res = db.exec('PRAGMA table_info(food_entries)')
+  db.close()
+  return res.length ? res[0].values.map((r) => String(r[1])) : []
+}
+
 /** Höchste Migrationsnummer in einer Fassung von src/db/schema.ts. */
 function hoechsteMigration(inhalt) {
   const treffer = [...inhalt.matchAll(/^\s*id:\s*(\d+),\s*$/gm)].map((m) => Number(m[1]))
@@ -137,6 +161,7 @@ async function main() {
   // Sauber schließen, damit die Datenbank wirklich in IndexedDB liegt.
   await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
   await p.waitForTimeout(2500)
+  const spaltenAlt = await nahrungsSpalten(p)
   await ctx.close()
 
   /* ------------------------------------- 2. Dasselbe Profil, neue Fassung */
@@ -195,6 +220,19 @@ async function main() {
   const tr = await p.evaluate(() => document.body.innerText)
   pruefe('Neue Tabelle food_entries ist ansprechbar', tr.includes('Gegessen'))
   pruefe('Neue Metrik Ballaststoffe ist da', tr.includes('Ballaststoffe'))
+
+  // Die Nährwert-Spalten müssen am Ende genau die sein, die der Server kennt –
+  // auch wenn die alte Fassung eine andere Migration 10 mitbrachte (altstand.ts).
+  await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await p.waitForTimeout(2500)
+  const spaltenNeu = await nahrungsSpalten(p)
+  const server = fs.readFileSync(path.join(WURZEL, 'supabase/migrations/0001_init.sql'), 'utf8')
+  const unbekannt = spaltenNeu.filter((s) => !s.startsWith('_') && !new RegExp(`\\b${s}\\b`).test(server))
+  if (spaltenAlt.includes('trans_fat_g')) console.log('  (alte Fassung trug die fremde Migration 10)')
+  pruefe('food_entries hat nur Spalten, die der Server kennt', spaltenNeu.length > 0 && unbekannt.length === 0,
+    unbekannt.join(', '))
+  pruefe('Nährwert-Spalten der gültigen Migration 10 sind da',
+    ['poly_fat_g', 'mono_fat_g', 'vitamin_a_ug'].every((s) => spaltenNeu.includes(s)))
 
   const echte = fehlerListe.filter((x) =>
     !/favicon|manifest|sw\.js|ServiceWorker|ERR_FILE_NOT_FOUND/i.test(x))
