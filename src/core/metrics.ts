@@ -4,7 +4,7 @@
  * Damit gilt die Toleranzlogik (grün/gelb/rot) überall gleich.
  */
 import type { Metric, MetricEntry, MetricTarget, Aggregation } from './types'
-import { type DayString, daysInRange, monthOf, formatHoursMinutes } from './dates'
+import { type DayString, addDays, daysInRange, monthOf, formatHoursMinutes } from './dates'
 import { formatNumber } from './money'
 
 export type ZoneStatus = 'optimal' | 'tolerated' | 'outside' | 'unknown'
@@ -217,4 +217,197 @@ export function correlationLabel(r: number): string {
   if (a < 0.6) return `mittel ${dir}`
   if (a < 0.8) return `deutlich ${dir}`
   return `stark ${dir}`
+}
+
+/* ------------------------------------------- Zusammenhänge mit Zeitversatz */
+
+/**
+ * Warum ein Zeitversatz überhaupt nötig ist.
+ *
+ * Die Frage „liegt es am Essen?" lässt sich am selben Tag oft gar nicht
+ * stellen. Was die Haut heute zeigt, hat mit dem zu tun, was vor zwei oder
+ * drei Tagen gegessen wurde – eine Korrelation, die nur Tag mit Tag
+ * vergleicht, sieht genau daran vorbei und meldet „kein Zusammenhang".
+ *
+ * Deshalb wird dieselbe Rechnung mehrfach angestellt, jeweils um k Tage
+ * verschoben: Der Wert von A am Tag T wird mit dem Wert von B am Tag T+k
+ * gepaart.
+ *
+ * Ausdrücklich NICHT: eine Aussage über Ursachen. Ein Versatz macht einen
+ * Zusammenhang zeitlich plausibler, er belegt nichts. Deshalb liefert jeder
+ * Befund auch mit, wie dünn die Datenlage ist.
+ */
+export const VERSATZ_TAGE = [0, 1, 2, 3, 5, 7] as const
+
+export interface VersatzBefund {
+  /** Um wie viele Tage B gegenüber A nach hinten verschoben wurde. */
+  versatzTage: number
+  r: number | null
+  /** Wie viele Tagespaare tatsächlich in die Rechnung eingingen. */
+  n: number
+  /** 95-%-Vertrauensbereich; null, wenn zu wenige Paare vorliegen. */
+  unten: number | null
+  oben: number | null
+  /**
+   * Liegt der ganze Vertrauensbereich auf einer Seite der Null?
+   * Nur dann ist überhaupt etwas gezeigt und nicht bloß Rauschen.
+   */
+  belastbar: boolean
+}
+
+/** Mindestzahl an Tagespaaren, unter der gar nichts ausgesagt wird. */
+export const MINDESTPAARE = 10
+
+/**
+ * Die Schranke, ab der ein Zusammenhang als gezeigt gilt.
+ *
+ * Wer sechs Verzögerungen nebeneinander prüft, hat sechs Gelegenheiten für
+ * einen Fehlalarm. Bei den üblichen 95 % pro Einzelprüfung irrt man sich dann
+ * in gut jedem vierten Fall irgendwo – gemessen: 11 von 40 Durchläufen mit
+ * reinem Rauschen meldeten einen „Befund". Deshalb wird die Schranke an die
+ * Zahl der gleichzeitigen Vergleiche angepasst (Bonferroni): Bei sechs
+ * Verzögerungen muss jede einzelne 99,17 % statt 95 % erreichen.
+ *
+ * Der ausgewiesene Unsicherheitsbereich benutzt dieselbe Schranke. Einen
+ * schmalen Bereich zu zeigen und insgeheim streng zu urteilen wäre
+ * irreführend – der Bereich soll ehrlich sagen, wie breit gestreut wurde.
+ */
+function schranke(vergleiche: number): number {
+  return normalQuantil(1 - 0.05 / (2 * Math.max(1, vergleiche)))
+}
+
+/**
+ * Quantil der Standardnormalverteilung (Acklam-Näherung).
+ * Genauer als ein Tausendstel – für eine Fehlerschranke mehr als genug.
+ */
+function normalQuantil(p: number): number {
+  const a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+    1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00]
+  const b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+    6.680131188771972e+01, -1.328068155288572e+01]
+  const c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+    -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00]
+  const d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+    3.754408661907416e+00]
+  const bruch = 0.02425
+  if (p < bruch) {
+    const q = Math.sqrt(-2 * Math.log(p))
+    return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
+      / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+  }
+  if (p > 1 - bruch) return -normalQuantil(1 - p)
+  const q = p - 0.5
+  const r = q * q
+  return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q
+    / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+}
+
+/**
+ * Korrelation zweier Tagesreihen mit Zeitversatz.
+ * A am Tag T wird mit B am Tag T + versatzTage gepaart.
+ *
+ * `vergleiche` sagt, wie viele Verzögerungen nebeneinander geprüft werden –
+ * danach richtet sich die Schranke, siehe schranke().
+ */
+export function versetzteKorrelation(
+  a: SeriesPoint[],
+  b: SeriesPoint[],
+  versatzTage: number,
+  vergleiche = 1,
+): VersatzBefund {
+  const mapB = new Map(b.map((p) => [p.day, p.value]))
+  const xs: number[] = []
+  const ys: number[] = []
+  for (const p of a) {
+    if (p.value === null) continue
+    const spaeter = mapB.get(versatzTage === 0 ? p.day : addDays(p.day, versatzTage))
+    if (spaeter === null || spaeter === undefined) continue
+    xs.push(p.value)
+    ys.push(spaeter)
+  }
+  const n = xs.length
+  const leer: VersatzBefund = { versatzTage, r: null, n, unten: null, oben: null, belastbar: false }
+  if (n < MINDESTPAARE) return leer
+
+  const mx = xs.reduce((s, v) => s + v, 0) / n
+  const my = ys.reduce((s, v) => s + v, 0) / n
+  let num = 0, dx = 0, dy = 0
+  for (let i = 0; i < n; i++) {
+    const a1 = xs[i] - mx
+    const b1 = ys[i] - my
+    num += a1 * b1
+    dx += a1 * a1
+    dy += b1 * b1
+  }
+  // Steht eine der beiden Reihen still, gibt es nichts zu vergleichen.
+  if (dx === 0 || dy === 0) return leer
+
+  const r = num / Math.sqrt(dx * dy)
+
+  // Vertrauensbereich über die Fisher-z-Transformation. Ohne ihn sieht ein r
+  // aus 11 Tagen genauso überzeugend aus wie eines aus 300 – und das ist der
+  // Unterschied zwischen einem Hinweis und einem Zufall.
+  const z = Math.atanh(Math.max(-0.999999, Math.min(0.999999, r)))
+  const streuung = 1 / Math.sqrt(n - 3)
+  const k = schranke(vergleiche)
+  const unten = Math.tanh(z - k * streuung)
+  const oben = Math.tanh(z + k * streuung)
+
+  return {
+    versatzTage,
+    r: rund3(r),
+    n,
+    unten: rund3(unten),
+    oben: rund3(oben),
+    belastbar: unten > 0 || oben < 0,
+  }
+}
+
+/** Dieselbe Rechnung über alle üblichen Verzögerungen. */
+export function versatzReihe(
+  a: SeriesPoint[],
+  b: SeriesPoint[],
+  versaetze: readonly number[] = VERSATZ_TAGE,
+): VersatzBefund[] {
+  // Die Zahl der Verzögerungen geht in die Schranke ein – sonst wäre die
+  // Reihe eine Maschine zum Erzeugen von Scheinzusammenhängen.
+  return versaetze.map((k) => versetzteKorrelation(a, b, k, versaetze.length))
+}
+
+/**
+ * Der auffälligste belastbare Befund – oder null, wenn keiner es ist.
+ *
+ * Bewusst streng: Wer sechs Verzögerungen durchprobiert, findet fast immer
+ * eine, die „gut aussieht". Ohne belastbar-Filter wäre das eine Maschine zum
+ * Erzeugen von Scheinzusammenhängen.
+ */
+export function besterVersatz(befunde: VersatzBefund[]): VersatzBefund | null {
+  let beste: VersatzBefund | null = null
+  for (const f of befunde) {
+    if (!f.belastbar || f.r === null) continue
+    if (!beste || Math.abs(f.r) > Math.abs(beste.r!)) beste = f
+  }
+  return beste
+}
+
+/** Wie sicher die Datenlage ist – in Worten, nicht in Zahlen. */
+export function sicherheitsText(f: VersatzBefund): string {
+  if (f.r === null) return `zu wenige gemeinsame Tage (${f.n} von mindestens ${MINDESTPAARE})`
+  if (!f.belastbar) return `aus ${f.n} Tagen nicht von Zufall zu unterscheiden`
+  return `aus ${f.n} Tagen, Bereich ${zahl(f.unten!)} bis ${zahl(f.oben!)}`
+}
+
+/** Die Verzögerung als Satzteil. */
+export function versatzText(versatzTage: number): string {
+  if (versatzTage === 0) return 'am selben Tag'
+  if (versatzTage === 1) return 'einen Tag später'
+  return `${versatzTage} Tage später`
+}
+
+function rund3(n: number): number {
+  return Math.round(n * 1000) / 1000
+}
+
+function zahl(n: number): string {
+  return n.toFixed(2).replace('.', ',')
 }

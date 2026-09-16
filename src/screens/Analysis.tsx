@@ -13,7 +13,11 @@ import {
   monthTotals, monthTotalsErwartet, monthlySeries, netWorthSeries, totalsByCategory, accountBalances, formatSavingsRate,
   expectedIncomeRest, forecastMonth, forecastStatus,
 } from '../core/finance'
-import { dailySeries, correlation, correlationLabel, aggregate, groupSeries, formatMetricValue } from '../core/metrics'
+import {
+  dailySeries, correlation, correlationLabel, aggregate, groupSeries, formatMetricValue,
+  versatzReihe, besterVersatz, sicherheitsText, versatzText, correlationLabel as zusammenhangText,
+  type VersatzBefund,
+} from '../core/metrics'
 import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
 import { formatMoney, formatNumber, toEuro } from '../core/money'
 import {
@@ -346,6 +350,8 @@ function CorrelationTab() {
         </Card>
       )}
 
+      <VerzoegerteZusammenhaenge metrics={metrics} from={from} today={today} />
+
       <Card title="Zwei Werte vergleichen">
         <div className="row mb16">
           <select className="select" style={{ maxWidth: 220 }} value={metricA?.id ?? ''} onChange={(e) => setAId(e.target.value)}>
@@ -393,6 +399,110 @@ function normalise(v: number | null, all: (number | null)[]): number | null {
   const min = Math.min(...nums), max = Math.max(...nums)
   if (max === min) return 50
   return ((v - min) / (max - min)) * 100
+}
+
+/* ------------------------------------------- Zusammenhänge mit Verzögerung */
+
+/**
+ * Paare, bei denen eine Verzögerung fachlich plausibel ist.
+ *
+ * Bewusst eine feste, kurze Liste statt „alles gegen alles": Wer hundert Paare
+ * über sechs Verzögerungen prüft, findet garantiert etwas – und zwar Unsinn.
+ * Jede Zeile hier ist eine Frage, die Erik tatsächlich gestellt hat.
+ */
+const VERZOEGERTE_PAARE: { ursache: string; wirkung: string; frage: string }[] = [
+  { ursache: 'sugar_g', wirkung: 'skin', frage: 'Zucker und Haut' },
+  { ursache: 'fat_g', wirkung: 'skin', frage: 'Fett und Haut' },
+  { ursache: 'calories', wirkung: 'skin', frage: 'Kalorien und Haut' },
+  { ursache: 'protein_g', wirkung: 'skin', frage: 'Eiweiß und Haut' },
+  { ursache: 'fiber_g', wirkung: 'skin', frage: 'Ballaststoffe und Haut' },
+  { ursache: 'water_l', wirkung: 'skin', frage: 'Trinken und Haut' },
+  { ursache: 'sleep_h', wirkung: 'skin', frage: 'Schlaf und Haut' },
+  { ursache: 'sugar_g', wirkung: 'pimples', frage: 'Zucker und Pickel' },
+  { ursache: 'fat_g', wirkung: 'pimples', frage: 'Fett und Pickel' },
+  { ursache: 'sleep_h', wirkung: 'pimples', frage: 'Schlaf und Pickel' },
+  { ursache: 'sleep_h', wirkung: 'energy', frage: 'Schlaf und Energie' },
+  { ursache: 'sugar_g', wirkung: 'energy', frage: 'Zucker und Energie' },
+]
+
+function VerzoegerteZusammenhaenge({ metrics, from, today }: {
+  metrics: any[]; from: string; today: string
+}) {
+  const data = useData()
+
+  const befunde = useMemo(() => {
+    const out: { frage: string; ursache: string; wirkung: string; reihe: VersatzBefund[]; beste: VersatzBefund | null }[] = []
+    for (const paar of VERZOEGERTE_PAARE) {
+      const mu = metrics.find((m) => m.key === paar.ursache)
+      const mw = metrics.find((m) => m.key === paar.wirkung)
+      if (!mu || !mw) continue
+      const reihe = versatzReihe(
+        dailySeries(data.metricEntries, mu, from, today),
+        dailySeries(data.metricEntries, mw, from, today),
+      )
+      // Ohne eine einzige auswertbare Verzögerung ist das Paar nicht der Rede wert.
+      if (!reihe.some((f) => f.r !== null)) continue
+      out.push({ frage: paar.frage, ursache: mu.name, wirkung: mw.name, reihe, beste: besterVersatz(reihe) })
+    }
+    // Was etwas zeigt, zuerst; danach nach Stärke.
+    return out.sort((a, b) => {
+      if (!!a.beste !== !!b.beste) return a.beste ? -1 : 1
+      return Math.abs(b.beste?.r ?? 0) - Math.abs(a.beste?.r ?? 0)
+    })
+  }, [metrics, data.metricEntries, from, today])
+
+  if (!befunde.length) {
+    return (
+      <Card className="mb16" title="Wirkt sich etwas erst Tage später aus?">
+        <Empty icon="⏳" title="Noch keine auswertbaren Paare"
+          hint="Sobald Ernährung, Schlaf und Haut über einige Wochen zusammen erfasst sind, steht hier, ob sich etwas zeitversetzt zeigt." />
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="mb16" title="Wirkt sich etwas erst Tage später aus?"
+      sub="Jede Zeile einmal ohne Versatz und um 1, 2, 3, 5 und 7 Tage verschoben gerechnet">
+      <div className="hint-box mb16">
+        Was die Haut heute zeigt, muss nicht am Essen von heute liegen. Deshalb wird jedes Paar
+        mehrfach gerechnet – einmal Tag gegen Tag und einmal je Verzögerung. Ein Treffer heißt
+        trotzdem nur: Die beiden Werte haben sich gemeinsam bewegt. Eine Ursache ist das nicht,
+        und mit sechs Verzögerungen nebeneinander ist die Schranke dafür bewusst streng gesetzt.
+      </div>
+      <div className="list">
+        {befunde.map((b) => (
+          <div className="list-row" key={b.frage} style={{ paddingLeft: 0, paddingRight: 0, alignItems: 'flex-start' }}>
+            <span className="list-main">
+              <span className="list-title">{b.frage}</span>
+              <span className="list-sub">
+                {b.beste
+                  ? `${zusammenhangText(b.beste.r!)} · ${versatzText(b.beste.versatzTage)} · ${sicherheitsText(b.beste)}`
+                  : `kein belastbarer Zusammenhang · ${sicherheitsText(b.reihe[0])}`}
+              </span>
+              <Collapsible label="Alle Verzögerungen ansehen">
+                <div className="small mono" style={{ color: 'var(--text-2)' }}>
+                  {b.reihe.map((f) => (
+                    <div key={f.versatzTage} style={{ padding: '2px 0' }}>
+                      {f.versatzTage === 1 ? ' 1 Tag: ' : `${String(f.versatzTage).padStart(2, ' ')} Tage: `}{
+                        f.r === null
+                          ? `– (${f.n} gemeinsame Tage, zu wenig)`
+                          : `r = ${formatNumber(f.r, 2)} · ${f.n} Tage · Bereich ${formatNumber(f.unten!, 2)} bis ${formatNumber(f.oben!, 2)}${f.belastbar ? '' : ' · schließt die Null ein'}`
+                      }
+                    </div>
+                  ))}
+                </div>
+              </Collapsible>
+            </span>
+            {/* Bewusst ein neutrales Schild ohne Haken oder Kreuz: Ein
+                Zusammenhang ist kein Befund, der „gut" oder „schlecht" wäre. */}
+            <span className={`pill${b.beste ? ' warn' : ''}`}>
+              {b.beste ? `r ${formatNumber(b.beste.r!, 2)}` : 'nichts gezeigt'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
 }
 
 /* ---------------------------------------------------------------- Hinweise */
