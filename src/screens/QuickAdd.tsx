@@ -9,7 +9,7 @@ import { useData, useMutations } from '../state/store'
 import { parseAmountToCents, formatMoney, centsToInput } from '../core/money'
 import { todayString, formatDay, addDays } from '../core/dates'
 import { defaultShowFrom } from '../core/planner'
-import { topMerchants } from '../core/finance'
+import { topMerchants, angezeigtesKonto, buchungProblem } from '../core/finance'
 import type { Transaction, TransactionType } from '../core/types'
 import { prepareFile, formatBytes } from '../io/files'
 
@@ -87,19 +87,28 @@ export function TransactionForm({ tx, onDone, defaultType, defaultAccountId, def
   const [fileError, setFileError] = useState<string | null>(null)
   const fileRef = React.useRef<HTMLInputElement>(null)
 
+  // Der Zustand muss dem folgen, was in der Liste zu sehen ist – sonst steht
+  // dort ein Konto, während darunter „kein Konto gewählt" gilt und der
+  // Speichern-Knopf ohne sichtbaren Grund blass bleibt.
+  const konten = React.useMemo(() => data.accounts.filter((a) => !a.deleted_at), [data.accounts])
+  const vonKonto = angezeigtesKonto(konten, accountId)
+  const zielKonto = isTransfer ? angezeigtesKonto(konten, toAccountId, vonKonto) : ''
+
   React.useEffect(() => {
-    if (isTransfer && toAccountId === accountId) {
-      const other = data.accounts.find((a) => !a.deleted_at && a.id !== accountId)
-      if (other) setToAccountId(other.id)
-    }
-  }, [accountId, toAccountId, isTransfer, data.accounts])
+    if (vonKonto !== accountId) setAccountId(vonKonto)
+  }, [vonKonto, accountId])
+
+  React.useEffect(() => {
+    if (isTransfer && zielKonto !== toAccountId) setToAccountId(zielKonto)
+  }, [isTransfer, zielKonto, toAccountId])
 
   const cats = data.categories.filter((c) => !c.deleted_at && c.kind === (type === 'income' ? 'income' : 'expense'))
   const merchantLabel = type === 'income' ? 'Von' : 'Händler / Empfänger'
   const suggestions = useMemo(() => topMerchants(data.transactions, type), [data.transactions, type])
 
   const cents = parseAmountToCents(amount)
-  const valid = cents !== null && cents > 0 && !!accountId && (!isTransfer || (toAccountId && toAccountId !== accountId))
+  const problem = buchungProblem({ type, amountCents: cents, accountId: vonKonto, toAccountId: zielKonto })
+  const valid = problem === null
 
   const pickFile = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -118,7 +127,7 @@ export function TransactionForm({ tx, onDone, defaultType, defaultAccountId, def
     if (!valid || cents === null) return
     const payload = {
       type, booked_on: day, value_on: null, amount_cents: cents, currency: 'EUR',
-      account_id: accountId, to_account_id: isTransfer ? (toAccountId || null) : null,
+      account_id: vonKonto, to_account_id: isTransfer ? zielKonto : null,
       category_id: isTransfer ? null : (categoryId || null),
       merchant: merchant || null, description: description || null, note: note || null,
       status, recurring_id: tx?.recurring_id ?? null, import_batch_id: tx?.import_batch_id ?? null,
@@ -158,14 +167,14 @@ export function TransactionForm({ tx, onDone, defaultType, defaultAccountId, def
         <Field label="Datum"><input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} /></Field>
       </div>
       <Field label={isTransfer ? 'Von Konto' : 'Konto'}>
-        <select className="select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          {data.accounts.filter((a) => !a.deleted_at).map((a) => <option key={a.id} value={a.id}>{a.icon ? a.icon + ' ' : ''}{a.name}</option>)}
+        <select className="select" value={vonKonto} onChange={(e) => setAccountId(e.target.value)}>
+          {konten.map((a) => <option key={a.id} value={a.id}>{a.icon ? a.icon + ' ' : ''}{a.name}</option>)}
         </select>
       </Field>
       {isTransfer ? (
         <Field label="Auf Konto">
-          <select className="select" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
-            {data.accounts.filter((a) => !a.deleted_at && a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.icon ? a.icon + ' ' : ''}{a.name}</option>)}
+          <select className="select" value={zielKonto} onChange={(e) => setToAccountId(e.target.value)}>
+            {konten.filter((a) => a.id !== vonKonto).map((a) => <option key={a.id} value={a.id}>{a.icon ? a.icon + ' ' : ''}{a.name}</option>)}
           </select>
         </Field>
       ) : (
@@ -229,6 +238,7 @@ export function TransactionForm({ tx, onDone, defaultType, defaultAccountId, def
         </Field>
       )}
 
+      {problem && <div className="hint-box mt8 small">{problem}</div>}
       <div className="row mt16">
         {tx && <button className="btn btn-danger" onClick={() => setConfirmDelete(true)}>Löschen</button>}
         <span style={{ flex: 1 }} />

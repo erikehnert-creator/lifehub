@@ -511,6 +511,69 @@ export function totalsByAccount(
     .sort((a, b) => b.amount - a.amount)
 }
 
+/* ------------------------------------------------- Buchung vor dem Speichern */
+
+/** Ein Konto, so wie die Auswahl im Buchungsformular es braucht. */
+export interface WaehlbaresKonto {
+  id: string
+  deleted_at?: string | null
+  is_active?: number | boolean | null
+}
+
+function waehlbar(a: WaehlbaresKonto): boolean {
+  return !a.deleted_at
+}
+
+/**
+ * Das Konto, das im Formular wirklich ausgewählt ist.
+ *
+ * Ein `<select>` zeigt die erste Auswahlmöglichkeit an, auch wenn sein Wert zu
+ * gar keiner davon passt. Steht im Zustand ein leerer oder gelöschter Konto-
+ * schlüssel, sieht das Formular deshalb vollständig ausgefüllt aus, während
+ * die Prüfung darunter zu Recht „kein Konto gewählt" sagt – der Speichern-Knopf
+ * bleibt blass und niemand kann sehen, warum. Genau das ist bei Umbuchungen
+ * passiert: Das Zielkonto war nie gesetzt, die Liste zeigte aber ein Konto an.
+ *
+ * Diese Funktion beantwortet daher: Welches Konto MEINT die Anzeige gerade?
+ * Sie liefert die getroffene Wahl, wenn sie zur Liste passt, sonst den ersten
+ * Eintrag der Liste – also genau das, was auf dem Bildschirm steht.
+ */
+export function angezeigtesKonto(
+  konten: WaehlbaresKonto[],
+  gewaehlt: string,
+  ausser?: string,
+): string {
+  const moeglich = konten.filter((a) => waehlbar(a) && a.id !== ausser)
+  if (gewaehlt && moeglich.some((a) => a.id === gewaehlt)) return gewaehlt
+  return moeglich[0]?.id ?? ''
+}
+
+export interface BuchungsEntwurf {
+  type: TransactionType
+  /** Betrag in Cent, oder null wenn das Feld leer bzw. unlesbar ist. */
+  amountCents: Cents | null
+  accountId: string
+  toAccountId: string
+}
+
+/**
+ * Was einer Buchung zum Speichern noch fehlt – `null`, wenn sie stimmt.
+ *
+ * Bewusst ein Text statt eines Wahrheitswerts: Ein abgeblendeter Knopf ohne
+ * Begründung ist eine Sackgasse. Der Aufrufer kann den Satz direkt anzeigen.
+ */
+export function buchungProblem(e: BuchungsEntwurf): string | null {
+  if (!e.accountId) return 'Bitte ein Konto wählen.'
+  if (e.amountCents === null) return 'Bitte einen Betrag eingeben.'
+  if (e.amountCents === 0) return 'Der Betrag darf nicht 0,00 € sein.'
+  if (e.amountCents < 0) return 'Der Betrag muss positiv sein – die Richtung ergibt die Art der Buchung.'
+  if (e.type === 'transfer') {
+    if (!e.toAccountId) return 'Bitte ein Zielkonto wählen.'
+    if (e.toAccountId === e.accountId) return 'Umbuchung: Quell- und Zielkonto müssen verschieden sein.'
+  }
+  return null
+}
+
 /** Buchungen eines Kontos (auch als Transferziel), neueste zuerst. */
 export function transactionsForAccount(
   transactions: Transaction[],
