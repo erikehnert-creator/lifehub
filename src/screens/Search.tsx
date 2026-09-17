@@ -97,7 +97,6 @@ export function SearchScreen({ navigate }: { navigate: (r: string) => void }) {
       <div className="page-head">
         <div>
           <div className="page-title">Suche</div>
-          <div className="page-sub">Über alle Bereiche gleichzeitig</div>
         </div>
       </div>
 

@@ -13,7 +13,7 @@
  * allein da.
  */
 import { useMemo, useState } from 'react'
-import { Card, Empty, Collapsible } from '../ui/components'
+import { Card, Empty, Collapsible, Segment } from '../ui/components'
 import { useData } from '../state/store'
 import { dailySeries } from '../core/metrics'
 import { addDays, todayString } from '../core/dates'
@@ -40,6 +40,9 @@ export function ZeitversetzteZusammenhaenge() {
   const data = useData()
   const heute = todayString()
   const [tage, setTage] = useState(180)
+  // Kennzahlen (r, Irrtumswahrscheinlichkeit) sind Fachsprache und stehen
+  // deshalb hinter einem Schalter - die Aussage steht immer vorn.
+  const [kennzahlen, setKennzahlen] = useState(false)
   const von = addDays(heute, -(tage - 1))
 
   const metriken = useMemo(
@@ -87,15 +90,16 @@ export function ZeitversetzteZusammenhaenge() {
     <Card className="mb16" title="Zeitversetzte Zusammenhänge"
       sub="Wirkt sich aus, was ein paar Tage vorher war?">
       <div className="row mb16">
-        <span className="field-label">Zeitraum</span>
-        {[90, 180, 365].map((n) => (
-          <button key={n} className={`chip sm ${tage === n ? 'active' : ''}`}
-            onClick={() => setTage(n)}>{n} Tage</button>
-        ))}
+        <Segment label="Zeitraum" value={String(tage)} onChange={(v) => setTage(Number(v))}
+          options={[{ value: '90', label: '90 Tage' }, { value: '180', label: '180 Tage' }, { value: '365', label: '365 Tage' }]} />
+        <span style={{ flex: 1 }} />
+        <button className={`chip sm ${kennzahlen ? 'active' : ''}`} onClick={() => setKennzahlen(!kennzahlen)}>
+          Kennzahlen
+        </button>
       </div>
 
       {belastbare.length === 0 ? (
-        <Empty icon="🔍" title="Nichts, was sich belastbar nennen ließe"
+        <Empty kompakt title="Nichts, was sich belastbar nennen ließe."
           hint={besteDatenbasis < MINDESTTAGE
             ? `Der längste Vergleich kommt auf ${besteDatenbasis} gemeinsame Tage. `
               + `Unter ${MINDESTTAGE} ist jede Zahl mit Zufall vereinbar – deshalb steht hier nichts.`
@@ -105,20 +109,22 @@ export function ZeitversetzteZusammenhaenge() {
       ) : (
         <>
           {belastbare.map((b, i) => (
-            <BefundZeile key={i} befund={b} alle={alle}
+            <BefundZeile key={i} befund={b} alle={alle} kennzahlen={kennzahlen}
               nameUrsache={name(b.ursache)} nameWirkung={name(b.wirkung)}
               richtung={richtung(b.wirkung)} />
           ))}
           <div className="mt12">
             <GeprueftAberNichts alle={alle} name={name} />
           </div>
-          <div className="hint-box small mt12">
+          <div className="mt12"><Collapsible label="Wie geprüft wird">
+          <div className="hint-box small">
             Geprüft wurden {geprueft} Wertepaare mit je {VERZOEGERUNGEN.length} Verzögerungen.
             Wer so oft hinsieht, findet irgendwo einen Ausschlag – deshalb ist die
             Irrtumswahrscheinlichkeit bereits dafür hochgerechnet, und nur was danach
             noch übrig bleibt, steht hier. Ein Zusammenhang bleibt trotzdem eine
             Beobachtung: Er sagt nicht, dass das eine das andere verursacht.
           </div>
+          </Collapsible></div>
         </>
       )}
     </Card>
@@ -132,12 +138,13 @@ export function ZeitversetzteZusammenhaenge() {
  * Ausschlag zu einem Muster (2 und 3 Tage beide auffällig), ist das etwas
  * anderes, als wenn er allein dasteht.
  */
-function BefundZeile({ befund, alle, nameUrsache, nameWirkung, richtung }: {
+function BefundZeile({ befund, alle, nameUrsache, nameWirkung, richtung, kennzahlen }: {
   befund: Befund
   alle: Befund[]
   nameUrsache: string
   nameWirkung: string
   richtung: Richtung
+  kennzahlen: boolean
 }) {
   const verlauf = alle.filter((b) => b.ursache === befund.ursache && b.wirkung === befund.wirkung)
 
@@ -146,9 +153,12 @@ function BefundZeile({ befund, alle, nameUrsache, nameWirkung, richtung }: {
       <div className="befund-satz">
         {formuliere(befund, nameUrsache, nameWirkung, richtung)}
       </div>
+      {/* Die Irrtumswahrscheinlichkeit bleibt immer sichtbar: Ein Befund ohne
+          seine Unsicherheit ist eine Behauptung. Nur der Fachwert r steht
+          hinter dem Schalter „Kennzahlen". */}
       <div className="befund-zahlen small muted">
-        {staerke(befund.r)} · r = {formatNumber(befund.r, 2)} ·
-        {' '}Irrtumswahrscheinlichkeit {befund.p < 0.001 ? '< 0,1' : formatNumber(befund.p * 100, 1)} %
+        {staerke(befund.r)} · Irrtumswahrscheinlichkeit {befund.p < 0.001 ? '< 0,1' : formatNumber(befund.p * 100, 1)} %
+        {kennzahlen && <> · r = {formatNumber(befund.r, 2)}</>}
       </div>
       <div className="befund-verlauf">
         {verlauf.map((v) => (

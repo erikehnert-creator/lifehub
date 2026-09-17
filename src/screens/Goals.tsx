@@ -8,6 +8,7 @@
  */
 import React, { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Empty, Confirm, Collapsible } from '../ui/components'
+import { BEREICH_FARBE } from '../ui/icons'
 import { useData, useMutations } from '../state/store'
 import { accountBalances } from '../core/finance'
 import { goalProgress, paceLabel, progressColor } from '../core/goals'
@@ -17,12 +18,12 @@ import { todayString, formatDay } from '../core/dates'
 import type { Goal } from '../core/types'
 
 const DOMAINS = [
-  { value: 'finance', label: '💰 Finanzen' },
-  { value: 'body', label: '📏 Körper' },
-  { value: 'fitness', label: '🏋️ Fitness' },
-  { value: 'habit', label: '🔁 Gewohnheit' },
-  { value: 'learning', label: '📚 Lernen' },
-  { value: 'project', label: '🧩 Projekt' },
+  { value: 'finance', label: 'Finanzen' },
+  { value: 'body', label: 'Körper' },
+  { value: 'fitness', label: 'Fitness' },
+  { value: 'habit', label: 'Gewohnheit' },
+  { value: 'learning', label: 'Lernen' },
+  { value: 'project', label: 'Projekt' },
 ]
 
 export function GoalsScreen() {
@@ -41,16 +42,23 @@ export function GoalsScreen() {
     const p = goalProgress(g, current, today)
     const isPercent = g.goal_kind === 'percent'
     const isMoney = g.domain === 'finance' && !isPercent
-    const fmt = (n: number) => isMoney ? formatMoney(Math.round(n * 100), { compact: true }) : formatNumber(n, 1)
-    const color = progressColor(p.percent)
+    // Einheit mitschreiben: "53,8 von 58,0" ließ offen, ob Kilogramm, Stunden
+    // oder Wiederholungen gemeint sind.
+    const einheit = isMoney || isPercent ? '' : (data.metrics.find((x) => x.id === g.metric_id)?.unit ?? '')
+    const fmt = (n: number) => isMoney
+      ? formatMoney(Math.round(n * 100), { compact: true })
+      : `${formatNumber(n, 1)}${einheit ? ` ${einheit}` : ''}`
+    // Der Fortschritt selbst ist kein Zustand: Farbe trägt er in der
+    // Bereichsfarbe, gewarnt wird über die Plakette "hinter Plan".
+    const color = p.pace === 'behind' ? 'var(--warning)' : 'var(--bereich-ziele)'
 
     return (
-      <Card key={g.id} title={<>{g.icon ?? '🎯'} {g.name}</>}
+      <Card key={g.id} title={g.name} icon="ziele" farbe={BEREICH_FARBE.ziele}
         sub={g.description ?? DOMAINS.find((d) => d.value === g.domain)?.label}
         action={<button className="btn btn-sm btn-ghost" onClick={() => setEditing(g)}>Bearbeiten</button>}>
 
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6, alignItems: 'baseline' }}>
-          <span className="stat-value" style={{ color, fontSize: 26 }}>{formatNumber(p.percent, p.percent % 1 === 0 ? 0 : 1)} %</span>
+          <span className="stat-value" style={{ fontSize: 26 }}>{formatNumber(p.percent, p.percent % 1 === 0 ? 0 : 1)} %</span>
           {!isPercent && <span className="muted small">{fmt(p.current)} von {fmt(p.target)}</span>}
         </div>
 
@@ -85,7 +93,8 @@ export function GoalsScreen() {
               {g.status === 'paused' && <span className="pill">pausiert</span>}
             </div>
 
-            <div className="hint-box mt12 small">
+            <div className="mt12"><Collapsible label="So wird gerechnet">
+            <div className="hint-box small">
               {p.percent >= 100
                 ? <>Geschafft{g.completed_on ? ` am ${formatDay(g.completed_on)}` : ''}.</>
                 : <>Noch <strong>{isPercent ? `${formatNumber(100 - p.percent, 0)} %` : fmt(p.remaining)}</strong> bis zum Ziel. </>}
@@ -95,7 +104,7 @@ export function GoalsScreen() {
                 <> Erforderlich: <strong>{fmt(p.neededPerMonth)}</strong> pro Monat.</>}
               {!isPercent && p.projectedDate && p.percent < 100 &&
                 <> Beim bisherigen Tempo erreicht am {formatDay(p.projectedDate)} <span className="muted">(Prognose)</span>.</>}
-            </div>
+            </div></Collapsible></div>
 
             {p.percent >= 100 && g.status !== 'reached' && (
               <button className="btn btn-primary mt12"
@@ -114,7 +123,6 @@ export function GoalsScreen() {
       <div className="page-head">
         <div>
           <div className="page-title">Ziele</div>
-          <div className="page-sub">Finanzielle und persönliche Ziele in einem System</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Ziel</button>

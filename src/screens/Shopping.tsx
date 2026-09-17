@@ -108,7 +108,7 @@ export function ShoppingScreen() {
       <Card className="mb16">
         <form className="row" onSubmit={(e) => { e.preventDefault(); if (entwurf.trim()) hinzufuegen(entwurf) }}>
           <input ref={feld} className="input" style={{ flex: 1, minWidth: 180 }}
-            placeholder="Milch, 500 g Hackfleisch, Zahnpasta …"
+            placeholder="Milch, 500 g Hackfleisch …"
             value={entwurf} onChange={(e) => setEntwurf(e.target.value)} />
           <button className="btn btn-primary" type="submit" disabled={!entwurf.trim()}>Auf den Zettel</button>
         </form>

@@ -6,7 +6,8 @@
  * sagt das ausdrücklich, statt es dem Zufall zu überlassen.
  */
 import React, { useMemo, useState } from 'react'
-import { Card, Stat, Tabs, Empty, Collapsible, StatusPill } from '../ui/components'
+import { Card, Stat, Tabs, Segment, Empty, Collapsible, StatusPill } from '../ui/components'
+import { ohneLeerenAnfang } from './Finance'
 import { LineChart, BarChart, YearHeatmap, RankBars, seriesColor } from '../charts'
 import { useData } from '../state/store'
 import {
@@ -23,25 +24,25 @@ import {
 } from '../core/dates'
 
 export function AnalysisScreen({ sub, navigate }: { sub: string; navigate: (r: string) => void }) {
+  // Der Reiter "Hinweise" zeigte dieselben Karten wie Heute. Die Adresse bleibt
+  // gültig und führt auf den Überblick.
+  const reiter = sub === 'hinweise' ? '' : sub
   const tabs = [
     { key: '', label: 'Überblick' },
     { key: 'jahr', label: 'Jahresübersicht' },
     { key: 'zusammenhaenge', label: 'Zusammenhänge' },
-    { key: 'hinweise', label: 'Hinweise' },
   ]
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <div className="page-title">Analysen</div>
-          <div className="page-sub">Entwicklungen über Tag, Woche, Monat und Jahr</div>
         </div>
       </div>
-      <Tabs tabs={tabs} active={sub} onChange={(k) => navigate(`#/analysen${k ? '/' + k : ''}`)} />
-      {sub === '' && <OverviewTab />}
-      {sub === 'jahr' && <YearTab />}
-      {sub === 'zusammenhaenge' && <CorrelationTab />}
-      {sub === 'hinweise' && <InsightsTab />}
+      <Tabs tabs={tabs} active={reiter} onChange={(k) => navigate(`#/analysen${k ? '/' + k : ''}`)} />
+      {reiter === '' && <OverviewTab />}
+      {reiter === 'jahr' && <YearTab />}
+      {reiter === 'zusammenhaenge' && <CorrelationTab />}
     </div>
   )
 }
@@ -94,52 +95,73 @@ function OverviewTab() {
     return out
   }, [data.workoutSessions, list])
 
+  // Kennzahlen über den gewählten Zeitraum und über alle Bereiche. Vorher
+  // standen hier vier Finanzkacheln des laufenden Monats - dieselben Zahlen wie
+  // auf Finanzen und Heute, nur an dritter Stelle.
+  const summe = (reihe: { values: number[] }[]) => reihe.reduce((s, r) => s + (r.values[0] ?? 0), 0)
+  const ausgabenSumme = finance.reduce((s, f) => s + f.expense, 0)
+  const sparSumme = finance.reduce((s, f) => s + f.savings, 0)
+  const aufgabenSumme = summe(tasksDone)
+  const trainingSumme = summe(training)
+  const finanzReihe = ohneLeerenAnfang(finance, (f) => f.income === 0 && f.expense === 0)
+  const vermoegenReihe = worth.filter((w) => !finanzReihe.length || w.month >= finanzReihe[0].month)
+
   return (
     <>
       <div className="row mb16">
-        <span className="field-label">Zeitraum</span>
-        {[6, 12, 24].map((n) => (
-          <button key={n} className={`chip sm ${months === n ? 'active' : ''}`} onClick={() => setMonths(n)}>{n} Monate</button>
-        ))}
+        <Segment label="Zeitraum" value={String(months)} onChange={(v) => setMonths(Number(v))}
+          options={[{ value: '6', label: '6 Monate' }, { value: '12', label: '12 Monate' }, { value: '24', label: '24 Monate' }]} />
       </div>
 
-      <div className="grid grid-4 keep2 mb16">
-        <Card><Stat label={cur.projected ? 'Einnahmen (Monat) · erwartet' : 'Einnahmen (Monat)'} value={formatMoney(cur.income, { compact: true })} /></Card>
-        <Card><Stat label="Ausgaben (Monat)" value={formatMoney(cur.expense, { compact: true })} /></Card>
-        <Card className={`forecast forecast-${ampel.status}`}>
-          <Stat label="Monatsprognose" value={formatMoney(forecast.projectedSavings, { compact: true })}
-            sub={<StatusPill status={ampel.status}>{ampel.label}</StatusPill>} />
-        </Card>
-        <Card><Stat label={cur.projected ? 'Sparquote · erwartet' : 'Sparquote'} value={formatSavingsRate(cur.savingsRatePercent, cur.income)} /></Card>
-      </div>
+      <Card className="mb16" title={`Im Zeitraum · ${months} Monate`} icon="analysen">
+        <div className="kennzahlen-reihe vier">
+          <div className="kennzahl">
+            <span className="kennzahl-name">Ausgegeben</span>
+            <span className="kennzahl-wert">{formatMoney(ausgabenSumme, { compact: true })}</span>
+          </div>
+          <div className="kennzahl">
+            <span className="kennzahl-name">Gespart</span>
+            <span className="kennzahl-wert">{formatMoney(sparSumme, { compact: true })}</span>
+          </div>
+          <div className="kennzahl">
+            <span className="kennzahl-name">Aufgaben erledigt</span>
+            <span className="kennzahl-wert">{aufgabenSumme.toLocaleString('de-DE')}</span>
+          </div>
+          <div className="kennzahl">
+            <span className="kennzahl-name">Trainingseinheiten</span>
+            <span className="kennzahl-wert">{trainingSumme.toLocaleString('de-DE')}</span>
+          </div>
+        </div>
+      </Card>
 
-      <div className="grid grid-2 mb16">
-        <Card title="Finanzen" sub="Einnahmen, Ausgaben, Sparbetrag">
-          <BarChart data={finance.map((f) => ({ label: monthLabelShort(f.month), values: [f.income, f.expense] }))}
+      <div className="karten-spalten">
+        <Card title="Finanzen" sub="Einnahmen und Ausgaben je Monat" icon="finanzen">
+          <BarChart data={finanzReihe.map((f) => ({ label: monthLabelShort(f.month), values: [f.income, f.expense] }))}
             seriesNames={['Einnahmen', 'Ausgaben']} formatValue={(v) => formatMoney(v, { compact: true })} />
         </Card>
-        <Card title="Vermögen" sub="Monatsende">
-          <LineChart series={[{ name: 'Vermögen', points: worth.map((w) => ({ label: monthLabelShort(w.month), value: toEuro(w.value) })) }]}
+        <Card title="Vermögen" sub="Monatsende" icon="finanzen">
+          <LineChart series={[{ name: 'Vermögen', points: vermoegenReihe.map((w) => ({ label: monthLabelShort(w.month), value: toEuro(w.value) })) }]}
             formatValue={(v) => formatMoney(Math.round(v * 100), { compact: true })} />
         </Card>
-      </div>
 
-      <div className="grid grid-2 mb16">
-        <Card title="Erledigte Aufgaben" sub="pro Monat">
-          <BarChart data={tasksDone} seriesNames={['Aufgaben']} formatValue={(v) => String(Math.round(v))} />
-        </Card>
-        <Card title="Trainingseinheiten" sub="pro Monat">
-          <BarChart data={training} seriesNames={['Einheiten']} formatValue={(v) => String(Math.round(v))} />
-        </Card>
-      </div>
-
-      <div className="grid grid-2">
+        {/* Ein Diagramm ohne einen einzigen Wert zeigt nichts und nimmt trotzdem
+            eine halbe Seite - es erscheint erst, wenn es etwas zu zeigen gibt. */}
+        {aufgabenSumme > 0 && (
+          <Card title="Erledigte Aufgaben" sub="pro Monat" icon="aufgaben">
+            <BarChart data={tasksDone} seriesNames={['Aufgaben']} formatValue={(v) => String(Math.round(v))} />
+          </Card>
+        )}
+        {trainingSumme > 0 && (
+          <Card title="Trainingseinheiten" sub="pro Monat" icon="training">
+            <BarChart data={training} seriesNames={['Einheiten']} formatValue={(v) => String(Math.round(v))} />
+          </Card>
+        )}
         {metricCards.map((metric) => {
           const points = dailySeries(data.metricEntries, metric, from, today)
           const monthly = groupSeries(points, 'month', metric.aggregation === 'sum' ? 'avg' : metric.aggregation)
           if (monthly.length < 2) return null
           return (
-            <Card key={metric.id} title={metric.name} sub={`Monatsmittel · ${metric.unit}`}>
+            <Card key={metric.id} title={metric.name} sub={`Monatsmittel · ${metric.unit}`} icon="tracking">
               <LineChart series={[{ name: metric.name, points: monthly.map((p) => ({ label: monthLabelShort(p.label), value: p.value })) }]}
                 formatValue={(v) => formatMetricValue(metric, v)} showArea={false} />
             </Card>
@@ -318,25 +340,29 @@ function CorrelationTab() {
 
   return (
     <>
-      <Card className="mb16" title="Wichtiger Hinweis" sub={STATISTICAL_DISCLAIMER}>
+      <div className="mb16">
+      <Collapsible label="Was ein Zusammenhang aussagt – und was nicht">
         <div className="hint-box">
+          {STATISTICAL_DISCLAIMER}{' '}
           Ein Zusammenhang bedeutet nur, dass zwei Werte sich gemeinsam verändert haben.
           Er sagt nichts darüber, ob einer den anderen verursacht – dafür kann es viele andere Gründe geben.
         </div>
-      </Card>
+      </Collapsible>
+      </div>
 
       {/*
-        Zuerst die zeitversetzte Auswertung: Sie beantwortet die Frage, die Erik
-        tatsächlich hat („liegt es am Zucker?"), während der Vergleich zweier
-        Werte darunter das Werkzeug zum Selbernachsehen ist.
+        Die zeitversetzte Auswertung beantwortet die Frage, die Erik tatsächlich
+        hat („liegt es am Zucker?"). Der Vergleich zweier Werte darunter ist das
+        Werkzeug zum Selbernachsehen – und war vorher ein zweiter Abschnitt mit
+        eigener Zeitraumwahl gleich daneben.
       */}
       <ZeitversetzteZusammenhaenge />
 
-      <div className="row mb16">
-        <span className="field-label">Zeitraum</span>
-        {[30, 90, 180, 365].map((n) => (
-          <button key={n} className={`chip sm ${days === n ? 'active' : ''}`} onClick={() => setDays(n)}>{n} Tage</button>
-        ))}
+      <Collapsible label="Zwei Werte selbst vergleichen">
+      <div className="row mb16 mt8">
+        <Segment label="Zeitraum" value={String(days)} onChange={(v) => setDays(Number(v))}
+          options={[{ value: '30', label: '30 Tage' }, { value: '90', label: '90 Tage' },
+            { value: '180', label: '180 Tage' }, { value: '365', label: '365 Tage' }]} />
       </div>
 
       {pairs.length > 0 && (
@@ -390,6 +416,7 @@ function CorrelationTab() {
           </>
         )}
       </Card>
+      </Collapsible>
     </>
   )
 }
