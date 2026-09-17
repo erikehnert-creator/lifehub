@@ -1018,3 +1018,16 @@ table.data tbody tr:hover { background: var(--surface-2); }
 @media (max-width: 820px) { .nur-schreibtisch { display: none; } }
 /* Kategorie-Ring: Legende unter den Ring, sobald es nebeneinander eng wird. */
 .chart-wrap .legend { min-width: 180px !important; }
+
+/* ------------------------------------------------------------ Plan, Kalender */
+/* Kartenkopf in einer Karte ohne Innenabstand: "Aufgaben (1 offen)" und
+   "30 Treffer" klebten sonst buendig am Rand. */
+.card.pad0 > .card-head { padding: 15px 16px 0; margin-bottom: 12px; }
+.freie-fenster { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 12px; font-size: 13px; }
+.freie-fenster .fenster {
+  background: var(--surface-2); border-radius: var(--r-sm); padding: 3px 9px;
+  font-variant-numeric: tabular-nums;
+}
+.fest-marke { display: inline-flex; color: var(--bereich-plan); margin-right: 5px; vertical-align: -2px; }
+.kal-feiertag { font-size: 11px; }
+.kal-kopf .segment { margin-left: auto; }

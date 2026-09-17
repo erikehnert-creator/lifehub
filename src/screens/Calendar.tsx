@@ -11,7 +11,7 @@
  * weil beides zum selben „was ist heute los" gehört.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Card, Modal, Field, Chips, Empty, Confirm, Tabs } from '../ui/components'
+import { Card, Modal, Field, Chips, Empty, Confirm, Tabs, Segment } from '../ui/components'
 import { useData, useMutations } from '../state/store'
 import {
   todayString, formatDay, formatMonth, monthOf, monthStart, monthEnd,
@@ -134,18 +134,20 @@ export function CalendarView({ openQuickAdd }: { openQuickAdd?: (kind?: any) => 
         )}
         {ansicht === 'liste' && <strong className="kal-titel">{titel}</strong>}
         <span style={{ flex: 1 }} />
+        {/* Zweite Ebene als Segmentschalter: Zwei Reiterleisten uebereinander
+            (Plan-Reiter, darunter Tag/Woche/Monat/Liste) lasen sich wie zwei
+            getrennte Navigationen. "+ Termin" gibt es hier einmal - im
+            Seitenkopf und in der Tagesliste stand es noch zweimal. */}
+        <Segment label="Kalenderansicht" value={ansicht} onChange={setAnsicht}
+          options={[
+            { value: 'tag', label: 'Tag' },
+            { value: 'woche', label: 'Woche' },
+            { value: 'monat', label: 'Monat' },
+            { value: 'liste', label: 'Liste' },
+          ]} />
         <button className="btn btn-sm btn-ghost"
           onClick={() => { setAnker(heute); setAuswahl(heute) }}>Heute</button>
-        <button className="btn btn-sm btn-primary" onClick={() => neu(auswahl)}>+ Termin</button>
       </div>
-
-      <Tabs active={ansicht} onChange={(k) => setAnsicht(k as any)}
-        tabs={[
-          { key: 'tag', label: 'Tag' },
-          { key: 'woche', label: 'Woche' },
-          { key: 'monat', label: 'Monat' },
-          { key: 'liste', label: 'Liste' },
-        ]} />
 
       {ansicht === 'monat' && (
         <MonatsRaster
@@ -262,11 +264,11 @@ function TagesListe({ tag, vorkommen, onOeffnen, onNeu, nurZusatz }: {
   return (
     <Card title={formatDay(tag, 'long')}
       sub={tagesart ? tagesart.name : undefined}
-      action={<button className="btn btn-sm" onClick={onNeu}>+ Termin</button>}>
+      action={vorkommen.length > 0 ? <button className="btn btn-sm" onClick={onNeu}>+ Termin</button> : undefined}>
       {!nurZusatz && (
         vorkommen.length === 0 ? (
-          <Empty icon="🗓️" title="Keine Termine an diesem Tag"
-            hint={'Tippe oben auf „+ Termin", um etwas einzutragen.'} />
+          <Empty kompakt title="Keine Termine an diesem Tag."
+            action={<button className="btn btn-sm" onClick={onNeu}>+ Termin</button>} />
         ) : (
           <div className="list">
             {vorkommen.map((v, i) => (

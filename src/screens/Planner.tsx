@@ -4,7 +4,8 @@
  * und leben deshalb im selben Bereich.
  */
 import React, { useMemo, useState } from 'react'
-import { Card, Stat, Modal, Field, Chips, Tabs, Empty, Confirm, DurationInput } from '../ui/components'
+import { Card, Stat, Modal, Field, Chips, Tabs, Segment, Empty, Confirm, DurationInput } from '../ui/components'
+import { Icon, BEREICH_FARBE } from '../ui/icons'
 import { useData, useMutations } from '../state/store'
 import { CalendarView, TerminEditor } from './Calendar'
 import {
@@ -30,7 +31,7 @@ const PRIORITIES = [
 ]
 
 const BUCKETS: { value: Task['bucket']; label: string }[] = [
-  { value: 'inbox', label: '📥 Inbox' },
+  { value: 'inbox', label: 'Inbox' },
   { value: 'today', label: 'Heute' },
   { value: 'week', label: 'Diese Woche' },
   { value: 'month', label: 'Dieser Monat' },
@@ -42,37 +43,81 @@ export function PlannerScreen({ sub, navigate, openQuickAdd }: {
 }) {
   const data = useData()
   const inboxCount = data.tasks.filter((t) => !t.deleted_at && t.bucket === 'inbox' && t.status === 'open').length
+  // Fünf Reiter statt sieben: "Inbox" und "Alle Aufgaben" waren zwei Filter
+  // derselben Liste, "Vorlagen" und "Arbeitsplan" richten beide den Plan ein.
+  // Die alten Adressen bleiben gültig (automatik-e2e öffnet /plan/vorlagen).
+  const reiter = sub === 'inbox' || sub === 'alle' ? 'aufgaben'
+    : sub === 'vorlagen' || sub === 'arbeit' ? 'einrichten'
+    : sub === 'monat' ? 'kalender' : sub
   const tabs = [
     { key: '', label: 'Heute' },
     { key: 'kalender', label: 'Kalender' },
     { key: 'woche', label: 'Woche' },
-    { key: 'inbox', label: `Inbox${inboxCount ? ` (${inboxCount})` : ''}` },
-    { key: 'alle', label: 'Alle Aufgaben' },
-    { key: 'arbeit', label: 'Arbeitsplan' },
-    { key: 'vorlagen', label: 'Vorlagen' },
+    { key: 'aufgaben', label: `Aufgaben${inboxCount ? ` (${inboxCount})` : ''}` },
+    { key: 'einrichten', label: 'Einrichten' },
   ]
   return (
     <div className="page">
       <div className="page-head">
         <div>
-          <div className="page-title">Planer</div>
-          <div className="page-sub">Aufgaben, Termine und Tagesplanung</div>
+          <div className="page-title">Plan</div>
         </div>
-        <div className="page-actions">
+        <div className="page-actions nur-schreibtisch">
           <button className="btn" onClick={() => openQuickAdd('event')}>+ Termin</button>
           <button className="btn btn-primary" onClick={() => openQuickAdd('task')}>+ Aufgabe</button>
         </div>
       </div>
-      <Tabs tabs={tabs} active={sub} onChange={(k) => navigate(`#/plan${k ? '/' + k : ''}`)} />
-      {sub === '' && <DayView openQuickAdd={openQuickAdd} />}
-      {sub === 'kalender' && <CalendarView openQuickAdd={openQuickAdd} />}
-      {sub === 'woche' && <WeekView />}
-      {/* Alte Adresse: der Monat lebt jetzt im Kalender weiter. */}
-      {sub === 'monat' && <CalendarView openQuickAdd={openQuickAdd} />}
-      {sub === 'inbox' && <InboxView openQuickAdd={openQuickAdd} />}
-      {sub === 'alle' && <AllTasksView openQuickAdd={openQuickAdd} />}
-      {sub === 'arbeit' && <WorkView />}
-      {sub === 'vorlagen' && <TemplatesView />}
+      <Tabs tabs={tabs} active={reiter} onChange={(k) => navigate(`#/plan${k ? '/' + k : ''}`)} />
+      {reiter === '' && <DayView openQuickAdd={openQuickAdd} />}
+      {reiter === 'kalender' && <CalendarView openQuickAdd={openQuickAdd} />}
+      {reiter === 'woche' && <WeekView />}
+      {reiter === 'aufgaben' && <AufgabenSeite openQuickAdd={openQuickAdd} startFilter={sub === 'inbox' ? 'inbox' : 'offen'} />}
+      {reiter === 'einrichten' && <EinrichtenSeite start={sub === 'arbeit' ? 'arbeit' : 'vorlagen'} />}
+    </div>
+  )
+}
+
+/**
+ * Aufgaben – eine Liste mit Filter statt zweier Reiter.
+ *
+ * "Inbox" (noch nicht eingeplant) und "Alle Aufgaben" waren zwei Ansichten
+ * derselben Sache. Der Filter steht jetzt als Segmentschalter darüber.
+ */
+function AufgabenSeite({ openQuickAdd, startFilter }: {
+  openQuickAdd: (kind?: any) => void
+  startFilter: 'inbox' | 'offen'
+}) {
+  const [filter, setFilter] = useState<'inbox' | 'offen' | 'alle'>(startFilter)
+  const data = useData()
+  const inboxCount = data.tasks.filter((x) => !x.deleted_at && x.bucket === 'inbox' && x.status === 'open').length
+  return (
+    <div className="stapel">
+      <div className="row">
+        <Segment label="Aufgaben filtern" value={filter} onChange={setFilter} options={[
+          { value: 'inbox', label: `Inbox${inboxCount ? ` (${inboxCount})` : ''}` },
+          { value: 'offen', label: 'Offen' },
+          { value: 'alle', label: 'Alle' },
+        ]} />
+      </div>
+      {filter === 'inbox'
+        ? <InboxView openQuickAdd={openQuickAdd} />
+        : <AllTasksView key={filter} openQuickAdd={openQuickAdd} nurOffen={filter === 'offen'} />}
+    </div>
+  )
+}
+
+/** Vorlagen und Arbeitsplan richten beide den Plan ein – eine Seite, zwei Teile. */
+function EinrichtenSeite({ start }: { start: 'vorlagen' | 'arbeit' }) {
+  const [teil, setTeil] = useState<'vorlagen' | 'arbeit'>(start)
+  return (
+    <div className="stapel">
+      <div className="row">
+        <Segment label="Einrichten" value={teil} onChange={setTeil} options={[
+          { value: 'vorlagen', label: 'Vorlagen' },
+          { value: 'arbeit', label: 'Arbeitsplan' },
+        ]} />
+      </div>
+      {teil === 'vorlagen' ? <TemplatesView /> : <WorkView />}
     </div>
   )
 }
@@ -110,45 +155,45 @@ function DayView({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }) {
 
   return (
     <>
-      <div className="row mb16">
-        <button className="btn btn-sm" onClick={() => setDay(addDays(day, -1))}>←</button>
-        <strong style={{ minWidth: 210, textAlign: 'center' }}>{formatDay(day, 'long')}</strong>
-        <button className="btn btn-sm" onClick={() => setDay(addDays(day, 1))}>→</button>
+      <div className="row mb16 tag-leiste">
+        <button className="btn btn-sm" onClick={() => setDay(addDays(day, -1))} aria-label="Vortag">
+          <Icon name="zurueck" size={16} />
+        </button>
+        <strong style={{ minWidth: 170, textAlign: 'center' }}>{formatDay(day, 'long')}</strong>
+        <button className="btn btn-sm" onClick={() => setDay(addDays(day, 1))} aria-label="Folgetag">
+          <Icon name="pfeil-rechts" size={16} />
+        </button>
         {day !== todayString() && <button className="btn btn-sm btn-ghost" onClick={() => setDay(todayString())}>Heute</button>}
         <span style={{ flex: 1 }} />
         <DayTypePicker day={day} />
       </div>
 
-      <div className="grid grid-2 mb16">
-        <Card title="Tagesplan" sub={`${formatDuration(capacity.plannedMinutes)} verplant · ${formatDuration(capacity.freeMinutes)} frei`}>
-          <Timeline day={day} dayType={dayType} assignment={assignment} events={events} blocks={blocks}
-            onEditEvent={setEditingEvent} />
-        </Card>
-        <Card title="Freie Zeitfenster" sub="Was heute realistisch noch hineinpasst">
-          {slots.length === 0 ? (
-            <Empty icon="⏳" title="Der Tag ist voll" />
-          ) : (
-            <div className="list">
-              {slots.map((s, i) => (
-                <div className="list-row" key={i} style={{ paddingLeft: 0, paddingRight: 0 }}>
-                  <span className="list-main">
-                    <span className="list-title">{s.start} – {s.end}</span>
-                    <span className="list-sub">{formatDuration(s.minutes)}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          {slots.length > 0 && (
-            <SuggestionBox tasks={data.tasks} minutes={Math.max(...slots.map((s) => s.minutes))} day={day} />
-          )}
-        </Card>
-      </div>
+      {/* Tagesplan und freie Fenster in einer Karte: Die freien Fenster sind die
+          Kehrseite des Plans und standen vorher als eigene Karte daneben. */}
+      <Card className="mb16" title="Tagesplan" icon="kalender" farbe={BEREICH_FARBE.plan}
+        sub={`${formatDuration(capacity.plannedMinutes)} verplant · ${formatDuration(capacity.freeMinutes)} frei`}>
+        <Timeline day={day} dayType={dayType} assignment={assignment} events={events} blocks={blocks}
+          onEditEvent={setEditingEvent} />
+        <div className="freie-fenster">
+          {slots.length === 0
+            ? <span className="small muted">Der Tag ist voll.</span>
+            : slots.map((s, i) => (
+              <span key={i} className="fenster">
+                {s.start}–{s.end} <span className="muted">{formatDuration(s.minutes)}</span>
+              </span>
+            ))}
+        </div>
+        {slots.length > 0 && (
+          <SuggestionBox tasks={data.tasks} minutes={Math.max(...slots.map((s) => s.minutes))} day={day} />
+        )}
+      </Card>
 
-      <Card title={`Aufgaben (${open.length} offen)`}
-        action={<button className="btn btn-sm" onClick={() => openQuickAdd('task')}>+</button>} className="pad0">
+      <Card title="Aufgaben" icon="aufgaben" farbe={BEREICH_FARBE.plan}
+        sub={tasks.length ? `${open.length} von ${tasks.length} offen` : undefined}
+        action={<button className="btn btn-sm btn-ghost" onClick={() => openQuickAdd('task')} aria-label="Aufgabe hinzufügen"><Icon name="plus" size={16} /></button>}
+        className="pad0">
         {tasks.length === 0 ? (
-          <div style={{ padding: 16 }}><Empty icon="✅" title="Nichts geplant" hint="Ein freier Tag – oder du planst noch etwas ein." /></div>
+          <div style={{ padding: '0 16px 16px' }}><Empty kompakt title="Für diesen Tag ist nichts geplant." /></div>
         ) : (
           <div className="list">
             {[...open, ...doneList].map((t) => (
@@ -194,10 +239,6 @@ function Timeline({ day, dayType, assignment, events, blocks, onEditEvent }: {
 }) {
   const data = useData()
   const win = wakingWindow(data.settings.sleep_hours ?? 8)
-  const startM = timeToMinutes(win.start)
-  const endM = win.end === '24:00' ? 1440 : timeToMinutes(win.end)
-  const span = Math.max(1, endM - startM)
-
   const items: { start: number; end: number; title: string; color: string; onClick?: () => void }[] = []
   if (dayType && (dayType.kind === 'work' || dayType.kind === 'school')) {
     const s = assignment?.start_override ?? dayType.default_start
@@ -216,12 +257,20 @@ function Timeline({ day, dayType, assignment, events, blocks, onEditEvent }: {
     items.push({ start: timeToMinutes(b.start_time), end: timeToMinutes(b.end_time), title: b.title, color: b.color ?? 'var(--series-3)' })
   }
 
+  if (!items.length) {
+    return <Empty kompakt title="Keine festen Termine." hint="Der ganze Tag steht dir zur Verfügung." />
+  }
+
+  // Gezeigt wird der belegte Zeitraum plus eine Stunde Luft, nicht 08:00–24:00.
+  // Für eine einzelne Spätschicht standen vorher 16 leere Stunden auf dem Bild.
+  const fensterStart = timeToMinutes(win.start)
+  const fensterEnde = win.end === '24:00' ? 1440 : timeToMinutes(win.end)
+  const startM = Math.max(fensterStart, Math.floor((Math.min(...items.map((i) => i.start)) - 60) / 60) * 60)
+  const endM = Math.min(fensterEnde, Math.ceil((Math.max(...items.map((i) => i.end)) + 60) / 60) * 60)
+  const span = Math.max(60, endM - startM)
+
   const hours: number[] = []
   for (let h = Math.floor(startM / 60); h <= Math.ceil(endM / 60); h++) hours.push(h)
-
-  if (!items.length) {
-    return <Empty icon="🗓️" title="Keine festen Termine" hint="Der ganze Tag steht dir zur Verfügung." />
-  }
 
   return (
     <div style={{ position: 'relative', height: 240, borderLeft: '1px solid var(--border)', marginLeft: 42 }}>
@@ -307,7 +356,7 @@ export function TaskRow({ task, onToggle, onProgress, onOpen, showDate }: {
       )}
       <button className="list-main" style={{ textAlign: 'left' }} onClick={onOpen}>
         <span className="list-title">
-          {art === 'fest' && <span title="Fester Termin" style={{ marginRight: 5 }}>📌</span>}
+          {art === 'fest' && <span className="fest-marke" title="Fester Termin"><Icon name="kalender" size={13} /></span>}
           {task.title}
         </span>
         <span className="list-sub">
@@ -344,9 +393,11 @@ function WeekView() {
   return (
     <>
       <div className="row mb16">
-        <button className="btn btn-sm" onClick={() => setAnchor(addDays(anchor, -7))}>←</button>
+        <button className="btn btn-sm" onClick={() => setAnchor(addDays(anchor, -7))} aria-label="Vorwoche">
+          <Icon name="zurueck" size={16} /></button>
         <strong style={{ minWidth: 190, textAlign: 'center' }}>KW {isoWeekNumber(start)} · {formatDay(start, 'short')}–{formatDay(days[6], 'short')}</strong>
-        <button className="btn btn-sm" onClick={() => setAnchor(addDays(anchor, 7))}>→</button>
+        <button className="btn btn-sm" onClick={() => setAnchor(addDays(anchor, 7))} aria-label="Folgewoche">
+          <Icon name="pfeil-rechts" size={16} /></button>
         <button className="btn btn-sm btn-ghost" onClick={() => setAnchor(todayString())}>Diese Woche</button>
       </div>
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
@@ -530,10 +581,12 @@ function InboxView({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }) {
 
 /* --------------------------------------------------------- Alle Aufgaben */
 
-function AllTasksView({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }) {
+function AllTasksView({ openQuickAdd, nurOffen }: { openQuickAdd: (kind?: any) => void; nurOffen?: boolean }) {
   const data = useData()
   const m = useMutations()
-  const [showDone, setShowDone] = useState(false)
+  // "Offen" ist die Liste ohne Erledigte, "Alle" mit. Beides war vorher ein
+  // Häkchen mitten in der Leiste.
+  const [showDone, setShowDone] = useState(!nurOffen)
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Task | null>(null)
 
@@ -573,7 +626,7 @@ function AllTasksView({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }) 
       <div className="row mb16">
         <input className="input" style={{ flex: 1 }} placeholder="Aufgaben durchsuchen…" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className={`chip ${showDone ? 'active' : ''}`} onClick={() => setShowDone(!showDone)}>Erledigte zeigen</button>
-        <button className="btn btn-primary" onClick={() => openQuickAdd('task')}>+ Aufgabe</button>
+        <button className="btn btn-primary nur-schreibtisch" onClick={() => openQuickAdd('task')}>+ Aufgabe</button>
       </div>
       {groups.length === 0 ? (
         <Empty icon="✅" title="Keine Aufgaben" />
