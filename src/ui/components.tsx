@@ -222,9 +222,17 @@ export function ZonePill({ status, children }: { status: 'optimal' | 'tolerated'
   return <span className={`pill ${cls}`}>{icon} {children ?? (status === 'optimal' ? 'optimal' : status === 'tolerated' ? 'Toleranz' : 'außerhalb')}</span>
 }
 
+/**
+ * Zustand als Plakette – farbig nur, wenn etwas Aufmerksamkeit braucht.
+ *
+ * Grün mit Haken stand früher an jedem Budget, auch an „✓ 0 %". Wenn fast alles
+ * grün ist, sagt Grün nichts mehr, und die Warnungen gehen darin unter. „Im
+ * Rahmen" ist deshalb neutral; Farbe tragen nur Hinweis und Überschreitung.
+ */
 export function StatusPill({ status, children }: { status: 'green' | 'amber' | 'red'; children: React.ReactNode }) {
-  const cls = status === 'green' ? 'good' : status === 'amber' ? 'warn' : 'crit'
-  const icon = status === 'green' ? '✓' : status === 'amber' ? '!' : '✕'
+  if (status === 'green') return <span className="pill">{children}</span>
+  const cls = status === 'amber' ? 'warn' : 'crit'
+  const icon = status === 'amber' ? '!' : '✕'
   return <span className={`pill ${cls}`}>{icon} {children}</span>
 }
 

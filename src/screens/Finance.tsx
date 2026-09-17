@@ -2,7 +2,8 @@
  * FINANZEN – Übersicht, Buchungen, Konten, Budgets, Wiederkehrend, Finanztag.
  */
 import React, { useMemo, useState } from 'react'
-import { Card, Stat, Modal, Field, Chips, Tabs, Empty, Confirm, StatusPill, MoneyInput } from '../ui/components'
+import { Card, Stat, Modal, Field, Chips, Tabs, Empty, Confirm, StatusPill, MoneyInput, Collapsible, Segment } from '../ui/components'
+import { Icon, BEREICH_FARBE } from '../ui/icons'
 import { AttachmentList, AttachmentBadge } from '../ui/attachments'
 import { usePageLayout, LayoutEditToggle, LayoutEditPanel } from '../ui/pageLayout'
 import type { LayoutCardDef } from '../core/layout'
@@ -58,9 +59,8 @@ export function FinanceScreen({ sub, params, navigate, openQuickAdd }: {
       <div className="page-head">
         <div>
           <div className="page-title">Finanzen</div>
-          <div className="page-sub">Konten, Buchungen, Budgets und Prognose</div>
         </div>
-        <div className="page-actions">
+        <div className="page-actions nur-schreibtisch">
           <button className="btn btn-primary" onClick={() => openQuickAdd('transaction')}>+ Buchung</button>
         </div>
       </div>
@@ -78,18 +78,29 @@ export function FinanceScreen({ sub, params, navigate, openQuickAdd }: {
 
 /* ------------------------------------------------------------- Übersicht */
 
-/** Werkseinstellung der Finanzübersicht – wie bisher alles sichtbar, aber jetzt
- * frei umsortier- und ausblendbar (siehe ui/pageLayout.tsx). */
+/**
+ * Die Finanzübersicht beantwortet zuerst „Reicht es diesen Monat?" und erst
+ * danach „Wie hat es sich entwickelt?".
+ *
+ * Vorher stand die Monatsprognose als fünfte Karte hinter drei Diagrammen – am
+ * Handy nach rund 2.000 px. Die drei Verlaufsdiagramme sind jetzt eine Karte mit
+ * Umschalter. Seitenkennung `finanzen_uebersicht2`, weil eine gespeicherte
+ * Auswahl der alten Karten die neue Reihenfolge sofort wieder überschrieben hätte.
+ */
 const OVERVIEW_CARD_DEFS: LayoutCardDef[] = [
-  { id: 'kennzahlen', title: 'Kennzahlen' },
-  { id: 'chart_ein_aus', title: 'Einnahmen und Ausgaben' },
-  { id: 'chart_sparen', title: 'Sparbetrag und Sparquote' },
-  { id: 'chart_kategorie', title: 'Ausgaben nach Kategorie' },
-  { id: 'chart_vermoegen', title: 'Vermögensentwicklung' },
-  { id: 'prognose', title: 'Monatsprognose' },
-  { id: 'ausgaben_konto', title: 'Ausgaben nach Konto' },
+  { id: 'monat', title: 'Dieser Monat' },
   { id: 'budgets', title: 'Budgets' },
+  { id: 'chart_kategorie', title: 'Ausgaben nach Kategorie' },
+  { id: 'verlauf', title: 'Verlauf' },
+  { id: 'vermoegen', title: 'Vermögen' },
+  { id: 'ausgaben_konto', title: 'Ausgaben nach Konto', defaultVisible: false },
 ]
+
+/** Leere Monate am Anfang eines Verlaufs weglassen – sie zeigen nur, dass es noch keine Daten gab. */
+export function ohneLeerenAnfang<T>(reihe: T[], leer: (x: T) => boolean): T[] {
+  const erster = reihe.findIndex((x) => !leer(x))
+  return erster <= 0 ? reihe : reihe.slice(erster)
+}
 
 function Overview({ navigate, params }: { navigate: (r: string) => void; params: Record<string, string> }) {
   const data = useData()
@@ -99,13 +110,22 @@ function Overview({ navigate, params }: { navigate: (r: string) => void; params:
   const [month, setMonth] = useState(() => (
     params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : monthOf(today)
   ))
+  const [verlauf, setVerlauf] = useState<'einaus' | 'sparen' | 'vermoegen'>('einaus')
 
   const balances = useMemo(() => accountBalances(data.accounts, data.transactions), [data.accounts, data.transactions])
   const totals = useMemo(() => monthTotals(data.transactions, month), [data.transactions, month])
   const prev = useMemo(() => monthTotals(data.transactions, addMonthsToYearMonth(month, -1)), [data.transactions, month])
   const months = useMemo(() => lastMonths(month, 12), [month])
-  const series = useMemo(() => monthlySeries(data.transactions, months), [data.transactions, months])
-  const worth = useMemo(() => netWorthSeries(data.accounts, data.transactions, months), [data.accounts, data.transactions, months])
+  const series = useMemo(
+    () => ohneLeerenAnfang(monthlySeries(data.transactions, months), (s) => s.income === 0 && s.expense === 0),
+    [data.transactions, months],
+  )
+  // Der Vermögensverlauf beginnt dort, wo die Buchungen beginnen – vorher
+  // stünde nur der Anfangsbestand als flache Linie.
+  const worth = useMemo(() => {
+    const ab = series[0]?.month
+    return netWorthSeries(data.accounts, data.transactions, months).filter((w) => !ab || w.month >= ab)
+  }, [data.accounts, data.transactions, months, series])
   const byCat = useMemo(
     () => totalsByCategory(data.transactions, data.categories, monthStart(month), monthEnd(month)),
     [data.transactions, data.categories, month],
@@ -132,7 +152,8 @@ function Overview({ navigate, params }: { navigate: (r: string) => void; params:
     [data.transactions, month, today, offeneEinnahmen],
   )
   const budgets = useMemo(
-    () => budgetProgress(data.budgets, data.transactions, data.categories, month, today),
+    () => [...budgetProgress(data.budgets, data.transactions, data.categories, month, today)]
+      .sort((a, b) => b.usedPercent - a.usedPercent),
     [data.budgets, data.transactions, data.categories, month, today],
   )
 
@@ -150,168 +171,60 @@ function Overview({ navigate, params }: { navigate: (r: string) => void; params:
   const pct = (a: number, b: number) => (b === 0 ? null : Math.round(((a - b) / Math.abs(b)) * 100))
   const expenseChange = pct(totals.expense, prev.expense)
 
-  const layout = usePageLayout('finanzen_uebersicht', OVERVIEW_CARD_DEFS)
+  const layout = usePageLayout('finanzen_uebersicht2', OVERVIEW_CARD_DEFS)
+  const farbe = BEREICH_FARBE.finanzen
 
   function renderCard(id: string): React.ReactNode {
     switch (id) {
-      case 'kennzahlen':
+      case 'monat':
         return (
-          <Card key={id} title="Kennzahlen">
-            <div className="grid grid-2 keep2" style={{ gap: 10 }}>
-              <Stat small label="Gesamtvermögen" value={money(nw)} sub={<span className="muted small">alle Konten</span>} />
-              <Stat small label="Verfügbar" value={money(avail)} sub={<span className="muted small">ohne Sparkonten</span>} />
-              <Stat small label={quote.expected ? 'Sparbetrag Monat · erwartet' : 'Sparbetrag Monat'} value={money(quote.savings)}
-                delta={`Sparquote ${quote.text}`}
-                deltaKind={quote.savings >= 0 ? 'up' : 'down'}
-                sub={quote.hint ?? undefined} />
-              <Stat small label="Rücklagen" value={money(saved)} sub={<span className="muted small">als Sparen markiert</span>} />
-            </div>
-          </Card>
-        )
-
-      case 'chart_ein_aus':
-        return (
-          <Card key={id} title="Einnahmen und Ausgaben" sub="letzte 12 Monate · antippen zum Vergrößern">
-            <ChartFrame title="Einnahmen und Ausgaben" sub="letzte 12 Monate">
-              {({ height }) => (
-                <BarChart
-                  data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.income, s.expense] }))}
-                  seriesNames={['Einnahmen', 'Ausgaben']}
-                  height={height}
-                  axisLabel="Euro"
-                  formatValue={(v) => formatMoney(v)}
-                  formatAxis={formatMoneyAxis}
-                />
-              )}
-            </ChartFrame>
-          </Card>
-        )
-
-      case 'chart_sparen':
-        return (
-          <Card key={id} title="Sparbetrag und Sparquote" sub="letzte 12 Monate · antippen zum Vergrößern">
-            <ChartFrame title="Sparbetrag je Monat" sub="letzte 12 Monate">
-              {({ height }) => (
-                <BarChart
-                  data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.savings] }))}
-                  seriesNames={['Sparbetrag']}
-                  height={height}
-                  axisLabel="Euro"
-                  formatValue={(v) => formatMoney(v)}
-                  formatAxis={formatMoneyAxis}
-                />
-              )}
-            </ChartFrame>
-            <div className="mt12">
-              <ChartFrame title="Sparquote je Monat"
-                sub="Anteil der Einnahmen, der übrig bleibt · Werte unter −100 % sind bei −100 % abgeschnitten">
-                {({ height, gross }) => (
-                  <LineChart
-                    series={[{ name: 'Sparquote', points: series.map((s) => ({
-                      label: monthLabelShort(s.month),
-                      // Ein Monat mit 2,50 € Einnahmen und 163 € Ausgaben ergibt
-                      // −6.440 % und drückt alle anderen Monate auf eine Linie.
-                      value: Math.max(-100, Math.min(150, s.rate)),
-                    })) }]}
-                    formatValue={(v) => `${Math.round(v)} %`}
-                    formatAxis={(v) => `${Math.round(v)} %`}
-                    axisLabel="Prozent"
-                    height={gross ? height : 130}
-                    zeroBased
-                  />
+          <Card key={id} className="karte-breit" title={isCurrentMonth ? 'Dieser Monat' : formatMonth(month)} icon="finanzen" farbe={farbe}
+            sub={isCurrentMonth ? `Tag ${forecast.elapsedDays} von ${forecast.totalDays}` : undefined}>
+            <div className="kennzahlen-reihe vier">
+              <div className="kennzahl">
+                <span className="kennzahl-name">{isCurrentMonth ? 'Bleibt voraussichtlich' : 'Übrig geblieben'}</span>
+                <span className="kennzahl-wert gross">{money(isCurrentMonth ? forecast.projectedSavings : quote.savings)}</span>
+                {isCurrentMonth && (
+                  <span className={`kennzahl-zusatz ${ampel.status === 'red' ? 'crit' : ampel.status === 'amber' ? 'warn' : ''}`}>
+                    {ampel.label}
+                  </span>
                 )}
-              </ChartFrame>
-            </div>
-          </Card>
-        )
-
-      case 'chart_kategorie':
-        return (
-          <Card key={id} title={`Ausgaben nach Kategorie · ${formatMonth(month, true)}`}
-            sub={byCat.length ? `${formatMoney(totals.expense)} gesamt` : undefined}>
-            {byCat.length ? (
-              <ChartFrame title={`Ausgaben nach Kategorie · ${formatMonth(month)}`}
-                sub={`${formatMoney(totals.expense)} gesamt`}>
-                {({ gross }) => (
-                  <DonutChart
-                    slices={byCat.slice(0, gross ? 14 : 8).map((c, i) => ({ label: c.name, value: c.amount, color: c.color ?? seriesColor(i) }))}
-                    size={gross ? 240 : 168}
-                    thickness={gross ? 30 : 22}
-                    centerLabel="Ausgaben"
-                    centerValue={formatMoney(totals.expense, { compact: true })}
-                    maxLegend={gross ? 14 : 8}
-                    formatValue={(v) => formatMoney(v)}
-                  />
-                )}
-              </ChartFrame>
-            ) : <Empty icon="📊" title="Keine Ausgaben in diesem Monat" />}
-          </Card>
-        )
-
-      case 'chart_vermoegen':
-        return (
-          <Card key={id} title="Vermögensentwicklung" sub="Monatsende · antippen zum Vergrößern">
-            <ChartFrame title="Vermögensentwicklung" sub="Stand am Monatsende">
-              {({ height }) => (
-                <LineChart
-                  series={[{ name: 'Vermögen', points: worth.map((w) => ({ label: monthLabelShort(w.month), value: toEuro(w.value) })) }]}
-                  formatValue={(v) => formatMoney(Math.round(v * 100))}
-                  formatAxis={(v) => formatMoneyAxis(Math.round(v * 100))}
-                  axisLabel="Euro"
-                  height={height}
-                />
-              )}
-            </ChartFrame>
-          </Card>
-        )
-
-      case 'prognose':
-        // Die Prognose ist die Zahl, auf die man am Monatsanfang schaut.
-        // Deshalb bekommt sie eine Ampel: eine Farbe, die man von weitem sieht.
-        return (
-          <Card key={id} className={`forecast forecast-${ampel.status}`}
-            title="Monatsprognose" sub="Schätzung auf Basis des bisherigen Verlaufs – keine Zusage">
-            <div className="forecast-head">
-              <div>
-                <div className="forecast-label">{ampel.label}</div>
-                <div className="forecast-big">{money(forecast.projectedSavings)}</div>
-                <div className="small muted">bleiben voraussichtlich übrig</div>
               </div>
-              <StatusPill status={ampel.status}>
-                {formatSavingsRate(forecast.projectedSavingsRate, forecast.projectedIncome)}
-              </StatusPill>
+              <div className="kennzahl">
+                <span className="kennzahl-name">Verfügbar</span>
+                <span className="kennzahl-wert">{money(avail)}</span>
+                <span className="kennzahl-zusatz">ohne Sparkonten</span>
+              </div>
+              <div className="kennzahl">
+                <span className="kennzahl-name">Ausgegeben</span>
+                <span className="kennzahl-wert">{money(totals.expense)}</span>
+                {expenseChange !== null && (
+                  <span className="kennzahl-zusatz">
+                    {expenseChange > 0 ? `${expenseChange} % mehr` : `${-expenseChange} % weniger`} als {formatMonth(addMonthsToYearMonth(month, -1), true)}
+                  </span>
+                )}
+              </div>
+              <div className="kennzahl">
+                <span className="kennzahl-name">{quote.expected ? 'Sparquote · erwartet' : 'Sparquote'}</span>
+                <span className="kennzahl-wert">{quote.text.replace(' erwartet', '')}</span>
+                <span className="kennzahl-zusatz">{money(quote.savings)}</span>
+              </div>
             </div>
-            <Meter percent={Math.min(100, (forecast.elapsedDays / forecast.totalDays) * 100)}
-              status={ampel.status === 'green' ? 'good' : ampel.status === 'amber' ? 'warning' : 'critical'} />
-            <div className="grid grid-2 keep2 mt12" style={{ gap: 10 }}>
-              <Stat small label="Erwartete Ausgaben" value={money(forecast.projectedExpense)} />
-              <Stat small label="Erwartete Einnahmen" value={money(forecast.projectedIncome)} />
-            </div>
-            <div className="hint-box mt12">
-              <strong>{ampel.sentence}</strong><br />
-              Tag {forecast.elapsedDays} von {forecast.totalDays}. Bisher {formatMoney(forecast.actualExpense)} ausgegeben
-              {forecast.plannedExpense > 0 && <>, {formatMoney(forecast.plannedExpense)} sind fest eingeplant</>}.
-              Die Hochrechnung setzt den bisherigen Tagesschnitt fort.
-              {forecast.expectedIncome > 0 && (
-                <> Bei den Einnahmen sind {formatMoney(forecast.expectedIncome)} mitgerechnet, die noch kommen.</>
-              )}
-            </div>
-          </Card>
-        )
-
-      case 'ausgaben_konto':
-        return (
-          <Card key={id} title="Ausgaben nach Konto" sub={formatMonth(month, true)}>
-            {byAcc.length
-              ? <RankBars items={byAcc.map((a) => ({
-                  label: a.name, value: a.amount,
-                  color: data.accounts.find((x) => x.id === a.accountId)?.color ?? undefined,
-                }))} formatValue={(v) => formatMoney(v)} />
-              : <Empty icon="🏦" title="Keine Ausgaben" />}
-            {expenseChange !== null && (
-              <div className="hint-box mt12">
-                {expenseChange > 0 ? `${expenseChange} % mehr` : `${-expenseChange} % weniger`} ausgegeben als
-                im {formatMonth(addMonthsToYearMonth(month, -1), true)} ({formatMoney(prev.expense)}).
+            {isCurrentMonth && (
+              <div className="mt12">
+                <Meter percent={Math.min(100, (forecast.elapsedDays / forecast.totalDays) * 100)} status="neutral" />
+                <div className="mt8">
+                  <Collapsible label="So wird gerechnet">
+                    <div className="small muted">
+                      {ampel.sentence} Bisher {formatMoney(forecast.actualExpense)} ausgegeben
+                      {forecast.plannedExpense > 0 && <>, {formatMoney(forecast.plannedExpense)} fest eingeplant</>}.
+                      Die Hochrechnung setzt den bisherigen Tagesschnitt fort und ergibt
+                      {' '}{formatMoney(forecast.projectedExpense)} Ausgaben bei {formatMoney(forecast.projectedIncome)} Einnahmen
+                      {forecast.expectedIncome > 0 && <> (davon {formatMoney(forecast.expectedIncome)}, die noch kommen)</>}.
+                      Eine Schätzung, keine Zusage.
+                    </div>
+                  </Collapsible>
+                </div>
               </div>
             )}
           </Card>
@@ -320,18 +233,105 @@ function Overview({ navigate, params }: { navigate: (r: string) => void; params:
       case 'budgets':
         if (budgets.length === 0) return null
         return (
-          <Card key={id} title="Budgets" action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/budgets')}>Alle →</button>}>
+          <Card key={id} title="Budgets" icon="finanzen" farbe={farbe}
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/budgets')}>Alle <Icon name="pfeil-rechts" size={14} /></button>}>
             {budgets.slice(0, 5).map((b) => (
               <div className="progress-row" key={b.budget.id}>
                 <div className="progress-head">
-                  <span className="dot" style={{ background: b.categoryColor ?? seriesColor(0) }} />
                   <span>{b.categoryName}</span>
-                  <StatusPill status={b.status}>{Math.round(b.usedPercent)} %</StatusPill>
+                  <span className={`budget-prozent ${b.status}`}>{Math.round(b.usedPercent)} %</span>
                   <span className="val">{formatMoney(b.spent)} / {formatMoney(b.limit)}</span>
                 </div>
-                <Meter percent={b.usedPercent} status={b.status === 'green' ? 'good' : b.status === 'amber' ? 'warning' : 'critical'} markerPercent={b.paceExpectedPercent} />
+                <Meter percent={b.usedPercent} status={b.status === 'green' ? 'neutral' : b.status === 'amber' ? 'warning' : 'critical'} markerPercent={b.paceExpectedPercent} />
               </div>
             ))}
+          </Card>
+        )
+
+      case 'chart_kategorie':
+        return (
+          <Card key={id} title="Ausgaben nach Kategorie" icon="finanzen" farbe={farbe}
+            sub={byCat.length ? `${formatMonth(month, true)} · ${formatMoney(totals.expense)}` : undefined}>
+            {byCat.length ? (
+              <ChartFrame title={`Ausgaben nach Kategorie · ${formatMonth(month)}`}
+                sub={`${formatMoney(totals.expense)} gesamt`}>
+                {({ gross }) => (
+                  <DonutChart
+                    slices={byCat.slice(0, gross ? 14 : 8).map((c, i) => ({ label: c.name, value: c.amount, color: c.color ?? seriesColor(i) }))}
+                    size={gross ? 240 : 150}
+                    thickness={gross ? 30 : 20}
+                    centerLabel="Ausgaben"
+                    centerValue={formatMoney(totals.expense, { compact: true })}
+                    maxLegend={gross ? 14 : 8}
+                    formatValue={(v) => formatMoney(v)}
+                  />
+                )}
+              </ChartFrame>
+            ) : <Empty kompakt title="Keine Ausgaben in diesem Monat." />}
+          </Card>
+        )
+
+      case 'verlauf':
+        return (
+          <Card key={id} title="Verlauf" icon="analysen" farbe={farbe}
+            action={<Segment label="Verlauf" value={verlauf} onChange={setVerlauf} options={[
+              { value: 'einaus', label: 'Ein/Aus' }, { value: 'sparen', label: 'Sparen' }, { value: 'vermoegen', label: 'Vermögen' },
+            ]} />}>
+            {verlauf === 'einaus' && (
+              <ChartFrame title="Einnahmen und Ausgaben" sub="je Monat">
+                {({ height }) => (
+                  <BarChart
+                    data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.income, s.expense] }))}
+                    seriesNames={['Einnahmen', 'Ausgaben']}
+                    height={height} formatValue={(v) => formatMoney(v)} formatAxis={formatMoneyAxis} />
+                )}
+              </ChartFrame>
+            )}
+            {verlauf === 'sparen' && (
+              <ChartFrame title="Sparbetrag je Monat" sub="Einnahmen minus Ausgaben">
+                {({ height }) => (
+                  <BarChart
+                    data={series.map((s) => ({ label: monthLabelShort(s.month), values: [s.savings] }))}
+                    seriesNames={['Sparbetrag']}
+                    height={height} formatValue={(v) => formatMoney(v)} formatAxis={formatMoneyAxis} />
+                )}
+              </ChartFrame>
+            )}
+            {verlauf === 'vermoegen' && (
+              <ChartFrame title="Vermögensentwicklung" sub="Stand am Monatsende">
+                {({ height }) => (
+                  <LineChart
+                    series={[{ name: 'Vermögen', points: worth.map((w) => ({ label: monthLabelShort(w.month), value: toEuro(w.value) })) }]}
+                    formatValue={(v) => formatMoney(Math.round(v * 100))}
+                    formatAxis={(v) => formatMoneyAxis(Math.round(v * 100))}
+                    height={height} />
+                )}
+              </ChartFrame>
+            )}
+          </Card>
+        )
+
+      case 'vermoegen':
+        return (
+          <Card key={id} title="Vermögen" icon="finanzen" farbe={farbe}
+            action={<button className="btn btn-sm btn-ghost" onClick={() => navigate('#/finanzen/konten')}>Konten <Icon name="pfeil-rechts" size={14} /></button>}>
+            <div className="kennzeilen">
+              <div className="kennzeile"><span className="kennzeile-name">Gesamt</span><span className="kennzeile-wert">{money(nw)}</span></div>
+              <div className="kennzeile"><span className="kennzeile-name">Verfügbar</span><span className="kennzeile-wert">{money(avail)}</span></div>
+              <div className="kennzeile"><span className="kennzeile-name">Rücklagen</span><span className="kennzeile-wert">{money(saved)}</span></div>
+            </div>
+          </Card>
+        )
+
+      case 'ausgaben_konto':
+        return (
+          <Card key={id} title="Ausgaben nach Konto" sub={formatMonth(month, true)} icon="finanzen" farbe={farbe}>
+            {byAcc.length
+              ? <RankBars items={byAcc.map((a) => ({
+                  label: a.name, value: a.amount,
+                  color: data.accounts.find((x) => x.id === a.accountId)?.color ?? undefined,
+                }))} formatValue={(v) => formatMoney(v)} />
+              : <Empty kompakt title="Keine Ausgaben." />}
           </Card>
         )
 
@@ -340,14 +340,22 @@ function Overview({ navigate, params }: { navigate: (r: string) => void; params:
     }
   }
 
+  const karten = layout.visibleCards.map((c) => ({ id: c.id, knoten: renderCard(c.id) })).filter((k) => k.knoten)
+  const breit = karten.filter((k) => k.id === 'monat')
+  const rest = karten.filter((k) => k.id !== 'monat')
+
   return (
-    <div className="col" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-        <div className="row">
-          <button className="btn btn-sm" onClick={() => setMonth(addMonthsToYearMonth(month, -1))}>←</button>
-          <strong style={{ minWidth: 130, textAlign: 'center' }}>{formatMonth(month)}</strong>
-          <button className="btn btn-sm" disabled={month >= monthOf(today)} onClick={() => setMonth(addMonthsToYearMonth(month, 1))}>→</button>
-          {!isCurrentMonth && <button className="btn btn-sm btn-ghost" onClick={() => setMonth(monthOf(today))}>Heute</button>}
+    <div className="stapel">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="btn btn-sm" onClick={() => setMonth(addMonthsToYearMonth(month, -1))} aria-label="Vormonat">
+            <Icon name="zurueck" size={16} />
+          </button>
+          <strong style={{ minWidth: 120, textAlign: 'center' }}>{formatMonth(month)}</strong>
+          <button className="btn btn-sm" disabled={month >= monthOf(today)} onClick={() => setMonth(addMonthsToYearMonth(month, 1))} aria-label="Folgemonat">
+            <Icon name="pfeil-rechts" size={16} />
+          </button>
+          {!isCurrentMonth && <button className="btn btn-sm btn-ghost" onClick={() => setMonth(monthOf(today))}>Aktueller Monat</button>}
         </div>
         <LayoutEditToggle editMode={layout.editMode} onToggle={() => layout.setEditMode(!layout.editMode)} />
       </div>
@@ -358,8 +366,9 @@ function Overview({ navigate, params }: { navigate: (r: string) => void; params:
           onReset={layout.resetLayout} />
       )}
 
-      <div className="grid grid-2">
-        {layout.visibleCards.map((c) => renderCard(c.id))}
+      {breit.map((k) => <React.Fragment key={k.id}>{k.knoten}</React.Fragment>)}
+      <div className="karten-spalten">
+        {rest.map((k) => <React.Fragment key={k.id}>{k.knoten}</React.Fragment>)}
       </div>
     </div>
   )
@@ -384,6 +393,8 @@ function TransactionsTab({ openQuickAdd, params }: { openQuickAdd: (kind?: any) 
   const [minAmount, setMinAmount] = useState<number | null>(() => (params.minAmount ? Number(params.minAmount) : null))
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [limit, setLimit] = useState(80)
+  const aktiveFilter = [type !== 'all', !!categoryId, !!accountId, !!from, !!to, minAmount !== null].filter(Boolean).length
+  const [filterOffen, setFilterOffen] = useState(aktiveFilter > 0)
 
   const accById = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts])
   const catById = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories])
@@ -413,9 +424,15 @@ function TransactionsTab({ openQuickAdd, params }: { openQuickAdd: (kind?: any) 
   return (
     <>
       <Card className="mb16">
-        <div className="row">
-          <input className="input" style={{ flex: '2 1 220px' }} placeholder="Suchen: Händler, Beschreibung, Notiz …"
+        <div className="row buchung-suche">
+          <input className="input" style={{ flex: '1 1 200px' }} placeholder="Suchen …" aria-label="Buchungen durchsuchen"
             value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button className={`btn${filterOffen ? ' btn-primary' : ''}`} onClick={() => setFilterOffen(!filterOffen)} aria-expanded={filterOffen}>
+            Filter{aktiveFilter > 0 ? ` (${aktiveFilter})` : ''}
+          </button>
+        </div>
+        {filterOffen && (
+        <div className="buchung-filter mt12">
           <select className="select" style={{ flex: '1 1 140px' }} value={type} onChange={(e) => setType(e.target.value as any)}>
             <option value="all">Alle Typen</option>
             <option value="expense">Ausgaben</option>
@@ -431,13 +448,12 @@ function TransactionsTab({ openQuickAdd, params }: { openQuickAdd: (kind?: any) 
             <option value="">Alle Konten</option>
             {data.accounts.filter((a) => !a.deleted_at).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-          <div className="row" style={{ gap: 6, flex: '0 1 auto' }}>
-            <span className="small muted">von</span>
-            <input className="input" style={{ width: 150 }} type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-            <span className="small muted">bis</span>
-            <input className="input" style={{ width: 150 }} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
+          <label className="field"><span className="field-label">von</span>
+            <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label className="field"><span className="field-label">bis</span>
+            <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         </div>
+        )}
         <div className="row mt8 small muted">
           <span>{filtered.length} Buchungen</span>
           <span>Saldo der Auswahl: <strong className="mono" style={{ color: 'var(--text)' }}>{formatMoney(sum, { sign: true })}</strong></span>
@@ -455,12 +471,17 @@ function TransactionsTab({ openQuickAdd, params }: { openQuickAdd: (kind?: any) 
       ) : (
         <Card className="pad0">
           <div className="list">
-            {filtered.slice(0, limit).map((t) => {
+            {filtered.slice(0, limit).map((t, i, liste) => {
               const cat = t.category_id ? catById.get(t.category_id) : null
               const acc = accById.get(t.account_id)
               const target = t.to_account_id ? accById.get(t.to_account_id) : null
+              // Eine Überschrift je Monat: Eine ungegliederte Kolonne von 134
+              // Zeilen lässt sich nur lesen, nicht überblicken.
+              const neuerMonat = i === 0 || liste[i - 1].booked_on.slice(0, 7) !== t.booked_on.slice(0, 7)
               return (
-                <button className="list-row" key={t.id} onClick={() => setEditing(t)}>
+                <React.Fragment key={t.id}>
+                {neuerMonat && <div className="liste-gruppe">{formatMonth(t.booked_on.slice(0, 7))}</div>}
+                <button className="list-row" onClick={() => setEditing(t)}>
                   <span className="avatar" style={{ background: (cat?.color ?? 'var(--surface-3)') + '', color: '#fff' }}>
                     {t.type === 'transfer' ? '🔁' : cat?.icon ?? (t.type === 'income' ? '💰' : '💸')}
                   </span>
@@ -479,6 +500,7 @@ function TransactionsTab({ openQuickAdd, params }: { openQuickAdd: (kind?: any) 
                     {t.type === 'income' ? '+' : t.type === 'expense' ? '−' : ''}{formatMoney(t.amount_cents).replace('-', '')}
                   </span>
                 </button>
+                </React.Fragment>
               )
             })}
           </div>
@@ -867,7 +889,7 @@ function BudgetsTab() {
                   <StatusPill status={b.status}>{Math.round(b.usedPercent)} %</StatusPill>
                   <span className="val">{formatMoney(b.spent)} / {formatMoney(b.limit)}</span>
                 </div>
-                <Meter percent={b.usedPercent} status={b.status === 'green' ? 'good' : b.status === 'amber' ? 'warning' : 'critical'} markerPercent={b.paceExpectedPercent} />
+                <Meter percent={b.usedPercent} status={b.status === 'green' ? 'neutral' : b.status === 'amber' ? 'warning' : 'critical'} markerPercent={b.paceExpectedPercent} />
                 <div className="small muted">
                   {b.remaining >= 0
                     ? `Noch ${formatMoney(b.remaining)} für ${b.daysLeft} Tage`
