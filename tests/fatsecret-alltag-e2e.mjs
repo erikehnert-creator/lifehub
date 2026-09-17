@@ -229,7 +229,9 @@ async function wertAufErnaehrungsseite(p, tag, beschriftung) {
   const heuteStr = ortsdatum()
   let schritte = Math.round((Date.parse(heuteStr) - Date.parse(tag)) / 86400000)
   while (schritte-- > 0) {
-    await p.locator('button', { hasText: '←' }).first().click()
+    // Der Zurück-Knopf trägt seit dem UI-Umbau ein Symbol statt „←"; gesucht
+    // wird deshalb die Beschriftung, nicht das Zeichen.
+    await p.locator('button[aria-label="Vortag"]').first().click()
     await p.waitForTimeout(250)
   }
   await p.waitForTimeout(500)

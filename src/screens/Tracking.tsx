@@ -16,6 +16,7 @@ import {
 import { formatNumber } from '../core/money'
 import { ErnaehrungsTag } from './Ernaehrung'
 import { MetricInput } from '../ui/metricInput'
+import { Icon, BEREICH_FARBE, type IconName } from '../ui/icons'
 import type { FoodEntry, Metric, MetricEntry, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
 
 /** Wertebereich mit Einheit einmal am Ende, z. B. "18,0–22,0 kg" bzw. für Schlaf "7:00–8:00". */
@@ -32,12 +33,17 @@ const GROUP_LABELS: Record<string, string> = {
   wellbeing: 'Befinden',
 }
 
-/** Ruhetage sind bewusst geplant – sie sehen anders aus als ausgefallene Einheiten. */
-function sessionIcon(status: string) {
-  if (status === 'completed') return '✅'
-  if (status === 'skipped') return '⏭️'
-  if (status === 'rest') return '😴'
-  return '📅'
+/**
+ * Ruhetage sind bewusst geplant – sie sehen anders aus als ausgefallene
+ * Einheiten. Als Liniensymbol, damit die Zeile nicht bunt wird: Der Zustand
+ * steht ohnehin im Text daneben.
+ */
+function SessionIcon({ status }: { status: string }) {
+  const name: IconName = status === 'completed' ? 'plan'
+    : status === 'rest' ? 'schlaf'
+    : status === 'skipped' ? 'schliessen'
+    : 'kalender'
+  return <span className="avatar"><Icon name={name} size={17} /></span>
 }
 function sessionZusatz(status: string) {
   if (status === 'skipped') return ' · ausgefallen'
@@ -58,7 +64,6 @@ export function TrackingScreen({ sub, navigate }: { sub: string; navigate: (r: s
       <div className="page-head">
         <div>
           <div className="page-title">Tracking</div>
-          <div className="page-sub">Ernährung, Schlaf, Befinden, Training und Körperdaten</div>
         </div>
       </div>
       <Tabs tabs={tabs} active={sub} onChange={(k) => navigate(`#/tracking${k ? '/' + k : ''}`)} />
@@ -93,16 +98,22 @@ function DailyEntry() {
   }, [metrics])
 
   const filled = metrics.filter((metric) => dayValue(data.metricEntries, metric, day) !== null).length
+  const befindenGruppen = groups.filter(([k]) => k === 'sleep' || k === 'wellbeing')
+  const uebrigeGruppen = groups.filter(([k]) => k !== 'sleep' && k !== 'wellbeing')
 
   return (
-    <>
-      <div className="row mb16">
-        <button className="btn btn-sm" onClick={() => setDay(addDays(day, -1))}>←</button>
-        <strong style={{ minWidth: 200, textAlign: 'center' }}>{formatDay(day, 'long')}</strong>
-        <button className="btn btn-sm" disabled={day >= todayString()} onClick={() => setDay(addDays(day, 1))}>→</button>
+    <div className="stapel">
+      <div className="row tag-leiste">
+        <button className="btn btn-sm" onClick={() => setDay(addDays(day, -1))} aria-label="Vortag">
+          <Icon name="zurueck" size={16} />
+        </button>
+        <strong style={{ minWidth: 170, textAlign: 'center' }}>{formatDay(day, 'long')}</strong>
+        <button className="btn btn-sm" disabled={day >= todayString()} onClick={() => setDay(addDays(day, 1))} aria-label="Folgetag">
+          <Icon name="pfeil-rechts" size={16} />
+        </button>
         {day !== todayString() && <button className="btn btn-sm btn-ghost" onClick={() => setDay(todayString())}>Heute</button>}
         <span style={{ flex: 1 }} />
-        <span className="small muted">{filled} von {metrics.length} Werten erfasst</span>
+        <span className="small muted">{filled} von {metrics.length} Werten</span>
         <button className="btn btn-sm" onClick={() => {
           // Werte von gestern übernehmen – schneller als alles neu tippen
           const yesterday = addDays(day, -1)
@@ -129,18 +140,28 @@ function DailyEntry() {
       */}
       <ErnaehrungsTag day={day} />
 
-      <div className="grid grid-2">
-        {groups.map(([groupKey, list]) => (
-          <Card key={groupKey} title={GROUP_LABELS[groupKey] ?? groupKey}>
+      {/* Schlaf und Befinden gehören zusammen: beides beantwortet „wie geht's
+          mir heute" und war vorher auf zwei Karten verteilt. */}
+      <div className="karten-spalten">
+        {befindenGruppen.length > 0 && (
+          <Card title="Wie geht’s?" icon="schlaf" farbe={BEREICH_FARBE.tracking}>
+            {befindenGruppen.map(([groupKey, list]) => (
+              <React.Fragment key={groupKey}>
+                {list.map((metric) => <MetricInput key={metric.id} metric={metric} day={day} />)}
+                {groupKey === 'wellbeing' && <SkinNote day={day} />}
+              </React.Fragment>
+            ))}
+          </Card>
+        )}
+        {uebrigeGruppen.map(([groupKey, list]) => (
+          <Card key={groupKey} title={GROUP_LABELS[groupKey] ?? groupKey} icon="gewicht" farbe={BEREICH_FARBE.tracking}>
             {list.map((metric) => <MetricInput key={metric.id} metric={metric} day={day} />)}
-            {groupKey === 'wellbeing' && <SkinNote day={day} />}
           </Card>
         ))}
         <ActivityCard day={day} />
+        <DayNoteCard day={day} />
       </div>
-
-      <DayNoteCard day={day} />
-    </>
+    </div>
   )
 }
 
@@ -166,13 +187,17 @@ function DayNoteCard({ day }: { day: string }) {
     else m.create('day_notes', { day, note: value })
   }
 
+  const vorhanden = (entry?.note ?? '').trim()
   return (
-    <Card className="mb16" title="Tagesnotiz" sub="Was an diesem Tag sonst noch wichtig war.">
+    <Card title="Tagesnotiz" icon="bearbeiten">
+      {!vorhanden && <Empty kompakt title="Keine Notiz für diesen Tag." />}
+      <Collapsible label={vorhanden ? 'Notiz bearbeiten' : 'Notiz schreiben'} defaultOpen={!!vorhanden}>
       <textarea className="textarea" style={{ minHeight: 60 }}
         placeholder="z. B. Mopedsturz, Schwierigkeiten beim Auftreten mit rechtem Fuß + Schürfwunde am rechten Knie"
         value={draft ?? entry?.note ?? ''}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={(e) => commit(e.target.value)} />
+      </Collapsible>
     </Card>
   )
 }
@@ -211,13 +236,14 @@ function ActivityCard({ day }: { day: string }) {
   }
 
   return (
-    <Card title="Aktivität" sub="Was hast du heute gemacht?">
+    <Card title="Aktivität" icon="training" farbe={BEREICH_FARBE.tracking}>
+      {sessions.length === 0 && <Empty kompakt title="Noch nichts erfasst." />}
       {sessions.length > 0 && (
         <div className="list mb16">
           {sessions.map((s) => (
             <div key={s.id}>
               <div className="list-row" style={{ paddingLeft: 0, paddingRight: 0 }}>
-                <span className="avatar">{sessionIcon(s.status)}</span>
+                <SessionIcon status={s.status} />
                 <span className="list-main">
                   <span className="list-title">{s.title}</span>
                   <span className="list-sub">
@@ -228,9 +254,9 @@ function ActivityCard({ day }: { day: string }) {
                 </span>
                 <button className="btn btn-sm btn-ghost" title="Notiz"
                   onClick={() => { setEditingNote(editingNote === s.id ? null : s.id); setNoteDraft(s.note ?? '') }}>
-                  {s.note ? '📝' : '＋📝'}
+                  <Icon name="bearbeiten" size={15} />
                 </button>
-                <button className="btn btn-sm btn-ghost" onClick={() => m.remove('workout_sessions', s.id, 'Entfernt')}>✕</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => m.remove('workout_sessions', s.id, 'Entfernt')} aria-label="Aktivität entfernen"><Icon name="schliessen" size={15} /></button>
               </div>
               {editingNote === s.id && (
                 <div style={{ padding: '0 0 12px' }}>
@@ -250,25 +276,30 @@ function ActivityCard({ day }: { day: string }) {
           ))}
         </div>
       )}
-      <Field label="Neue Aktivität">
-        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)}
-          placeholder="z. B. Turntraining"
-          onKeyDown={(e) => { if (e.key === 'Enter') add(title) }} />
-      </Field>
-      <div className="chips mt8">
-        {ACTIVITY_SUGGESTIONS.map((a) => (
-          <button key={a} className="chip sm" onClick={() => add(a)}>{a}</button>
-        ))}
-      </div>
-      <div className="mt12">
-        <Field label="Dauer"><DurationInput minutes={minutes} onChange={setMinutes} /></Field>
-      </div>
-      <Field label="Notiz" hint="Was genau war es? Übungen, Strecke, Gefühl.">
-        <textarea className="textarea" style={{ minHeight: 56 }} value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="z. B. Turnen: Handstand, Ringe, danach Bauch" />
-      </Field>
-      <button className="btn btn-primary mt12" disabled={!title.trim()} onClick={() => add(title)}>Hinzufügen</button>
+      {/* Das Formular mit zehn Vorschlägen stand immer offen und war damit der
+          größte Block der Seite – für etwas, das man an manchen Tagen gar nicht
+          braucht. */}
+      <Collapsible label="Aktivität erfassen">
+        <div className="formular">
+          <Field label="Was?">
+            <input className="input" value={title} onChange={(e) => setTitle(e.target.value)}
+              placeholder="z. B. Turntraining"
+              onKeyDown={(e) => { if (e.key === 'Enter') add(title) }} />
+          </Field>
+          <div className="chips">
+            {ACTIVITY_SUGGESTIONS.map((a) => (
+              <button key={a} className="chip sm" onClick={() => add(a)}>{a}</button>
+            ))}
+          </div>
+          <Field label="Dauer"><DurationInput minutes={minutes} onChange={setMinutes} /></Field>
+          <Field label="Notiz" hint="Übungen, Strecke, Gefühl.">
+            <textarea className="textarea" style={{ minHeight: 56 }} value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="z. B. Turnen: Handstand, Ringe, danach Bauch" />
+          </Field>
+          <button className="btn btn-primary" disabled={!title.trim()} onClick={() => add(title)}>Hinzufügen</button>
+        </div>
+      </Collapsible>
     </Card>
   )
 }
@@ -435,7 +466,7 @@ function TrainingView() {
           <div className="list">
             {sessions.slice(0, 40).map((s) => (
               <button className="list-row" key={s.id} onClick={() => setEditing(s)} style={{ paddingLeft: 0, paddingRight: 0 }}>
-                <span className="avatar">{sessionIcon(s.status)}</span>
+                <SessionIcon status={s.status} />
                 <span className="list-main">
                   <span className="list-title">{s.title}</span>
                   <span className="list-sub">
@@ -535,7 +566,7 @@ function PlanEditor({ plan, onClose }: { plan: any | null; onClose: () => void }
               <strong>{['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d.weekday]}</strong>
               <span style={{ flex: 1 }}>{d.title}</span>
               {d.frequency === 'biweekly' && <span className="pill">alle 2 Wochen</span>}
-              <button className="btn btn-sm btn-ghost" onClick={() => m.remove('workout_plan_days', d.id, 'Entfernt')}>✕</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => m.remove('workout_plan_days', d.id, 'Entfernt')} aria-label="Tag entfernen"><Icon name="schliessen" size={15} /></button>
             </div>
           ))}
 

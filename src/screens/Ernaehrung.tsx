@@ -29,6 +29,9 @@ import { Card, Collapsible, Empty } from '../ui/components'
 import { MetricInput } from '../ui/metricInput'
 import { useData, useMutations } from '../state/store'
 import { dayValue, evaluateZone, targetFor, type Zone } from '../core/metrics'
+import { todayString } from '../core/dates'
+import { darfBewerten, fortschrittProzent } from '../core/tagesfortschritt'
+import { Icon, BEREICH_FARBE } from '../ui/icons'
 import { formatNumber } from '../core/money'
 import { NAEHRWERTE, WICHTIGE_NAEHRWERTE } from '../core/naehrwerte'
 import type { Metric } from '../core/types'
@@ -68,6 +71,18 @@ const ZONENFARBE: Record<string, string> = {
 }
 
 /**
+ * Welche Farbe der Balken einer Tageskachel trägt.
+ *
+ * Tagsüber die Bereichsfarbe: 400 kcal um neun Uhr sind Fortschritt, kein
+ * Fehler. Erst wenn der Tag bewertbar ist (core/tagesfortschritt), kommt die
+ * Statusfarbe des Zielbereichs.
+ */
+function balkenFarbe(metric: Metric, day: string, zone: Zone, heute: string, stunde: number): string {
+  if (!darfBewerten(metric.aggregation, day, heute, stunde)) return 'var(--bereich-tracking)'
+  return ZONENFARBE[zone.status]
+}
+
+/**
  * Ein Tageswert als Kachel: Zahl groß, Ziel klein, Balken in der Zonenfarbe.
  *
  * Bewusst ohne Eingabefeld. Ein Feld sieht aus wie Arbeit; hier steht aber in
@@ -76,10 +91,13 @@ const ZONENFARBE: Record<string, string> = {
  */
 function Wertkachel({ metric, day }: { metric: Metric; day: string }) {
   const data = useData()
+  const heute = todayString()
+  const stunde = new Date().getHours()
   const wert = dayValue(data.metricEntries, metric, day)
   const target = targetFor(data.metricTargets, metric.id, day)
   const zone = evaluateZone(wert, target)
-  const farbe = ZONENFARBE[zone.status]
+  const bewertet = darfBewerten(metric.aggregation, day, heute, stunde)
+  const prozent = fortschrittProzent(wert, target?.target_value)
 
   return (
     <div className="wert-kachel">
@@ -88,12 +106,17 @@ function Wertkachel({ metric, day }: { metric: Metric; day: string }) {
         {wert === null ? <span className="muted">–</span> : formatNumber(wert, metric.decimals)}
         <span className="wert-kachel-einheit">{metric.unit}</span>
       </div>
-      <div className="meter" title={zone.label}>
-        <span className="meter-fill" style={{ width: `${anteil(wert, zone) * 100}%`, background: farbe }} />
+      <div className="meter" title={bewertet ? zone.label : 'Fortschritt zum Tagesziel'}>
+        <span className="meter-fill" style={{
+          width: `${(bewertet ? anteil(wert, zone) : Math.min(1, (prozent ?? 0) / 100)) * 100}%`,
+          background: balkenFarbe(metric, day, zone, heute, stunde),
+        }} />
       </div>
       <div className="wert-kachel-ziel">
         {target?.target_value
-          ? `Ziel ${formatNumber(target.target_value, metric.decimals)} ${metric.unit}`
+          ? (prozent !== null
+            ? `${prozent} % von ${formatNumber(target.target_value, metric.decimals)} ${metric.unit}`
+            : `Ziel ${formatNumber(target.target_value, metric.decimals)} ${metric.unit}`)
           : ' '}
       </div>
     </div>
@@ -145,14 +168,13 @@ function Wasserkachel({ metric, day }: { metric: Metric; day: string }) {
         machten die ganze Kachelreihe höher. „¼ l" und „½ l" sagen dasselbe
         und passen nebeneinander.
       */}
-      <div className="row" style={{ gap: 6, marginTop: 7 }}>
-        <button className="btn btn-sm" style={{ flex: 1 }} title="Ein Glas (0,25 l)"
-          onClick={() => dazu(0.25)}>+¼ l</button>
-        <button className="btn btn-sm" style={{ flex: 1 }} title="Eine Flasche (0,5 l)"
-          onClick={() => dazu(0.5)}>+½ l</button>
+      {/* nowrap: Sobald „−" daneben stand, brach „+¼ l" in „+¼" und „l" um. */}
+      <div className="wasser-knoepfe">
+        <button className="btn btn-sm" title="Ein Glas (0,25 l)" onClick={() => dazu(0.25)}>+¼ l</button>
+        <button className="btn btn-sm" title="Eine Flasche (0,5 l)" onClick={() => dazu(0.5)}>+½ l</button>
         {wert !== null && (
           <button className="btn btn-sm btn-ghost" title="Ein Glas zurücknehmen"
-            onClick={() => dazu(-0.25)}>−</button>
+            onClick={() => dazu(-0.25)} aria-label="Ein Glas zurücknehmen">−</button>
         )}
       </div>
     </div>
@@ -213,8 +235,8 @@ export function ErnaehrungsTag({ day }: { day: string }) {
 
   return (
     <>
-      <Card className="mb16" title="Ernährung"
-        sub={eintraege.length ? `${eintraege.length} Einträge aus FatSecret` : undefined}>
+      <Card className="mb16" title="Ernährung" icon="ernaehrung" farbe={BEREICH_FARBE.tracking}
+        sub={<FatSecretZeile anzahl={eintraege.length} />}>
         <TageswertKacheln day={day} />
 
         {weitere.length > 0 && (
@@ -241,6 +263,28 @@ export function ErnaehrungsTag({ day }: { day: string }) {
       <Mahlzeiten day={day} eintraege={eintraege} />
     </>
   )
+}
+
+/**
+ * Woher die Zahlen kommen – eine Zeile, kein Abschnitt.
+ *
+ * Vorher stand hier „1 Einträge aus FatSecret" (falsche Mehrzahl) und sonst
+ * nichts: Wann zuletzt abgeglichen wurde, war auf der Seite nicht zu sehen.
+ * Gelesen wird der mitsynchronisierte Importstand, es wird nichts abgefragt.
+ */
+function FatSecretZeile({ anzahl }: { anzahl: number }) {
+  const data = useData()
+  const stand = data.settings.fatsecret_import ?? null
+  const zuletzt = stand?.zuletzt ? new Date(stand.zuletzt) : null
+  const uhr = zuletzt
+    ? `${String(zuletzt.getHours()).padStart(2, '0')}:${String(zuletzt.getMinutes()).padStart(2, '0')}`
+    : null
+  const teile = [
+    anzahl === 0 ? null : anzahl === 1 ? '1 Eintrag' : `${anzahl} Einträge`,
+    uhr ? `FatSecret · abgeglichen ${uhr}` : null,
+  ].filter(Boolean)
+  if (!teile.length) return null
+  return <>{teile.join(' · ')}</>
 }
 
 /**
@@ -276,9 +320,9 @@ function Mahlzeiten({ day, eintraege }: { day: string; eintraege: any[] }) {
 
   if (eintraege.length === 0) {
     return (
-      <Card className="mb16" title="Gegessen">
-        <Empty icon="🥗" title="Für diesen Tag liegt nichts vor"
-          hint="Sobald FatSecret verbunden ist und der Tag dort Einträge hat, stehen sie hier." />
+      <Card className="mb16" title="Gegessen" icon="ernaehrung" farbe={BEREICH_FARBE.tracking}>
+        <Empty kompakt title="Für diesen Tag liegt nichts vor."
+          hint="Sobald FatSecret den Tag hat, stehen die Lebensmittel hier." />
       </Card>
     )
   }
@@ -286,8 +330,8 @@ function Mahlzeiten({ day, eintraege }: { day: string; eintraege: any[] }) {
   const kcalGesamt = eintraege.reduce((a, b) => a + (b.calories ?? 0), 0)
 
   return (
-    <Card className="mb16" title="Gegessen"
-      sub={`${eintraege.length} Einträge · ${Math.round(kcalGesamt)} kcal`}
+    <Card className="mb16" title="Gegessen" icon="ernaehrung" farbe={BEREICH_FARBE.tracking}
+      sub={`${eintraege.length === 1 ? '1 Eintrag' : `${eintraege.length} Einträge`} · ${Math.round(kcalGesamt)} kcal`}
       action={
         <button className="btn btn-sm btn-ghost" onClick={() => setAlleWerte((v) => !v)}>
           {alleWerte ? 'weniger' : 'mehr Details'}
@@ -300,7 +344,7 @@ function Mahlzeiten({ day, eintraege }: { day: string; eintraege: any[] }) {
         return (
           <div key={mz.key} className="mb12">
             <div className="row small" style={{ fontWeight: 650, marginBottom: 4 }}>
-              <span>{mz.icon} {mz.label}</span>
+              <span>{mz.label}</span>
               <span style={{ flex: 1 }} />
               <span className="muted">{Math.round(kcal)} kcal</span>
             </div>
