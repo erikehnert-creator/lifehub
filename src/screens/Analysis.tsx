@@ -7,12 +7,11 @@
  */
 import React, { useMemo, useState } from 'react'
 import { Card, Stat, Tabs, Segment, Empty, Collapsible, StatusPill } from '../ui/components'
-import { ohneLeerenAnfang } from './Finance'
 import { LineChart, BarChart, YearHeatmap, RankBars, seriesColor } from '../charts'
 import { useData } from '../state/store'
 import {
   monthTotals, monthTotalsErwartet, monthlySeries, netWorthSeries, totalsByCategory, accountBalances, formatSavingsRate,
-  expectedIncomeRest, forecastMonth, forecastStatus,
+  expectedIncomeRest, forecastMonth, forecastStatus, ohneLeerenAnfang,
 } from '../core/finance'
 import { dailySeries, correlation, correlationLabel, aggregate, groupSeries, formatMetricValue } from '../core/metrics'
 import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'

@@ -834,3 +834,12 @@ export function netWorthSeries(
     return { month: m, value: netWorth(accounts, balances) }
   })
 }
+
+/**
+ * Leere Monate am Anfang eines Verlaufs weglassen – sie zeigen nur, dass es
+ * noch keine Daten gab, und stauchen den Rest der Kurve zusammen.
+ */
+export function ohneLeerenAnfang<T>(reihe: T[], leer: (x: T) => boolean): T[] {
+  const erster = reihe.findIndex((x) => !leer(x))
+  return erster <= 0 ? reihe : reihe.slice(erster)
+}
