@@ -3,10 +3,10 @@
  * in einem Durchgang.
  */
 import React, { useMemo, useState } from 'react'
-import { Card, Empty, Chips } from '../ui/components'
+import { Card, Empty } from '../ui/components'
 import { useData } from '../state/store'
 import { formatMoney } from '../core/money'
-import { formatDay, relativeDay } from '../core/dates'
+import { formatDay, relativeDay, formatMonth } from '../core/dates'
 
 type Hit = {
   kind: string
@@ -56,7 +56,7 @@ export function SearchScreen({ navigate }: { navigate: (r: string) => void }) {
           kind: 'Aufgabe', icon: t.status === 'done' ? '✅' : '⬜',
           title: t.title,
           sub: t.scheduled_on ? relativeDay(t.scheduled_on) : t.bucket === 'inbox' ? 'Inbox' : 'ohne Datum',
-          route: '#/plan/alle', day: t.scheduled_on ?? t.created_at.slice(0, 10),
+          route: '#/plan/aufgaben', day: t.scheduled_on ?? t.created_at.slice(0, 10),
         })
       }
     }
@@ -68,7 +68,7 @@ export function SearchScreen({ navigate }: { navigate: (r: string) => void }) {
         out.push({
           kind: 'Termin', icon: '📅', title: e.title,
           sub: `${formatDay(e.day)}${e.start_time ? ` · ${e.start_time}` : ''}${e.location ? ` · ${e.location}` : ''}`,
-          route: '#/plan/monat', day: e.day,
+          route: '#/plan/kalender', day: e.day,
         })
       }
     }
@@ -89,8 +89,39 @@ export function SearchScreen({ navigate }: { navigate: (r: string) => void }) {
       }
     }
 
-    return out.sort((a, b) => (a.day < b.day ? 1 : -1)).slice(0, 200)
+    return out.sort((a, b) => ((a.day ?? '') < (b.day ?? '') ? 1 : -1)).slice(0, 200)
   }, [query, scope, data, catById, accById])
+
+  /**
+   * Zweihundert Treffer als eine Kolonne kann man lesen, aber nicht
+   * überblicken – und die Suche beantwortet fast immer eine Frage mit einem
+   * Zeitbezug („wann habe ich das gekauft?"). Weil die Treffer ohnehin nach
+   * Datum sortiert sind, kostet eine Überschrift je Monat nichts und gibt
+   * der Liste einen Maßstab. Dieselbe Gliederung wie in den Buchungen.
+   */
+  const monate = useMemo(() => {
+    const gruppen: { monat: string; titel: string; treffer: Hit[] }[] = []
+    for (const h of hits) {
+      // Ein Ziel ohne Startdatum hat kein Datum – es landet unter „ohne Datum",
+      // statt die Gruppierung zu sprengen.
+      const m = (h.day ?? '').slice(0, 7)
+      const letzte = gruppen[gruppen.length - 1]
+      if (letzte && letzte.monat === m) letzte.treffer.push(h)
+      else gruppen.push({ monat: m, titel: m ? formatMonth(m) : 'Ohne Datum', treffer: [h] })
+    }
+    return gruppen
+  }, [hits])
+
+  /**
+   * Wie viele Treffer in welchem Bereich liegen – damit man sieht, dass es
+   * unter „Aufgaben" noch etwas gibt, statt es unter „Alles" zu übersehen.
+   * Gezählt wird immer über den gesamten Bestand, nicht über die Auswahl.
+   */
+  const proBereich = useMemo(() => {
+    const zaehler: Record<string, number> = {}
+    for (const h of hits) zaehler[h.kind] = (zaehler[h.kind] ?? 0) + 1
+    return zaehler
+  }, [hits])
 
   return (
     <div className="page">
@@ -121,17 +152,29 @@ export function SearchScreen({ navigate }: { navigate: (r: string) => void }) {
       ) : hits.length === 0 ? (
         <Empty icon="🤷" title="Nichts gefunden" hint={`Kein Treffer für „${query}“.`} />
       ) : (
-        <Card title={`${hits.length} Treffer`} className="pad0">
+        <Card title={`${hits.length} Treffer`}
+          sub={scope === 'all'
+            ? Object.entries(proBereich).map(([k, n]) => `${n}× ${k}`).join(' · ')
+            : undefined}
+          className="pad0">
           <div className="list">
-            {hits.map((h, i) => (
-              <button className="list-row" key={i} onClick={() => navigate(h.route)}>
-                <span className="avatar">{h.icon}</span>
-                <span className="list-main">
-                  <span className="list-title">{h.title}</span>
-                  <span className="list-sub">{h.kind}{h.sub ? ` · ${h.sub}` : ''}</span>
-                </span>
-                {h.amount && <span className="list-amount">{h.amount}</span>}
-              </button>
+            {monate.map((g) => (
+              <React.Fragment key={g.monat}>
+                <div className="liste-gruppe">
+                  {g.titel}
+                  <span className="muted"> · {g.treffer.length}</span>
+                </div>
+                {g.treffer.map((h, i) => (
+                  <button className="list-row" key={`${g.monat}-${i}`} onClick={() => navigate(h.route)}>
+                    <span className="avatar">{h.icon}</span>
+                    <span className="list-main">
+                      <span className="list-title">{h.title}</span>
+                      <span className="list-sub">{h.kind}{h.sub ? ` · ${h.sub}` : ''}</span>
+                    </span>
+                    {h.amount && <span className="list-amount">{h.amount}</span>}
+                  </button>
+                ))}
+              </React.Fragment>
             ))}
           </div>
         </Card>
