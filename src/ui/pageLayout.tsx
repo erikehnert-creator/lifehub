@@ -13,17 +13,29 @@
 import React, { useState } from 'react'
 import { useData, useMutations } from '../state/store'
 import {
-  resolveLayout, toggleCardVisible, moveCard,
-  type LayoutCardDef, type ResolvedLayoutCard,
+  resolveLayout, toggleCardVisible, moveCard, migriereLayout,
+  type LayoutCardDef, type ResolvedLayoutCard, type LayoutUmzug,
 } from '../core/layout'
 
-export function usePageLayout(pageId: string, defs: LayoutCardDef[]) {
+/**
+ * `umzug` gibt an, dass diese Seite früher unter einer anderen Kennung mit
+ * anders geschnittenen Karten lief. Liegt für die neue Kennung noch nichts
+ * vor, wird die alte Einstellung umgerechnet und als Ausgangslage benutzt.
+ *
+ * Geschrieben wird dabei nichts: Die alte Einstellung bleibt unangetastet
+ * stehen (falls die Umrechnung einmal danebenliegt, ist sie nicht verloren),
+ * und erst die nächste Änderung des Nutzers legt die neue Einstellung an –
+ * dann bereits auf Grundlage der umgerechneten. Ein Schreibvorgang während
+ * des Renderns wäre hier sonst kaum vermeidbar gewesen.
+ */
+export function usePageLayout(pageId: string, defs: LayoutCardDef[], umzug?: LayoutUmzug) {
   const data = useData()
   const m = useMutations()
   const [editMode, setEditMode] = useState(false)
 
   const allPrefs = data.settings.layout_prefs ?? {}
-  const pref = allPrefs[pageId] ?? null
+  const pref = allPrefs[pageId]
+    ?? (umzug ? migriereLayout(allPrefs[umzug.von], umzug.karten) : null)
   const allCards = resolveLayout(defs, pref)
   const visibleCards = allCards.filter((c) => c.visible)
 

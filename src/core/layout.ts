@@ -115,3 +115,51 @@ export function moveCard(
   const full = normalizedPref(defs, pref)
   return { order: moveInOrder(full.order, id, direction), hidden: full.hidden }
 }
+
+/**
+ * Beschreibt, woher eine neu geschnittene Seite ihre alte Einstellung holt.
+ *
+ * `karten` bildet alte Karten-IDs auf neue ab. Mehrere alte dürfen auf
+ * dieselbe neue zeigen (zwei Karten wurden zu einer zusammengelegt); eine
+ * alte ID ohne Eintrag verfällt (die Karte gibt es nicht mehr).
+ */
+export interface LayoutUmzug {
+  von: string
+  karten: Record<string, string>
+}
+
+/**
+ * Rechnet eine Einstellung der alten Seite in die neue um.
+ *
+ * Zwei Regeln, beide darauf ausgelegt, im Zweifel nichts wegzunehmen:
+ *
+ * - Reihenfolge: alte IDs werden übersetzt, Unbekanntes fällt weg, Dubletten
+ *   behalten ihr erstes Vorkommen. Wer „Prognose" nach oben gezogen hatte,
+ *   findet „Dieser Monat" oben wieder.
+ * - Sichtbarkeit: eine neue Karte gilt nur dann als ausgeblendet, wenn ALLE
+ *   alten Karten, die in ihr aufgegangen sind, ausgeblendet waren. Sonst
+ *   verschwände beim Zusammenlegen zweier Karten der sichtbare Teil mit.
+ *
+ * Gibt `null` zurück, wenn es nichts zu übernehmen gibt – dann greift die
+ * Standardanordnung der neuen Seite.
+ */
+export function migriereLayout(
+  alt: LayoutPref | null | undefined,
+  karten: Record<string, string>,
+): LayoutPref | null {
+  if (!alt || !alt.order?.length) return null
+  const versteckt = new Set(alt.hidden ?? [])
+  const order: string[] = []
+  const gesehen = new Set<string>()
+  /** Je neuer Karte: war mindestens eine ihrer Quellen sichtbar? */
+  const sichtbar = new Map<string, boolean>()
+
+  for (const alteId of alt.order) {
+    const neu = karten[alteId]
+    if (!neu) continue
+    if (!gesehen.has(neu)) { gesehen.add(neu); order.push(neu) }
+    sichtbar.set(neu, (sichtbar.get(neu) ?? false) || !versteckt.has(alteId))
+  }
+  if (!order.length) return null
+  return { order, hidden: order.filter((id) => !sichtbar.get(id)) }
+}

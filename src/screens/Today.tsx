@@ -61,6 +61,29 @@ const CARD_DEFS: LayoutCardDef[] = [
   { id: 'ziele', title: 'Ziele', defaultVisible: false },
 ]
 
+/**
+ * Die alte Heute-Seite hatte dreizehn feiner geschnittene Karten. „Ernährung"
+ * und „Schlaf & Gewicht" sind heute eine Karte, „Termine" ist als Band aus
+ * den sortierbaren Karten herausgewandert und deshalb ohne Nachfolger.
+ */
+const HEUTE_UMZUG = {
+  von: 'heute',
+  karten: {
+    aufgaben: 'aufgaben',
+    dein_tag: 'tag',
+    training: 'training',
+    ernaehrung: 'gesundheit',
+    schlaf_gewicht: 'gesundheit',
+    finanzen_kurz: 'geld',
+    hinweise: 'hinweise',
+    budgets: 'budgets',
+    kommende_zahlungen: 'kommende_zahlungen',
+    finanzen_konten: 'finanzen_konten',
+    finanztag_checkliste: 'finanztag_checkliste',
+    ziele: 'ziele',
+  },
+}
+
 export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) => void; openQuickAdd: (kind?: any) => void }) {
   const data = useData()
   const m = useMutations()
@@ -136,7 +159,7 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
   }, [data.recurring, today])
 
   const activeGoals = data.goals.filter((g) => !g.deleted_at && g.status === 'active')
-  const layout = usePageLayout('heute2', CARD_DEFS)
+  const layout = usePageLayout('heute2', CARD_DEFS, HEUTE_UMZUG)
 
   const [detailTask, setDetailTask] = useState<Task | null>(null)
   const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null)
