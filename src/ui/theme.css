@@ -124,61 +124,73 @@
 
 /* ------------------------------------------------------ Kategoriefarben
    24 Farben für die Ausgabenkategorien. Die Farbtöne liegen im Goldenen
-   Winkel auseinander, dazu wechseln drei Helligkeitsstufen. Dadurch liegen
-   benachbarte Nummern weit auseinander – acht Kategorien nebeneinander
-   im Diagramm sind sicher unterscheidbar.
-   Hell und Dunkel haben eigene, jeweils auf Kontrast geprüfte Werte.     */
+   Winkel auseinander: benachbarte NUMMERN sind dadurch sicher zu trennen.
+
+   Im Ring stehen die Segmente aber nach Betrag sortiert, nicht nach Nummer –
+   dort kann jedes Paar nebeneinander landen. Gemessen (OKLab ΔE) war der
+   schlechteste Fall vorher 2,7: zwei der Grüntöne waren praktisch dieselbe
+   Farbe. Vier Töne lagen ausserdem ausserhalb des Helligkeitsbands und einer
+   war so grau, dass er als Farbe nicht mehr durchging.
+
+   Die Töne wurden deshalb einzeln nachgezogen – jeder blieb nahe an seinem
+   alten Farbton, damit von Hand vergebene Farben wiedererkennbar bleiben.
+   Jetzt: schlechtestes Paar 5,8 (hell) bzw. 5,2 (dunkel), alle Töne im Band,
+   alle mit mindestens 3:1 gegen den Hintergrund.
+
+   Vollständig trennbar sind 24 Farben nicht – das gibt der Farbraum nicht
+   her. Deshalb trägt der Ring zusätzlich eine Legende mit Namen, Betrag und
+   Anteil, und zwischen den Segmenten liegen zwei Pixel Luft.            */
 :root {
-  --cat-1: #8b2323;
-  --cat-2: #168837;
-  --cat-3: #762bab;
-  --cat-4: #766a13;
-  --cat-5: #206f7e;
-  --cat-6: #b81e71;
-  --cat-7: #306e1c;
-  --cat-8: #211ba7;
-  --cat-9: #ab562b;
-  --cat-10: #137651;
-  --cat-11: #92279b;
-  --cat-12: #7f9a19;
-  --cat-13: #23578b;
-  --cat-14: #a71b38;
-  --cat-15: #248f2d;
-  --cat-16: #471895;
-  --cat-17: #9b7527;
-  --cat-18: #199a94;
-  --cat-19: #8b2370;
-  --cat-20: #4a8816;
-  --cat-21: #2b40ab;
-  --cat-22: #952818;
-  --cat-23: #207e47;
-  --cat-24: #8c1eb8;
+  --cat-1: #fb4d75;
+  --cat-2: #0ca868;
+  --cat-3: #dc51fe;
+  --cat-4: #87913c;
+  --cat-5: #0589ad;
+  --cat-6: #ac5487;
+  --cat-7: #459360;
+  --cat-8: #8483d4;
+  --cat-9: #863d1b;
+  --cat-10: #00673a;
+  --cat-11: #9e46d0;
+  --cat-12: #769e0e;
+  --cat-13: #1a8efc;
+  --cat-14: #bf2242;
+  --cat-15: #3d7205;
+  --cat-16: #4e5095;
+  --cat-17: #b26f07;
+  --cat-18: #0ba39c;
+  --cat-19: #96036e;
+  --cat-20: #388d14;
+  --cat-21: #3b0ff6;
+  --cat-22: #f16446;
+  --cat-23: #0e7e58;
+  --cat-24: #6c12bf;
 }
 :root[data-theme='dark'] {
-  --cat-1: #d65d5d;
-  --cat-2: #4ce278;
-  --cat-3: #b173dc;
-  --cat-4: #e0cc40;
-  --cat-5: #58c0d5;
-  --cat-6: #e769ad;
-  --cat-7: #6ed24d;
-  --cat-8: #635de5;
-  --cat-9: #dc9673;
-  --cat-10: #40e0a4;
-  --cat-11: #d068d9;
-  --cat-12: #c7e458;
-  --cat-13: #5d99d6;
-  --cat-14: #e55d79;
-  --cat-15: #64d86e;
-  --cat-16: #8850e3;
-  --cat-17: #d9b468;
-  --cat-18: #58e4de;
-  --cat-19: #d65db8;
-  --cat-20: #90e24c;
-  --cat-21: #7385dc;
-  --cat-22: #e36350;
-  --cat-23: #58d58d;
-  --cat-24: #c269e7;
+  --cat-1: #a55261;
+  --cat-2: #1b780b;
+  --cat-3: #9545a2;
+  --cat-4: #7a8018;
+  --cat-5: #1289b0;
+  --cat-6: #c40089;
+  --cat-7: #1f9b47;
+  --cat-8: #3e61bd;
+  --cat-9: #a35302;
+  --cat-10: #109277;
+  --cat-11: #b807c6;
+  --cat-12: #557e37;
+  --cat-13: #258fff;
+  --cat-14: #e72b8a;
+  --cat-15: #0f764c;
+  --cat-16: #8423fd;
+  --cat-17: #99861b;
+  --cat-18: #07a4a4;
+  --cat-19: #cf57c8;
+  --cat-20: #7c9e03;
+  --cat-21: #7260e2;
+  --cat-22: #e06158;
+  --cat-23: #55a36f;
+  --cat-24: #a66ee8;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

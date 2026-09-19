@@ -369,7 +369,11 @@ export function DonutChart({
   const r = size / 2 - thickness / 2
   const c = size / 2
   let angle = -Math.PI / 2
-  const gap = total > 0 ? 0.02 : 0
+  // Der Spalt zwischen zwei Segmenten ist in Pixeln gedacht, nicht im Winkel:
+  // Bei 0,02 rad war er auf dem kleinen Ring am Handy rund ein Pixel breit und
+  // zwei benachbarte Farben liefen ineinander. Jetzt sind es überall etwa zwei
+  // Pixel – das trennt auch dann noch, wenn zwei Kategorien ähnlich gefärbt sind.
+  const gap = total > 0 ? Math.min(0.08, 2.5 / r) : 0
 
   return (
     <div className="chart-wrap" ref={ref} style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>

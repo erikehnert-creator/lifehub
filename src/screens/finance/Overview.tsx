@@ -44,6 +44,38 @@ export const OVERVIEW_CARD_DEFS: LayoutCardDef[] = [
  * ausgeblendet oder umsortiert hatte, soll das nicht verlieren, nur weil die
  * Karten neu zugeschnitten wurden.
  */
+/**
+ * Die Segmente des Ausgabenrings.
+ *
+ * Vorher wurden schlicht die grössten acht Kategorien gezeichnet und der Rest
+ * weggelassen. Der Ring war damit voll, die Mitte nannte aber die GESAMTEN
+ * Ausgaben – und die Prozentangaben in der Legende rechneten gegen die Summe
+ * der acht statt gegen den Monat. Bei zwanzig Kategorien stand dort für
+ * „Lebensmittel" ein zu hoher Anteil.
+ *
+ * Jetzt wandert alles darunter in ein Segment „Sonstige": Der Ring summiert
+ * sich wieder auf das, was in seiner Mitte steht. Nebenbei konkurrieren
+ * weniger Farben miteinander – acht Segmente lassen sich auseinanderhalten,
+ * zwanzig nicht.
+ */
+export function ringSegmente(
+  kategorien: { name: string; amount: number; color?: string | null }[],
+  maxEinzeln: number,
+): { label: string; value: number; color?: string }[] {
+  const gross = kategorien.slice(0, maxEinzeln)
+    .map((c, i) => ({ label: c.name, value: c.amount, color: c.color ?? seriesColor(i) }))
+  const restBetrag = kategorien.slice(maxEinzeln).reduce((s, c) => s + c.amount, 0)
+  if (restBetrag <= 0) return gross
+  const anzahl = kategorien.length - maxEinzeln
+  return [...gross, {
+    label: anzahl === 1 ? kategorien[maxEinzeln].name : `Sonstige (${anzahl})`,
+    value: restBetrag,
+    // Bewusst unbunt: „Sonstige" ist keine Kategorie, sondern ihr Rest, und
+    // soll keiner echten Kategorie die Farbe streitig machen.
+    color: 'var(--text-muted)',
+  }]
+}
+
 export const UEBERSICHT_UMZUG = {
   von: 'finanzen_uebersicht',
   karten: {
@@ -213,12 +245,12 @@ export function Overview({ navigate, params }: { navigate: (r: string) => void; 
                 sub={`${formatMoney(totals.expense)} gesamt`}>
                 {({ gross }) => (
                   <DonutChart
-                    slices={byCat.slice(0, gross ? 14 : 8).map((c, i) => ({ label: c.name, value: c.amount, color: c.color ?? seriesColor(i) }))}
+                    slices={ringSegmente(byCat, gross ? 12 : 7)}
                     size={gross ? 240 : 150}
                     thickness={gross ? 30 : 20}
                     centerLabel="Ausgaben"
                     centerValue={formatMoney(totals.expense, { compact: true })}
-                    maxLegend={gross ? 14 : 8}
+                    maxLegend={gross ? 13 : 8}
                     formatValue={(v) => formatMoney(v)}
                   />
                 )}
