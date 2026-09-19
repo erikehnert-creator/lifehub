@@ -10,6 +10,24 @@ import {
 } from '../../core/dates'
 import type { DayType } from '../../core/types'
 
+/**
+ * Die Farben, die für eine Tagesart zur Wahl stehen.
+ *
+ * Bewusst diese sieben und nicht die Diagrammpalette: Der Arbeitsplan ist
+ * eine Fläche voller Kacheln, und Grün heisst in dieser App bereits
+ * „erledigt/Feiertag". Die Arbeitstage teilen sich eine Familie und
+ * unterscheiden sich in der Helligkeit nach Tageszeit.
+ */
+const TAGESART_FARBEN = [
+  { name: 'Frühschicht (hellblau)', wert: 'var(--tag-frueh)' },
+  { name: 'Spätschicht (blau)', wert: 'var(--tag-spaet)' },
+  { name: 'Nachtschicht (dunkelblau)', wert: 'var(--tag-nacht)' },
+  { name: 'Schule (violett)', wert: 'var(--tag-schule)' },
+  { name: 'Urlaub (warm)', wert: 'var(--tag-urlaub)' },
+  { name: 'Frei (grau)', wert: 'var(--tag-frei)' },
+  { name: 'Krank (rosé)', wert: 'var(--tag-krank)' },
+]
+
 /* --------------------------------------------------------- Arbeitsplan */
 
 export function WorkView() {
@@ -248,7 +266,7 @@ function DayTypeEditor({ dayType, onClose }: { dayType: DayType | null; onClose:
   const [start, setStart] = useState(dayType?.default_start ?? '')
   const [end, setEnd] = useState(dayType?.default_end ?? '')
   const [breakMin, setBreakMin] = useState(dayType?.break_minutes ?? 0)
-  const [color, setColor] = useState(dayType?.color ?? 'var(--series-1)')
+  const [color, setColor] = useState(dayType?.color ?? 'var(--tag-frueh)')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const save = () => {
@@ -289,12 +307,13 @@ function DayTypeEditor({ dayType, onClose }: { dayType: DayType | null; onClose:
         <Field label="Ende"><input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
       </div>
       <Field label="Pause (Minuten)"><input className="input" type="number" value={breakMin} onChange={(e) => setBreakMin(Number(e.target.value))} /></Field>
-      <Field label="Farbe">
+      <Field label="Farbe" hint="Zurückhaltende Töne – Grün bleibt für „erledigt“ und Feiertage reserviert.">
         <div className="chips">
-          {[1,2,3,4,5,6,7,8].map((i) => (
-            <button key={i} type="button" onClick={() => setColor(`var(--series-${i})`)}
-              style={{ width: 26, height: 26, borderRadius: 8, background: `var(--series-${i})`,
-                outline: color === `var(--series-${i})` ? '2px solid var(--text)' : 'none', outlineOffset: 2 }} />
+          {TAGESART_FARBEN.map((f) => (
+            <button key={f.wert} type="button" title={f.name} aria-label={f.name}
+              onClick={() => setColor(f.wert)}
+              style={{ width: 26, height: 26, borderRadius: 8, background: f.wert,
+                outline: color === f.wert ? '2px solid var(--text)' : 'none', outlineOffset: 2 }} />
           ))}
         </div>
       </Field>

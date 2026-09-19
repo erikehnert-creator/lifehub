@@ -122,6 +122,42 @@
   --fortschritt:      #7d828c;
 }
 
+/* ------------------------------------------------------- Tagesartfarben
+   Schichten, Schule, Urlaub, Frei, Krank – die Flächen im Arbeitsplan und
+   im Kalender.
+
+   Vorher kamen sie aus der allgemeinen Diagrammpalette, mit zwei Problemen:
+   „Urlaub" und „Frei" waren beide grün und kaum zu trennen, und Grün heisst
+   in dieser App bereits etwas – erledigt, im Rahmen, Feiertag. Eine
+   Schichtfläche sollte nicht nebenbei „gut" sagen. Die Nachtschicht war
+   rot, also die Farbe für kritisch.
+
+   Jetzt tragen die Arbeitstage EINE Farbfamilie (blau), unterschieden nach
+   Tageszeit: je später die Schicht, desto dunkler. Schule steht als Pflicht
+   daneben, aber in Violett. Urlaub ist warm und hell, Frei bewusst ruhig
+   und fast unbunt – frei ist die Abwesenheit von Eintrag, das muss nicht
+   leuchten. Krank ist gedämpftes Rosé, kein Alarmrot.
+
+   Grün bleibt damit frei für Status.                                    */
+:root {
+  --tag-frueh:   #5a9fd4;
+  --tag-spaet:   #2f6ea8;
+  --tag-nacht:   #2b3f66;
+  --tag-schule:  #7a5ea8;
+  --tag-urlaub:  #d59b3c;
+  --tag-frei:    #8a8d92;
+  --tag-krank:   #b5798c;
+}
+:root[data-theme='dark'] {
+  --tag-frueh:   #6fb0e0;
+  --tag-spaet:   #4a86bd;
+  --tag-nacht:   #4a5c82;
+  --tag-schule:  #9179c4;
+  --tag-urlaub:  #d6a44f;
+  --tag-frei:    #8f9297;
+  --tag-krank:   #c28ca0;
+}
+
 /* ------------------------------------------------------ Kategoriefarben
    24 Farben für die Ausgabenkategorien. Die Farbtöne liegen im Goldenen
    Winkel auseinander: benachbarte NUMMERN sind dadurch sicher zu trennen.

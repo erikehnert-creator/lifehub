@@ -20,7 +20,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { initDatabase, onSaveStateChange, saveNow, transaction } from '../db/sqlite'
 import { list, setDeviceId, insert, update, softDelete, restore, upsertByKey, byId, hardDelete, existsById } from '../db/repo'
-import { seedIfEmpty, ensureBuiltinMetrics, ensureCategoryColors } from '../db/seed'
+import { seedIfEmpty, ensureBuiltinMetrics, ensureCategoryColors, ensureDayTypeColors } from '../db/seed'
 import { repariereVerwaisteTageswerte } from '../db/reparatur'
 import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
@@ -426,6 +426,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       seedIfEmpty(deviceId)
       ensureBuiltinMetrics()
       ensureCategoryColors()
+      ensureDayTypeColors()
       // Tageswerte, die auf eine verschwundene Metrik zeigen, wieder
       // einhängen. Im Normalfall eine Abfrage ohne Treffer; siehe
       // db/reparatur.ts, warum es das überhaupt gibt.

@@ -3,6 +3,7 @@
  * Alle Werte sind Daten, kein Code – jeder Eintrag ist später frei änderbar.
  */
 import { all } from './sqlite'
+import { tagesartFarbe, istStandardTagesartFarbe, TAGESART_FARBE } from '../core/tagesartFarben'
 import { insert, update } from './repo'
 import { todayString, addDays, holidaysForState } from '../core/dates'
 
@@ -158,13 +159,13 @@ export function seedIfEmpty(deviceId: string): void {
 
   // ---- Tagesarten
   const dayTypes: Array<[string, string, string, string | null, string | null, number, string, number]> = [
-    ['Frühschicht', 'F', 'work', '06:00', '14:30', 30, 'var(--series-1)', 1],
-    ['Spätschicht', 'S', 'work', '14:00', '22:00', 30, 'var(--series-7)', 1],
-    ['Nachtschicht', 'N', 'work', '22:00', '06:00', 30, 'var(--series-8)', 1],
-    ['Berufsschule', 'BS', 'school', '07:30', '15:00', 45, 'var(--series-4)', 1],
-    ['Urlaub', 'U', 'vacation', null, null, 0, 'var(--series-3)', 0],
-    ['Frei', 'FR', 'off', null, null, 0, 'var(--series-6)', 0],
-    ['Krank', 'K', 'sick', null, null, 0, 'var(--series-5)', 0],
+    ['Frühschicht', 'F', 'work', '06:00', '14:30', 30, 'var(--tag-frueh)', 1],
+    ['Spätschicht', 'S', 'work', '14:00', '22:00', 30, 'var(--tag-spaet)', 1],
+    ['Nachtschicht', 'N', 'work', '22:00', '06:00', 30, 'var(--tag-nacht)', 1],
+    ['Berufsschule', 'BS', 'school', '07:30', '15:00', 45, 'var(--tag-schule)', 1],
+    ['Urlaub', 'U', 'vacation', null, null, 0, 'var(--tag-urlaub)', 0],
+    ['Frei', 'FR', 'off', null, null, 0, 'var(--tag-frei)', 0],
+    ['Krank', 'K', 'sick', null, null, 0, 'var(--tag-krank)', 0],
   ]
   dayTypes.forEach(([name, code, kind, s, e, br, color, work], i) => {
     insert('day_types', {
@@ -511,6 +512,27 @@ export function ensureCategoryColors(): number {
     index++
     if (!istAltePalette(r.color)) continue
     update('categories', r.id, { color: `var(--cat-${nummer})` })
+    gesetzt++
+  }
+  return gesetzt
+}
+
+/**
+ * Die Tagesarten auf die eigene Schichtpalette umstellen.
+ *
+ * Warum es die Palette gibt und wie zugeordnet wird, steht in
+ * core/tagesartFarben.ts. Hier ist nur der Datenbankteil: Läuft bei jedem
+ * Start, ändert nur, was noch die alte Diagrammfarbe trägt, und findet beim
+ * zweiten Durchlauf nichts mehr.
+ */
+export function ensureDayTypeColors(): number {
+  const rows = all<{ id: string; kind: string; color: string | null; default_start: string | null }>(
+    `SELECT id, kind, color, default_start FROM day_types WHERE deleted_at IS NULL`,
+  )
+  let gesetzt = 0
+  for (const r of rows) {
+    if (!istStandardTagesartFarbe(r.color)) continue
+    update('day_types', r.id, { color: tagesartFarbe(r.kind, r.default_start) })
     gesetzt++
   }
   return gesetzt
