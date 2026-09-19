@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 649 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 671 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -91,6 +91,31 @@ die doppelt gebauten Teile nahmen die Fassung dieses Ordners, weil sie zum
 Server passt. Datenbanken, die die fremde Migration 10 schon trugen, gleicht
 `src/db/altstand.ts` beim Öffnen an. **Vor jeder Arbeit prüfen, dass der
 Arbeitsordner dieser hier ist** (`git rev-parse --show-toplevel`).
+
+## Karten einer Seite neu schneiden: die alte Auswahl mitnehmen
+
+Welche Karten eine Seite zeigt und in welcher Reihenfolge, steht je Seite unter
+einer Kennung in `settings.layout_prefs` (`usePageLayout`). Wer die Karten einer
+Seite anders zuschneidet, darf die Kennung nicht einfach hochzählen und den Rest
+sich selbst überlassen: Die gespeicherte Auswahl bleibt dann zwar liegen, greift
+aber nie wieder – die Seite steht für Erik plötzlich in Werkseinstellung da, ohne
+Meldung, ohne erkennbaren Grund.
+
+Genau das ist beim UI-Umbau im September 2026 zweimal passiert (`heute` → `heute2`,
+`finanzen_uebersicht` → `finanzen_uebersicht2`).
+
+Deshalb: Eine neue Kennung bekommt einen `LayoutUmzug` mitgegeben, der alte
+Karten-IDs auf neue abbildet (`migriereLayout` in `core/layout.ts`). Zwei Regeln,
+beide darauf ausgelegt, im Zweifel nichts wegzunehmen:
+
+- Eine alte ID ohne Eintrag verfällt; mehrere alte dürfen auf dieselbe neue zeigen.
+- Beim Zusammenlegen genügt EINE sichtbare Quelle, damit die neue Karte sichtbar
+  ist – sonst verschwindet mit „Schlaf & Gewicht" auch die Ernährung.
+
+Geschrieben wird beim Umzug nichts. Die alte Einstellung bleibt stehen, die neue
+entsteht erst bei der nächsten Änderung des Nutzers – ein Schreibvorgang während
+des Renderns wäre hier sonst kaum zu vermeiden. `tests/layout-umzug.test.ts`
+prüft das.
 
 ## Eindeutige Spalten: die ID muss sich daraus ableiten
 
