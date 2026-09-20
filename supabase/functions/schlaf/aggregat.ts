@@ -85,17 +85,23 @@ export interface Nacht {
 export function deute(wert: string): { art: Art; phase: Phase } | null {
   const w = (wert ?? '').toLowerCase().replace(/[\s_-]/g, '')
   if (!w) return null
-  const hat = (s: string) => w.includes(s)
+  const hat = (...s: string[]) => s.some((x) => w.includes(x))
 
-  if (hat('inbed')) return { art: 'bett', phase: 'unbekannt' }
-  // "awake" muss vor den Schlafphasen stehen: "asleepawake" gibt es nicht,
-  // aber "awake" enthaelt kein "asleep" und umgekehrt - die Reihenfolge
-  // schuetzt trotzdem vor kuenftigen Schreibweisen.
-  if (hat('awake')) return { art: 'wach', phase: 'unbekannt' }
-  if (hat('core')) return { art: 'schlaf', phase: 'core' }
-  if (hat('deep')) return { art: 'schlaf', phase: 'deep' }
+  // Auf einem deutschen iPhone gibt Kurzbefehle den Wert UEBERSETZT zurueck:
+  // "Im Bett", "Kernschlaf", "Tiefschlaf", "Wach". Wer nur die englischen
+  // Namen kennt, findet dann gar nichts und meldet "keine auswertbaren
+  // Schlafproben" - ohne dass irgendetwas kaputt waere. Deshalb stehen beide
+  // Sprachen hier.
+  //
+  // Die REIHENFOLGE traegt die Bedeutung: "Kernschlaf" und "Tiefschlaf"
+  // enthalten beide "schlaf". Wuerde "schlaf" zuerst geprueft, verloeren
+  // alle Phasen ihre Unterscheidung und stuenden als "unbekannt" da.
+  if (hat('inbed', 'imbett')) return { art: 'bett', phase: 'unbekannt' }
+  if (hat('awake', 'wach')) return { art: 'wach', phase: 'unbekannt' }
+  if (hat('core', 'kern')) return { art: 'schlaf', phase: 'core' }
+  if (hat('deep', 'tief')) return { art: 'schlaf', phase: 'deep' }
   if (hat('rem')) return { art: 'schlaf', phase: 'rem' }
-  if (hat('asleep')) return { art: 'schlaf', phase: 'unbekannt' }
+  if (hat('asleep', 'schlaf', 'schlummer')) return { art: 'schlaf', phase: 'unbekannt' }
   return null
 }
 
@@ -266,16 +272,128 @@ export interface Pruefergebnis {
 export const HOECHSTZAHL_PROBEN = 2000
 
 /**
- * Den Rumpf einer Anfrage prüfen, bevor irgendetwas damit gerechnet wird.
+ * Das Trennzeichen der Zeilenform: `start|ende|wert|quelle`.
+ *
+ * Warum es diese Form überhaupt gibt, steht bei `probenAusText()`.
+ */
+export const FELDTRENNER = '|'
+
+/**
+ * Typografische Anführungszeichen zu geraden machen.
+ *
+ * iOS ersetzt beim Tippen `"` durch `„ "` – auch in den Textfeldern der
+ * Kurzbefehle. Ein JSON-Rumpf, der so entstanden ist, sieht für einen
+ * Menschen völlig richtig aus und ist für `JSON.parse` Müll. Das kostet
+ * einen Abend, wenn man es nicht weiß.
+ *
+ * Angewandt wird das NUR, wenn das strenge Parsen schon gescheitert ist –
+ * ein Rumpf, der als JSON durchgeht, wird nie angefasst.
+ */
+function geradeAnfuehrungszeichen(text: string): string {
+  return text.replace(/[“”„‟″«»]/g, '"')
+    .replace(/[‘’‚‛′]/g, "'")
+}
+
+/**
+ * Eine Zeile der Form `start|ende|wert|quelle` zu einer Probe.
+ *
+ * `quelle` darf fehlen. Mehr als vier Felder gelten als Fehler und nicht als
+ * „der Rest ist egal" – eine Zeile, die anders aufgebaut ist als gedacht,
+ * soll auffallen.
+ */
+function probeAusZeile(zeile: string): Record<string, string> | null {
+  const teile = zeile.split(FELDTRENNER).map((t) => t.trim())
+  if (teile.length < 3 || teile.length > 4) return null
+  return { start: teile[0], ende: teile[1], wert: teile[2], quelle: teile[3] ?? '' }
+}
+
+/**
+ * Aus einem Stück Text eine Liste von Proben machen.
+ *
+ * ---------------------------------------------------------------------------
+ * Warum das sein muss
+ *
+ * Der iOS-Kurzbefehl kann eine Liste nicht zuverlässig als JSON-Array
+ * abschicken. Setzt man im Anfragetext (JSON) das Feld `proben` auf eine
+ * Variable, macht Kurzbefehle daraus je nach Fassung eine Zeichenkette, eine
+ * Liste von Zeichenketten oder etwas dazwischen – aber nur selten das Array
+ * aus Objekten, das hier gebraucht wird. Genau daran ist der erste Versuch
+ * gescheitert: `Feld „proben" fehlt oder ist keine Liste`.
+ *
+ * Statt den Kurzbefehl zu verbiegen, nimmt der Endpunkt jetzt auch Text
+ * entgegen – und zwar in drei Formen, die alle im Kurzbefehl ohne Klimmzüge
+ * entstehen:
+ *
+ *   1. Zeilenform (empfohlen, weil ohne Klammern und Anführungszeichen):
+ *        2026-09-28T23:00:00+02:00|2026-09-29T07:00:00+02:00|AsleepCore|Sleep Cycle
+ *      Eine Zeile je Probe. Hier kann iOS nichts durch typografische
+ *      Anführungszeichen kaputtmachen, weil gar keine vorkommen.
+ *
+ *   2. Ein vollständiges JSON-Array: `[{…},{…}]`
+ *
+ *   3. Aneinandergereihte Objekte, mit oder ohne abschliessendes Komma:
+ *        {…},{…},
+ *      Genau das entsteht, wenn man im Kurzbefehl in einer Schleife Text
+ *      zusammenhängt.
+ *
+ * Geprüft wird danach in allen Fällen gleich streng. Die Nachsicht betrifft
+ * nur die VERPACKUNG, nicht den Inhalt.
+ */
+export function probenAusText(text: string): { ok: boolean; fehler?: string; roh?: unknown[] } {
+  const roh = (text ?? '').trim()
+  if (!roh) return { ok: false, fehler: 'Der Rumpf ist leer' }
+
+  // --- JSON, in seinen drei Erscheinungsformen
+  if (roh.startsWith('[') || roh.startsWith('{')) {
+    let text2 = roh
+      .replace(/\}\s*[\r\n]+\s*\{/g, '},{')   // Objekte, die nur durch Zeilenumbruch getrennt sind
+      .replace(/,\s*$/, '')                    // ein abschliessendes Komma
+    if (!text2.startsWith('[')) text2 = `[${text2}]`
+
+    for (const versuch of [text2, geradeAnfuehrungszeichen(text2)]) {
+      try {
+        const geparst = JSON.parse(versuch)
+        const liste = Array.isArray(geparst) ? geparst : [geparst]
+        return { ok: true, roh: liste }
+      } catch { /* naechster Versuch */ }
+    }
+    const hatKrumme = /[“”„‘’]/.test(roh)
+    return {
+      ok: false,
+      fehler: hatKrumme
+        ? 'Der Text ist kein gueltiges JSON – er enthaelt typografische Anfuehrungszeichen. '
+          + 'In den iOS-Einstellungen unter Allgemein > Tastatur die „Intelligente Interpunktion" ausschalten.'
+        : 'Der Text ist kein gueltiges JSON',
+    }
+  }
+
+  // --- Zeilenform
+  const zeilen = roh.split(/[\r\n]+/).map((z) => z.trim()).filter(Boolean)
+  const liste: Record<string, string>[] = []
+  for (let i = 0; i < zeilen.length; i++) {
+    const p = probeAusZeile(zeilen[i])
+    if (!p) {
+      return {
+        ok: false,
+        fehler: `Zeile ${i + 1} hat nicht die Form start${FELDTRENNER}ende${FELDTRENNER}wert${FELDTRENNER}quelle`,
+      }
+    }
+    liste.push(p)
+  }
+  return { ok: true, roh: liste }
+}
+
+/**
+ * Eine bereits entpackte Liste prüfen.
  *
  * Streng, weil der Endpunkt aus dem Internet erreichbar ist: Was nicht
  * eindeutig als Probe erkennbar ist, wird abgewiesen – nicht stillschweigend
  * übergangen. Eine Sendung, die zur Hälfte Unsinn ist, soll auffallen.
+ *
+ * Ein Eintrag darf auch eine Zeichenkette in Zeilenform sein: Kurzbefehle
+ * schickt eine Liste mitunter als Liste von Texten.
  */
-export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
-  if (!rumpf || typeof rumpf !== 'object') return { ok: false, fehler: 'Rumpf ist kein Objekt' }
-  const roh = (rumpf as any).proben ?? (rumpf as any).samples
-  if (!Array.isArray(roh)) return { ok: false, fehler: 'Feld „proben" fehlt oder ist keine Liste' }
+export function pruefeListe(roh: unknown[]): Pruefergebnis {
   if (roh.length === 0) return { ok: false, fehler: 'Keine Proben enthalten' }
   if (roh.length > HOECHSTZAHL_PROBEN) {
     return { ok: false, fehler: `Zu viele Proben (${roh.length}, erlaubt ${HOECHSTZAHL_PROBEN})` }
@@ -283,7 +401,18 @@ export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
 
   const proben: Probe[] = []
   for (let i = 0; i < roh.length; i++) {
-    const p = roh[i]
+    let p: any = roh[i]
+    if (typeof p === 'string') {
+      const ausZeile = probeAusZeile(p.trim())
+      if (!ausZeile) {
+        return {
+          ok: false,
+          fehler: `Probe ${i + 1} ist Text, aber nicht in der Form `
+            + `start${FELDTRENNER}ende${FELDTRENNER}wert${FELDTRENNER}quelle`,
+        }
+      }
+      p = ausZeile
+    }
     if (!p || typeof p !== 'object') return { ok: false, fehler: `Probe ${i + 1} ist kein Objekt` }
     const start = p.start ?? p.startDate ?? p.von
     const ende = p.ende ?? p.end ?? p.endDate ?? p.bis
@@ -301,6 +430,43 @@ export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
     })
   }
   return { ok: true, proben }
+}
+
+/**
+ * Den Rumpf einer Anfrage prüfen, bevor irgendetwas damit gerechnet wird.
+ *
+ * Nimmt entgegen, was ein iOS-Kurzbefehl ohne Verrenkungen erzeugen kann:
+ *
+ *   { "proben": [ {…}, {…} ] }   das saubere Array (unverändert gültig)
+ *   { "proben": "…" }            Text in einer der Formen von `probenAusText`
+ *   { "proben": [ "a|b|c|d" ] }  Liste von Texten
+ *   [ {…}, {…} ]                 das Array ohne Umschlag
+ *   "…"                          der ganze Rumpf als Text
+ *
+ * Die Nachsicht endet bei der Verpackung. Jede einzelne Probe muss danach
+ * dieselbe Prüfung bestehen wie vorher.
+ */
+export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
+  let roh: unknown = rumpf
+
+  if (rumpf && typeof rumpf === 'object' && !Array.isArray(rumpf)) {
+    const feld = (rumpf as any).proben ?? (rumpf as any).samples
+    if (feld === undefined || feld === null) {
+      return { ok: false, fehler: 'Feld „proben" fehlt' }
+    }
+    roh = feld
+  }
+
+  if (typeof roh === 'string') {
+    const entpackt = probenAusText(roh)
+    if (!entpackt.ok) return { ok: false, fehler: entpackt.fehler }
+    roh = entpackt.roh
+  }
+
+  if (!Array.isArray(roh)) {
+    return { ok: false, fehler: 'Feld „proben" ist weder eine Liste noch Text' }
+  }
+  return pruefeListe(roh)
 }
 
 /* ------------------------------------------------- Anlegen oder ändern */

@@ -168,13 +168,23 @@ Deno.serve(async (req) => {
   if (!wer) return antwort(401, { fehler: 'Zugang ungueltig' })
 
   let rumpf: unknown
+  let roher: string
   try {
-    const text = await req.text()
-    // Grobe Schranke, bevor ueberhaupt geparst wird.
-    if (text.length > 2_000_000) return antwort(413, { fehler: 'Sendung zu gross' })
-    rumpf = JSON.parse(text)
+    roher = await req.text()
   } catch {
-    return antwort(400, { fehler: 'Kein gueltiges JSON' })
+    return antwort(400, { fehler: 'Rumpf nicht lesbar' })
+  }
+  // Grobe Schranke, bevor ueberhaupt geparst wird.
+  if (roher.length > 2_000_000) return antwort(413, { fehler: 'Sendung zu gross' })
+
+  // Ist der Rumpf kein JSON, wird er als TEXT weitergereicht statt abgewiesen.
+  // Ein iOS-Kurzbefehl bekommt ein JSON-Array nur mit Muehe zustande; die
+  // Zeilenform start|ende|wert|quelle dagegen ohne jede Verrenkung. Was
+  // erlaubt ist, steht bei pruefeRumpf() - geprueft wird danach gleich streng.
+  try {
+    rumpf = JSON.parse(roher)
+  } catch {
+    rumpf = roher
   }
 
   const geprueft = pruefeRumpf(rumpf)

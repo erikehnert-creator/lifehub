@@ -153,29 +153,29 @@ Jetzt am iPhone. Jeder Schritt einzeln – lass keinen aus.
     **Älteste zuerst**
 14. **Grenzwert** ausschalten (sonst bekommst du nur die erste Probe)
 
-### B3. Die Proben in eine Liste verwandeln
+### B3. Aus jeder Probe eine Zeile machen
 
-15. **Aktion hinzufügen** → suche `Variable` → **Variable festlegen**
-16. Namen eingeben: `Proben`
-17. Auf **Eingabe** tippen → **Healthwerte** (das Ergebnis von oben) wählen
+Hier kommt der Teil, der in der ersten Fassung dieser Anleitung zu kompliziert war.
+Kurzbefehle sammelt die Ergebnisse einer Schleife **von selbst** ein – du musst gar
+nichts von Hand zusammenbauen.
 
-18. **Aktion hinzufügen** → suche `Text` → **Text**
-19. In das Textfeld **nichts** eingeben (es bleibt leer)
-20. **Aktion hinzufügen** → **Variable festlegen**, Name: `Liste`, Eingabe: **Text**
+15. **Aktion hinzufügen** → suche `Wiederholen` → **Mit jedem Objekt wiederholen**
+16. Auf **Eingabe** tippen → **Healthwerte** (das Ergebnis aus B2) wählen
 
-21. **Aktion hinzufügen** → suche `Wiederholen` → **Mit jedem Objekt wiederholen**
-22. Auf **Eingabe** tippen → Variable **Proben** wählen
+**Die nächste Aktion landet INNERHALB der Schleife** (sie rückt sichtbar ein):
 
-**Ab hier arbeitest du INNERHALB der Wiederholung** (die Aktionen rücken ein):
-
-23. **Aktion hinzufügen** → **Text**
-24. Füge in das Textfeld genau dies ein (die geschweiften Klammern mittippen):
+17. **Aktion hinzufügen** → suche `Text` → **Text**
+18. Tippe in das Textfeld genau diese vier Wörter, getrennt durch den senkrechten
+    Strich – **keine Anführungszeichen, keine Klammern**:
 
 ```
-{"start":"STARTDATUM","ende":"ENDDATUM","wert":"WERT","quelle":"QUELLE"},
+STARTDATUM|ENDDATUM|WERT|QUELLE
 ```
 
-25. Jetzt werden die vier Großbuchstaben-Wörter durch Variablen ersetzt. Für **jedes**:
+   > Den senkrechten Strich `|` findest du auf der iOS-Tastatur über
+   > **123** → **#+=** → er steht in der Reihe mit den Klammern.
+
+19. Jetzt werden die vier Großbuchstaben-Wörter durch Variablen ersetzt. Für **jedes**:
     - Das Wort markieren (doppelt antippen)
     - Über der Tastatur erscheint eine Variablenleiste – tippe auf **Wiederholungsobjekt**
     - Es erscheint ein blaues Feld. Tippe **darauf** → **Details anzeigen**
@@ -188,7 +188,7 @@ Jetzt am iPhone. Jeder Schritt einzeln – lass keinen aus.
 | `WERT` | **Wert** |
 | `QUELLE` | **Quelle** |
 
-26. Bei **Startdatum** und **Enddatum** noch einmal auf das blaue Feld tippen →
+20. Bei **Startdatum** und **Enddatum** noch einmal auf das blaue Feld tippen →
     **Format** → **ISO 8601** wählen.
 
     > **Das ist der wichtigste Schritt der ganzen Anleitung.** ISO 8601 schreibt die
@@ -196,47 +196,59 @@ Jetzt am iPhone. Jeder Schritt einzeln – lass keinen aus.
     > „07:00" deine Uhrzeit oder Weltzeit ist – und bei der Zeitumstellung im März und
     > Oktober käme eine Stunde zu viel oder zu wenig heraus.
 
-27. **Aktion hinzufügen** → **Text** → füge ein: Variable `Liste`, direkt dahinter das
-    Ergebnis des Textes aus Schritt 24
-28. **Aktion hinzufügen** → **Variable festlegen**, Name: `Liste`, Eingabe: **Text**
-
-**Jetzt aus der Wiederholung heraus** – die folgenden Aktionen stehen wieder links:
-
-### B4. Absenden
-
-29. **Aktion hinzufügen** → **Text** → füge ein:
+Die Zeile sieht am Ende so aus (die blauen Felder sind die Variablen):
 
 ```
-{"proben":[LISTE]}
+[Startdatum]|[Enddatum]|[Wert]|[Quelle]
 ```
 
-   Ersetze `LISTE` durch die Variable **Liste** (wie in Schritt 25).
+### B4. Die Zeilen zusammenfassen
 
-   > Das eine überzählige Komma am Ende der Liste stört nicht – LifeHub kommt damit
-   > zurecht. Falls du es sauber willst: Aktion **„Text ersetzen"** davor, suche `,]`,
-   > ersetze durch `]`.
+**Ab hier wieder AUSSERHALB der Schleife** – tippe unterhalb von „Ende der
+Wiederholung" weiter:
 
-30. **Aktion hinzufügen** → suche `URL` → **Inhalte von URL abrufen**
-31. In das URL-Feld die **Adresse aus Schritt A3.8** einsetzen
-32. Auf den Pfeil **⌄** neben „Erweitert" tippen, um die Optionen aufzuklappen
-33. **Methode** → **POST**
-34. **Header** → auf **Header hinzufügen** tippen:
+21. **Aktion hinzufügen** → suche `Text kombinieren` → **Text kombinieren**
+
+    > Heißt je nach Fassung **„Text kombinieren"** oder **„Text verbinden"**
+    > (englisch *Combine Text*).
+
+22. Auf **Eingabe** tippen → **Wiederholungsergebnisse** wählen
+
+    > Das ist der Trick: Kurzbefehle hat jede Zeile aus der Schleife automatisch
+    > gesammelt. Deshalb brauchst du keine Variable und keine Textanhängerei.
+
+23. Bei **Trennzeichen** → **Neue Zeilen** wählen
+
+### B5. Absenden
+
+24. **Aktion hinzufügen** → suche `URL` → **Inhalte von URL abrufen**
+25. In das URL-Feld die **Adresse aus Schritt A3.8** einsetzen
+26. Auf den Pfeil **⌄** tippen, um die Optionen aufzuklappen
+27. **Methode** → **POST**
+28. **Header** → auf **Header hinzufügen** tippen:
     - Schlüssel: `Authorization`
     - Wert: `Bearer ` und direkt dahinter **dein Token aus Schritt A3.7** einfügen
 
       > Zwischen `Bearer` und dem Token gehört **genau ein Leerzeichen**.
 
-35. Noch einen Header hinzufügen:
-    - Schlüssel: `Content-Type`
-    - Wert: `application/json`
-36. **Anfragetext** → **Datei** wählen
-37. Darunter erscheint ein Feld – wähle dort den **Text** aus Schritt 29
+29. **Anfragetext** → **Datei** wählen
+30. Darunter erscheint ein Feld – wähle dort **Kombinierter Text** (das Ergebnis aus B4)
 
-### B5. Ausprobieren
+Fertig. Der ganze Kurzbefehl besteht aus **fünf Aktionen**:
 
-38. Rechts oben auf **▶︎** (Abspielen) tippen
-39. Beim ersten Mal fragt iOS nach Erlaubnis für Health → **Erlauben**
-40. Und nach Erlaubnis, Daten zu senden → **Erlauben**
+```
+1  Healthwerte suchen            (Schlafanalyse, ab vor 3 Tagen)
+2  Mit jedem Objekt wiederholen
+3      Text                      [Startdatum]|[Enddatum]|[Wert]|[Quelle]
+4  Text kombinieren              (Wiederholungsergebnisse, Neue Zeilen)
+5  Inhalte von URL abrufen       (POST, Authorization, Anfragetext = Datei)
+```
+
+### B6. Ausprobieren
+
+31. Rechts oben auf **▶︎** (Abspielen) tippen
+32. Beim ersten Mal fragt iOS nach Erlaubnis für Health → **Erlauben**
+33. Und nach Erlaubnis, Daten zu senden → **Erlauben**
 
 **Was jetzt kommen muss:** Unten erscheint eine Antwort wie
 
@@ -247,18 +259,41 @@ Jetzt am iPhone. Jeder Schritt einzeln – lass keinen aus.
 | Antwort | Bedeutung | Was tun |
 |---|---|---|
 | `"naechte":3,"neu":3` | Es hat geklappt | Weiter zu Teil C |
-| `"naechte":0` | Health hat nichts geliefert | Teil A2 prüfen, Zeitraum vergrößern |
-| `{"fehler":"Zugang ungueltig"}` | Token falsch | Schritt 34 prüfen: Leerzeichen nach `Bearer`? |
-| `{"fehler":"Kein gueltiges JSON"}` | Der Text stimmt nicht | Schritt 24 und 29 prüfen |
-| `{"fehler":"Probe 1: „start" ist kein ISO-Zeitpunkt"}` | Format fehlt | Schritt 26 nachholen |
+| `"naechte":0` … `"Keine auswertbaren Schlafproben"` | Die Proben kamen an, aber keine war als Schlaf erkennbar | Siehe Kasten unten |
+| `{"fehler":"Zugang ungueltig"}` | Token falsch | Schritt 28 prüfen: Leerzeichen nach `Bearer`? |
+| `{"fehler":"Zeile 1 hat nicht die Form …"}` | Die Textzeile stimmt nicht | Schritt 18 und 19 prüfen – vier Felder, drei Striche |
+| `{"fehler":"Probe 1: „start" ist kein ISO-Zeitpunkt"}` | Datumsformat fehlt | Schritt 20 nachholen |
+| `{"fehler":"Feld „proben" fehlt"}` | Der Anfragetext ist leer | Schritt 29/30 prüfen |
 
-41. Öffne LifeHub → **Tracking → Schlaf**. Die Nächte müssen dort stehen.
+> **Wenn „Keine auswertbaren Schlafproben" kommt:** Dann war das Feld **Wert** leer oder
+> enthält etwas Unerwartetes. Setze zum Nachsehen vorübergehend eine Aktion
+> **Schnellansicht** hinter Schritt 23 und starte erneut – dort siehst du den Text, der
+> verschickt würde. LifeHub versteht die englischen Namen (`AsleepCore`, `InBed`,
+> `Awake`, …) **und** die deutschen (`Kernschlaf`, `Tiefschlaf`, `REM-Schlaf`, `Im Bett`,
+> `Wach`, `Schlafen`). Steht dort etwas ganz anderes, sag mir, was – dann ergänze ich es.
+
+34. Öffne LifeHub → **Tracking → Schlaf**. Die Nächte müssen dort stehen.
 
 > Falls nicht: In LifeHub einmal **Einstellungen → Synchronisation → Jetzt
 > synchronisieren** drücken. Die Nächte liegen dann schon auf dem Server und müssen nur
 > noch geholt werden.
 
----
+### Warum diese Form und kein JSON?
+
+Die erste Fassung ließ den Kurzbefehl ein JSON-Array zusammenbauen. Das ist dort
+erstaunlich schwer: Setzt man im Anfragetext (JSON) das Feld `proben` auf eine Variable,
+macht Kurzbefehle daraus je nach Fassung eine Zeichenkette, eine Liste von Zeichenketten
+oder etwas dazwischen – nur selten das Array, das gebraucht wurde. Die Folge war die
+Meldung `Feld „proben" fehlt oder ist keine Liste`.
+
+Die Zeilenform hat keinen dieser Haken: keine Klammern, keine Anführungszeichen (und
+damit auch kein Ärger mit der „intelligenten Interpunktion" von iOS, die `"` gern durch
+`„ "` ersetzt).
+
+**Der Endpunkt nimmt beides an.** Wer schon einen Kurzbefehl mit JSON gebaut hat, muss
+nichts ändern – Array, JSON-Text, aneinandergehängte Objekte und die Zeilenform führen
+alle zum selben Ergebnis.
+
 
 ## Teil C – Automatisch laufen lassen (5 Minuten)
 
@@ -318,13 +353,21 @@ legen (im Kurzbefehl auf **⌄** → **Zum Home-Bildschirm**) und antippen.
 
 | Problem | Ursache | Lösung |
 |---|---|---|
-| `Zugang ungueltig` | Token falsch, widerrufen oder Leerzeichen fehlt | Schritt 34 prüfen; notfalls neuen Zugang anlegen |
-| `Sendung zu gross` | Zeitraum viel zu groß gewählt | In Schritt 12 auf `vor 3 Tagen` zurückstellen |
-| Nächte sind um Stunden verschoben | ISO 8601 vergessen | Schritt 26 nachholen |
+| `Zugang ungueltig` | Token falsch, widerrufen oder Leerzeichen fehlt | Schritt 28 prüfen; notfalls neuen Zugang anlegen |
+| `Feld „proben" fehlt` | Der Anfragetext ist leer | Schritt 29/30: **Datei** → **Kombinierter Text** |
+| `Zeile 1 hat nicht die Form …` | Die Textzeile stimmt nicht | Schritt 18/19: vier Felder, drei senkrechte Striche |
+| `Zu viele Proben` | Zeitraum viel zu groß gewählt | In Schritt 12 auf `vor 3 Tagen` zurückstellen |
+| `Sendung zu gross` | dito | dito |
+| `Keine auswertbaren Schlafproben` | Das Feld **Wert** ist leer oder unbekannt | Kasten in B6 – mit **Schnellansicht** nachsehen |
+| Nächte sind um Stunden verschoben | ISO 8601 vergessen | Schritt 20 nachholen |
 | Eine Nacht fehlt | Sleep Cycle hat sie nicht geschrieben | In Health nachsehen (Teil A2) |
 | Schlafphasen bleiben leer | Keine Apple Watch | Normal, siehe oben |
 | Zwei Nächte an einem Tag | Kann nicht passieren | LifeHub führt je Tag genau eine Nacht |
 | Nichts kommt an, keine Fehlermeldung | Automation lief nicht | Kurzbefehl von Hand starten und Antwort ansehen |
+
+> **Alles doppelt?** Kann nicht passieren. Die Kennung einer Nacht leitet sich aus dem
+> Datum ab – derselbe Morgen zweimal geschickt **aktualisiert** die Nacht, er legt keine
+> zweite an. Du darfst den Kurzbefehl beliebig oft starten.
 
 ### Den Zugang widerrufen
 
