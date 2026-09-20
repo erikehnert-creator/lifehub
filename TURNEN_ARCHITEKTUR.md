@@ -1,6 +1,7 @@
 # Turnen in LifeHub – Architektur und Umsetzungsplan
 
 **Stand:** 20.09.2026 · Analyse und Planung, noch keine Umsetzung.
+**Geklärt:** Kür mit D-Wert · Erfassung je Element mit Zählern · Protokolle als PDF.
 
 Dieses Dokument hält fest, was der Bestand hergibt, welches Datenmodell daraus folgt und
 in welchen Schritten das Turnen-Modul entstehen soll. Es ist die Grundlage für alle
@@ -290,23 +291,21 @@ Modul lässt sich deshalb jederzeit abschalten, ohne dass etwas anderes bricht.
 
 ## 4. Die beiden fachlichen Fallen
 
-### 4.1 Pflicht oder Kür – das ist keine Kleinigkeit
+### 4.1 Kür – geklärt am 20.09.2026
 
-Das Datenmodell oben ist auf **Kürturnen** zugeschnitten: D-Wert, Elementgruppen,
-frei zusammengestellte Übungen. Im deutschen Ligabetrieb wird aber in vielen Klassen
-**Pflicht** geturnt: feste, vorgegebene Übungen, kein D-Wert, bewertet wird ausschließlich
-die Ausführung.
+**Erik turnt Kür mit D-Wert.** Damit steht das Datenmodell oben richtig, und die Fragen,
+die das Modul beantworten soll, sind die schwierigkeitsbezogenen:
 
-Trifft das zu, ändert sich einiges:
+- `difficulty_letter` und `difficulty_value` je Element werden **wirklich gebraucht**
+- `element_group` (I–V) ist relevant, weil eine Kür die Gruppen abdecken muss
+- `is_dismount` ist relevant (Abgang zählt gesondert)
+- „Wo fehlt mir Schwierigkeit?" ist eine sinnvolle Frage – und die Summe der
+  Elementwertigkeiten je Gerät ist ihre Grundlage (mit dem Vorbehalt aus 4.2)
+- `gym_routines` verwaltet **eigene** Küren, keine vorgegebenen Pflichtübungen
 
-- `gym_routines` wird zur Verwaltung **vorgegebener** Pflichtübungen (pro Liga/Jahrgang)
-- `difficulty_value` und `element_group` bleiben leer
-- „Wo fehlt mir Schwierigkeit?" ist keine sinnvolle Frage mehr – stattdessen „Wo verliere
-  ich Ausführungspunkte?"
-- Die Empfehlung müsste auf Ausführungsqualität statt auf Schwierigkeit zielen
-
-Beides ist baubar, und beides zugleich auch. Aber der Schwerpunkt von Phase 2 und 3
-hängt daran. **→ Offene Frage 1.**
+Die Pflicht-Variante entfällt damit aus der Planung. Sollte später eine Liga mit
+Pflichtübungen dazukommen, wäre das ein eigener `status`-Wert an `gym_routines` und kein
+Umbau.
 
 ### 4.2 Es werden keine Wertungsregeln erfunden
 
@@ -329,20 +328,32 @@ Deshalb:
 
 ## 5. Import von Wettkampfprotokollen
 
-### 5.1 Digitale Protokolle
+### 5.1 Digitale Protokolle: PDF aus einer Wettkampfsoftware
 
-Hier fehlt die entscheidende Angabe: **in welcher Form** kommen sie an. PDF aus einer
-Wettkampfsoftware, Ausdruck einer Webseite, Tabelle, Bildschirmfoto? Davon hängt ab, ob
-ein verlässlicher Import überhaupt möglich ist:
+**Geklärt am 20.09.2026.** Die Protokolle kommen als PDF aus einer Wettkampfsoftware.
+Das ist der günstigste Fall: Solche PDFs haben in aller Regel eine **Textebene**, die
+Werte stehen also als Zeichen da und müssen nicht erkannt, sondern nur gefunden werden.
 
-| Form | Machbarkeit |
-|---|---|
-| CSV / Excel | gut – Spaltenzuordnung wie beim vorhandenen `io/importer.ts` |
-| PDF mit Textebene | machbar – Text extrahieren, Muster erkennen |
-| PDF als Scan / Bild | wie Papier, siehe 5.2 |
-| Webseite | nur mit fester Quelle sinnvoll; sonst bricht es beim nächsten Umbau |
+Zwei Wege, den Text herauszuholen:
 
-**→ Offene Frage 2.** Bis zur Antwort wird kein Importer gebaut.
+| Wo | Vorteil | Nachteil |
+|---|---|---|
+| **Im Browser** (`pdfjs-dist`) | funktioniert offline, kein Server nötig | rund 1 MB zusätzlich im Bündel – `LifeHub.html` liegt schon bei 1,92 MB |
+| **In einer Edge Function** | Bündel bleibt klein, Logik zentral prüfbar | braucht Internet; PDF muss hochgeladen werden |
+
+**Empfehlung: Edge Function.** LifeHub hat mit `schlaf` bereits das Muster dafür, das
+Bündel bleibt schlank, und der Import ist ohnehin kein Offline-Vorgang – die Protokolle
+kommen aus dem Netz. Die Zuordnungslogik („welche Zahl ist der E-Wert") liegt dann als
+reine, prüfbare Funktion daneben, genau wie `aggregat.ts` beim Schlaf.
+
+**Was noch fehlt, bevor das gebaut werden kann: ein Beispiel-PDF.** Ohne eines lässt sich
+weder das Layout erkennen noch ein Test schreiben, der etwas beweist. Ein einziges genügt
+– zwei aus verschiedenen Wettkämpfen wären besser, weil sich daran zeigt, was am Layout
+fest ist und was nicht.
+
+Auch beim PDF gilt die Regel aus 5.2 unverändert: **vorschlagen, nicht speichern.** Ein
+PDF-Layout kann sich ändern, und eine stillschweigend falsch zugeordnete Endnote fällt
+Jahre später nicht mehr auf.
 
 ### 5.2 Papierprotokolle
 
@@ -536,24 +547,30 @@ wenn die Datenlage sie nicht trägt.
 
 ---
 
-## 10. Offene Fragen
+## 10. Offene Fragen – Stand 20.09.2026
 
-Nur die, deren Antwort **vor** der Umsetzung gebraucht wird.
+### Beantwortet
 
-1. **Pflicht oder Kür?** In welchem System turnst du Wettkämpfe – feste Pflichtübungen
-   oder frei zusammengestellte Küren mit D-Wert? Und in welcher Liga/Altersklasse?
-   *Betrifft: `difficulty_*`, `element_group`, Schwerpunkt von Phase 2 und 3.*
+| Frage | Antwort | Folge |
+|---|---|---|
+| Pflicht oder Kür? | **Kür mit D-Wert** | `difficulty_*`, `element_group`, `is_dismount` werden gebraucht; Phase 3 verwaltet eigene Küren (4.1) |
+| Erfassungstiefe? | **Je Element mit Zählern** | Phase 1 wie entworfen; der Erfassungsweg aus 7.3 ist der entscheidende Bildschirm |
+| Digitale Protokolle? | **PDF aus Wettkampfsoftware** | Import machbar, über eine Edge Function statt im Bündel (5.1) |
 
-2. **Wie sehen die digitalen Protokolle aus?** PDF, Tabelle, Webseite, Bildschirmfoto –
-   am besten ein Beispiel.
-   *Betrifft: ob ein Importer überhaupt zuverlässig baubar ist (5.1).*
+### Noch offen
 
-3. **Wie genau willst du im Training erfassen?** Je Element mit Versuchszählern (Phase 1
-   wie entworfen) – oder zunächst gröber, nur „Gerät + Dauer + Schwerpunkt"?
-   *Betrifft: ob das Modul im Alltag überlebt – die Lehre aus 1.1.*
+1. **Ein Beispiel-PDF eines Wettkampfprotokolls** – blockiert den Importer in Phase 2,
+   nichts davor. Zwei PDFs aus verschiedenen Wettkämpfen wären besser als eines, weil
+   sich erst daran zeigt, was am Layout fest ist.
 
-Nicht blockierend, später zu klären: Trainierst du nach einem Vereinsplan mit festen
-Tagen, oder legst du die Tage selbst? (Betrifft Phase 5, nicht Phase 1.)
+2. **Nicht blockierend, erst für Phase 5:** Trainierst du nach einem Vereinsplan mit
+   festen Tagen, oder legst du die Tage selbst? Davon hängt ab, ob die
+   Ersatz-Empfehlung bei Schichtkollision überhaupt freie Wahl hat.
+
+3. **Nicht blockierend, erst für Phase 1 im Detail:** Welche Elemente turnst du
+   tatsächlich? Der Elementkatalog startet leer – ein Grundbestand deiner Elemente je
+   Gerät würde den ersten Abend in der Halle deutlich abkürzen. Das lässt sich aber auch
+   nebenbei beim ersten Erfassen anlegen.
 
 ---
 
