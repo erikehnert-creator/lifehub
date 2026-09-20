@@ -25,7 +25,7 @@ import { repariereVerwaisteTageswerte } from '../db/reparatur'
 import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
 import type {
-  Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment,
+  Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
   ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
@@ -112,6 +112,7 @@ export interface AppData {
   projects: any[]
   events: CalendarEvent[]
   dayTypes: DayType[]
+  sleepSessions: SleepSession[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
   holidays: any[]
@@ -147,7 +148,7 @@ export interface AppData {
 const EMPTY: AppData = {
   settings: DEFAULT_SETTINGS,
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
-  tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [],
+  tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -187,6 +188,7 @@ const LADER: Record<string, Lader> = {
   projects: { schluessel: 'projects', laden: () => list('projects', { orderBy: 'name' }) },
   calendar_events: { schluessel: 'events', laden: () => list<CalendarEvent>('calendar_events', { orderBy: 'day, start_time' }) },
   day_types: { schluessel: 'dayTypes', laden: () => list<DayType>('day_types', { orderBy: 'sort_order' }) },
+  sleep_sessions: { schluessel: 'sleepSessions', laden: () => list<SleepSession>('sleep_sessions', { orderBy: 'day DESC' }) },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },

@@ -6,7 +6,13 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 
+// Zeilenenden vereinheitlichen. Unter Windows liegt die Datei mit CRLF im
+// Arbeitsordner (Git stellt beim Auschecken um), die Muster unten suchen aber
+// nach einem blossen Zeilenumbruch. Ohne diese Zeile fand der Generator dort
+// KEINE einzige Migration und brach mit "Keine Migration gefunden" ab - auf
+// Eriks Rechner war er damit nie benutzbar.
 const src = readFileSync(new URL('../src/db/schema.ts', import.meta.url), 'utf8')
+  .replace(/\r\n/g, '\n')
 
 const baseMatch = src.match(/const BASE = `([\s\S]*?)`/)
 const base = baseMatch[1]

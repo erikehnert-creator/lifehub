@@ -389,3 +389,34 @@ export interface Insight extends BaseEntity {
   is_statistical: number
   dismissed_at: Instant | null
 }
+
+/**
+ * Eine Nacht.
+ *
+ * `day` ist der Morgen des Aufwachens und zugleich eindeutig – genau eine
+ * Nacht je Tag. Daraus leitet sich die ID ab (core/natuerlicheSchluessel.ts),
+ * weshalb derselbe Morgen zweimal geschickt die Zeile aktualisiert, statt
+ * eine zweite anzulegen.
+ *
+ * Zeiten stehen als ISO 8601 MIT Zeitzonenversatz: Nur so bleibt „23:30"
+ * auch nach einer Zeitumstellung 23:30.
+ *
+ * Die Phasenfelder sind `null`, wenn die Quelle keine Phasen liefert – das
+ * ist der Normalfall bei Sleep Cycle und älteren Geräten. `0` würde dort
+ * behaupten, es seien null Minuten Tiefschlaf gemessen worden.
+ */
+export interface SleepSession extends BaseEntity {
+  day: DayString
+  start_at: string
+  end_at: string
+  /** Tatsächlich geschlafen, in Minuten. */
+  duration_min: number
+  awake_min: number | null
+  in_bed_min: number | null
+  core_min: number | null
+  deep_min: number | null
+  rem_min: number | null
+  /** Woher die Werte stammen, z. B. „Sleep Cycle". */
+  source: string | null
+  note: string | null
+}

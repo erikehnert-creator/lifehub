@@ -55,6 +55,7 @@ export const NATUERLICHER_SCHLUESSEL: Record<string, string> = {
   metrics: 'key',
   day_assignments: 'day',
   day_notes: 'day',
+  sleep_sessions: 'day',
 }
 
 /**
@@ -87,6 +88,7 @@ export const SCHLUESSEL_UMBENENNBAR: Record<string, boolean> = {
   metrics: true,
   day_assignments: false,
   day_notes: false,
+  sleep_sessions: false,
 }
 
 /** Der Schlüssel, unter dem eine aufgelöste Dublette abgelegt wird. */
@@ -139,4 +141,8 @@ export const VERWEISE_AUF: Record<string, { tabelle: string; feld: string }[]> =
   settings: [],
   day_assignments: [],
   day_notes: [],
+  // Auf eine Nacht zeigt nichts: Der Tageswert `sleep_h` haengt an seiner
+  // Metrik und am Tag, nicht an dieser Zeile. Wer das aendert - etwa eine
+  // Notiz je Nacht - traegt den Verweis hier ein.
+  sleep_sessions: [],
 }

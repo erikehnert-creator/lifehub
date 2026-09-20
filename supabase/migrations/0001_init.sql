@@ -707,6 +707,30 @@ CREATE TABLE IF NOT EXISTS food_entries (
 
 CREATE INDEX IF NOT EXISTS ix_food_entries_day ON food_entries(user_id, day);
 
+CREATE TABLE IF NOT EXISTS sleep_sessions (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      day text NOT NULL,
+      start_at text NOT NULL,
+      end_at text NOT NULL,
+      duration_min integer NOT NULL DEFAULT 0,
+      awake_min integer,
+      in_bed_min integer,
+      core_min integer,
+      deep_min integer,
+      rem_min integer,
+      source text,
+      note text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_sleep_day ON sleep_sessions(user_id, day);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -1005,6 +1029,12 @@ DROP TRIGGER IF EXISTS trg_food_entries_rev ON food_entries;
 CREATE TRIGGER trg_food_entries_rev BEFORE INSERT OR UPDATE ON food_entries
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE sleep_sessions ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_sleep_sessions_rev ON sleep_sessions(server_rev);
+DROP TRIGGER IF EXISTS trg_sleep_sessions_rev ON sleep_sessions;
+CREATE TRIGGER trg_sleep_sessions_rev BEFORE INSERT OR UPDATE ON sleep_sessions
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1154,6 +1184,9 @@ REVOKE ALL ON investment_moves FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON food_entries TO authenticated;
 REVOKE ALL ON food_entries FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON sleep_sessions TO authenticated;
+REVOKE ALL ON sleep_sessions FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1386,10 +1419,15 @@ DROP POLICY IF EXISTS food_entries_own ON food_entries;
 CREATE POLICY food_entries_own ON food_entries FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE sleep_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sleep_sessions_own ON sleep_sessions;
+CREATE POLICY sleep_sessions_own ON sleep_sessions FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 45 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 46 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1488,6 +1526,8 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM investment_moves
   UNION ALL
   SELECT max(server_rev) AS rev FROM food_entries
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM sleep_sessions
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;
@@ -1515,7 +1555,7 @@ REVOKE ALL ON sync_head FROM anon;
 -- Durchlauf, obwohl nichts falsch war.
 DO $$
 DECLARE ohne_rls text; ohne_regel text; anon_rechte text;
-  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries'];
+  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions'];
 BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

@@ -606,6 +606,44 @@ export const MIGRATIONS: Migration[] = [
      WHERE key = 'fiber_g' AND is_builtin = 1 AND decimals = 0 AND value_type = 'integer';
     `,
   },
+  {
+    id: 12,
+    name: 'schlaf_sitzungen',
+    sql: `
+    ------------------------------------------------------------------ Schlaf
+    -- Eine Nacht je Zeile. Die Werte kommen aus Apple Health (ueber einen
+    -- iOS-Kurzbefehl, siehe supabase/functions/schlaf) oder von Hand.
+    --
+    -- Warum eine eigene Tabelle statt metric_entries: Eine Nacht ist KEIN
+    -- Tageswert, sondern ein Zeitraum mit Untergliederung. In metric_entries
+    -- waeren das sieben lose Zahlen ohne Zusammenhang, und "wann ging es
+    -- los" liesse sich gar nicht ablegen. sleep_h bleibt als Tageswert
+    -- bestehen und wird aus der Nacht mitgefuehrt - dort haengen Eriks
+    -- Zielbereiche und die Zusammenhangsrechnung dran.
+    --
+    -- day ist EINDEUTIG: genau eine Nacht je Tag. Damit ist der Import von
+    -- selbst wiederholbar - derselbe Morgen zweimal geschickt aktualisiert
+    -- die Zeile, statt eine zweite anzulegen (core/natuerlicheSchluessel.ts).
+    -- Die Zeiten stehen als ISO-8601 MIT Zeitzonenversatz; nur so bleibt
+    -- "23:30" auch nach einer Zeitumstellung 23:30.
+    CREATE TABLE sleep_sessions (
+      id TEXT PRIMARY KEY,
+      day TEXT NOT NULL UNIQUE,
+      start_at TEXT NOT NULL,
+      end_at TEXT NOT NULL,
+      duration_min INTEGER NOT NULL DEFAULT 0,
+      awake_min INTEGER,
+      in_bed_min INTEGER,
+      core_min INTEGER,
+      deep_min INTEGER,
+      rem_min INTEGER,
+      source TEXT,
+      note TEXT,
+      ${BASE}
+    );
+    CREATE INDEX ix_sleep_day ON sleep_sessions(day);
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
@@ -621,6 +659,7 @@ export const SYNCED_TABLES = [
   'body_measurements', 'progress_photos', 'goals', 'goal_contributions',
   'notes', 'notifications', 'insights', 'task_templates', 'account_checks',
   'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries',
+  'sleep_sessions',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
