@@ -677,3 +677,39 @@ den üblichen Kosten je Tabelle zu rechnen.
 
 Im E2E gemessen: **acht Berührungen** für eine Einheit mit fünf Versuchen an
 zwei Elementen.
+
+### 12.7 Eine Einheit über mehrere Geräte – ohne Schemaänderung
+
+Nachgereicht am 20.09.2026. Ein normales Turntraining geht über Boden, Barren
+und Reck; der erste Erfassungsweg ließ nur ein Gerät je Sitzung zu.
+
+**Eine Datenbankänderung war dafür nicht nötig.** Jedes Element trägt sein
+Gerät (`gym_elements.apparatus`), und jeder Versuch zeigt auf ein Element –
+das Gerät einer Sitzung ist damit bereits ableitbar. Eine Spalte `apparatus`
+an `workout_sessions` wäre eine zweite Quelle für dieselbe Auskunft gewesen,
+die bei jedem Zähler hätte nachgezogen werden müssen.
+
+Der Speicherpfad trug das ohnehin schon: `planeVersuche()` bekommt alle
+gezählten Elemente, nicht die eines Geräts. Die Grenze saß ausschließlich in
+der Oberfläche.
+
+Geändert wurde deshalb:
+
+- **`geraeteDerEinheit()` / `geraeteJeEinheit()`** in `core/turnen/elemente.ts` –
+  leiten die Geräte einer Sitzung aus ihren Versuchen ab. Ein Versuch, dessen
+  Element gelöscht wurde, wird übergangen: Sein Gerät ist nicht mehr
+  feststellbar, und Raten wäre schlechter als Schweigen.
+- **Das Gerät im Erfassungsweg ist ein Umschalter**, kein Merkmal der Einheit.
+  Die Zählerstände liegen nach Element-ID im Arbeitsspeicher und überleben den
+  Wechsel deshalb von selbst. Benutzte Geräte tragen eine Marke mit der Zahl
+  ihrer Versuche.
+- **Der Titel nennt alle benutzten Geräte** („Boden · Barren · Reck"), nicht
+  das zuletzt angezeigte.
+- **`geraetBilder()` zählt Sitzungen statt Tage.** Der Unterschied fällt erst
+  auf, wenn an einem Tag zweimal trainiert wurde – dann sind es zwei
+  Einheiten. Eine Sitzung über drei Geräte erscheint bei allen dreien als
+  trainiert und bleibt trotzdem eine Einheit.
+
+Die **Dauer** taucht im Gerätebild bewusst gar nicht auf. Sie hängt an der
+Sitzung; je Gerät geführt ließe sie sich bei drei Geräten dreifach zählen. Ein
+Test hält das fest.

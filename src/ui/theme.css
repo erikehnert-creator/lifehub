@@ -1108,6 +1108,20 @@ table.data tbody tr:hover { background: var(--surface-2); }
   background: var(--accent-soft); border-color: var(--accent); color: var(--text);
 }
 .turn-geraet-kurz { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+
+/* Ein Geraet, an dem in dieser Einheit schon gezaehlt wurde. Die Marke ist
+   die Zahl der Versuche - beim Wechseln sieht man so ohne Nachdenken, was
+   noch aussteht. */
+.turn-geraet { position: relative; }
+.turn-geraet.benutzt { border-color: var(--good); }
+.turn-geraet.benutzt .turn-geraet-kurz { color: var(--good-text); }
+.turn-geraet.aktiv.benutzt { border-color: var(--accent); }
+.turn-geraet-marke {
+  position: absolute; top: 3px; right: 4px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 9px; background: var(--good); color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 17px; text-align: center;
+}
 .turn-geraet-name { font-size: 11px; color: var(--text-muted); }
 .turn-geraet.aktiv .turn-geraet-name { color: var(--text-2); }
 

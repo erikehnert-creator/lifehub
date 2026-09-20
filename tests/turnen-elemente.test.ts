@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   bloeckeMitTag, elementBild, geraetBilder, langeNichtTrainiert,
+  geraeteDerEinheit, geraeteJeEinheit,
 } from '../src/core/turnen/elemente'
 import { GERAETE, geraet, geraetName, istGeraet, nachGeraet } from '../src/core/turnen/geraete'
 import { BRAUCHT_ARBEIT, ELEMENT_STATUS, istStatus, statusLabel, VORSCHLAGBAR } from '../src/core/turnen/status'
@@ -275,5 +276,112 @@ describe('Lange nicht trainiert', () => {
     const viele = Array.from({ length: 20 }, (_, i) => mach(`e${i}`, i))
     expect(langeNichtTrainiert(viele as any, 5).length).toBe(5)
     expect(langeNichtTrainiert(viele as any, 3).length).toBe(3)
+  })
+})
+
+/* ------------------------------------------- Eine Einheit, mehrere Geräte */
+
+describe('Ein Training über mehrere Geräte', () => {
+  // Ein normales Turntraining: Boden, Barren, Reck - alles in EINER Sitzung.
+  const elemente = [
+    el('e1', 'boden', 'Doppelsalto'),
+    el('e2', 'barren', 'Stützkehre'),
+    el('e3', 'reck', 'Kippe'),
+    el('e4', 'ringe', 'Kreuzhang'),
+  ]
+  const versuche = [
+    blk('b1', 's1', 'e1', 5),
+    blk('b2', 's1', 'e2', 4),
+    blk('b3', 's1', 'e3', 3),
+  ]
+  const einheiten = [einheit('s1', '2026-09-18')]
+
+  it('leitet die Geräte aus den Versuchen ab – ohne Spalte an der Sitzung', () => {
+    const g = geraeteDerEinheit('s1', versuche, elemente).sort()
+    expect(g).toEqual(['barren', 'boden', 'reck'])
+  })
+
+  it('zählt die Sitzung bei JEDEM benutzten Gerät als trainiert', () => {
+    const bilder = geraetBilder(elemente, bloeckeMitTag(versuche, einheiten), HEUTE, diffDays, BRAUCHT_ARBEIT)
+    for (const g of ['boden', 'barren', 'reck']) {
+      expect(bilder.get(g)!.einheiten, g).toBe(1)
+      expect(bilder.get(g)!.tageHer, g).toBe(2)
+    }
+    // Ringe war nicht dabei.
+    expect(bilder.get('ringe')!.einheiten).toBe(0)
+    expect(bilder.get('ringe')!.tageHer).toBeNull()
+  })
+
+  it('bleibt dabei EINE Einheit – die Sitzung wird nicht vervielfacht', () => {
+    const bilder = geraetBilder(elemente, bloeckeMitTag(versuche, einheiten), HEUTE, diffDays, BRAUCHT_ARBEIT)
+    const summe = [...bilder.values()].reduce((n, b) => n + b.einheiten, 0)
+    // Drei Geraete melden je eine Einheit - das ist gewollt. Entscheidend
+    // ist, dass es EINE Sitzung war:
+    expect(summe).toBe(3)
+    expect(new Set(versuche.map((v) => v.session_id)).size).toBe(1)
+  })
+
+  it('zählt je Gerät nur dessen Versuche', () => {
+    const bilder = geraetBilder(elemente, bloeckeMitTag(versuche, einheiten), HEUTE, diffDays, BRAUCHT_ARBEIT)
+    expect(bilder.get('boden')!.versuche).toBe(5)
+    expect(bilder.get('barren')!.versuche).toBe(4)
+    expect(bilder.get('reck')!.versuche).toBe(3)
+  })
+
+  it('zählt SITZUNGEN, nicht Tage – zweimal am Tag sind zwei Einheiten', () => {
+    const zweimal = [blk('b1', 's1', 'e1', 5), blk('b2', 's2', 'e1', 5)]
+    const beide = [einheit('s1', '2026-09-18'), einheit('s2', '2026-09-18')]
+    const bilder = geraetBilder(elemente, bloeckeMitTag(zweimal, beide), HEUTE, diffDays, BRAUCHT_ARBEIT)
+    expect(bilder.get('boden')!.einheiten).toBe(2)
+  })
+
+  it('übergeht Versuche, deren Element gelöscht wurde', () => {
+    const mitGeloeschtem = [
+      { ...el('e1', 'boden'), deleted_at: '2026-09-19T10:00:00Z' } as GymElement,
+      el('e2', 'barren', 'Stützkehre'),
+      el('e3', 'reck', 'Kippe'),
+    ]
+    expect(geraeteDerEinheit('s1', versuche, mitGeloeschtem).sort()).toEqual(['barren', 'reck'])
+    const bilder = geraetBilder(mitGeloeschtem, bloeckeMitTag(versuche, einheiten), HEUTE, diffDays, BRAUCHT_ARBEIT)
+    expect(bilder.get('barren')!.einheiten).toBe(1)
+    expect(bilder.get('boden')).toBeUndefined()
+  })
+
+  it('übergeht gelöschte Versuche', () => {
+    const mitGeloeschtem = [...versuche, { ...blk('b9', 's1', 'e4', 9), deleted_at: '2026-09-19T10:00:00Z' }]
+    expect(geraeteDerEinheit('s1', mitGeloeschtem, elemente).sort()).toEqual(['barren', 'boden', 'reck'])
+  })
+
+  it('zählt ein Gerät nur, wenn dort wirklich Versuche stehen', () => {
+    // Ein Block mit lauter Nullen ist kein Training an diesem Geraet.
+    const mitLeerem = [...versuche, blk('b0', 's1', 'e4', 0, 0, 0)]
+    expect(geraeteDerEinheit('s1', mitLeerem, elemente)).not.toContain('ringe')
+  })
+
+  it('fasst Versuche anderer Sitzungen nicht an', () => {
+    const andere = [...versuche, blk('b4', 's2', 'e4', 7)]
+    expect(geraeteDerEinheit('s1', andere, elemente).sort()).toEqual(['barren', 'boden', 'reck'])
+    expect(geraeteDerEinheit('s2', andere, elemente)).toEqual(['ringe'])
+  })
+
+  it('liefert für eine Einheit ohne Versuche eine leere Liste', () => {
+    expect(geraeteDerEinheit('leer', versuche, elemente)).toEqual([])
+  })
+
+  it('geraeteJeEinheit liefert dasselbe in einem Durchgang', () => {
+    const andere = [...versuche, blk('b4', 's2', 'e4', 7)]
+    const karte = geraeteJeEinheit(andere, elemente)
+    expect([...karte.get('s1')!].sort()).toEqual(['barren', 'boden', 'reck'])
+    expect([...karte.get('s2')!]).toEqual(['ringe'])
+    expect(karte.has('gibtsnicht')).toBe(false)
+  })
+
+  it('die Dauer der Sitzung taucht im Gerätebild gar nicht auf', () => {
+    // Sonst liesse sie sich bei drei Geraeten dreifach zaehlen.
+    const bilder = geraetBilder(elemente, bloeckeMitTag(versuche, einheiten), HEUTE, diffDays, BRAUCHT_ARBEIT)
+    for (const b of bilder.values()) {
+      expect(Object.keys(b)).not.toContain('dauer')
+      expect(Object.keys(b)).not.toContain('duration_minutes')
+    }
   })
 })

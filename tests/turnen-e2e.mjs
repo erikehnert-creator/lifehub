@@ -87,6 +87,7 @@ try {
   await legeElementAn(pc, { name: 'Doppelsalto', geraet: 'Boden', buchstabe: 'D' })
   await legeElementAn(pc, { name: 'Flick-Flack', geraet: 'Boden', buchstabe: 'A' })
   await legeElementAn(pc, { name: 'Kippe', geraet: 'Reck', buchstabe: 'A' })
+  await legeElementAn(pc, { name: 'Stützkehre', geraet: 'Barren', buchstabe: 'B' })
 
   await geh(pc, '/turnen/elemente', 1500)
   const liste = await text(pc)
@@ -198,6 +199,90 @@ try {
   await handy.page.waitForTimeout(600)
   const hoehe = await handy.page.locator('.turn-zaehler-knopf').first().evaluate((el) => el.getBoundingClientRect().height)
   pruefe('Die Zählerflächen sind mindestens 56 px hoch', hoehe >= 56, `${Math.round(hoehe)} px`)
+
+  /* ================================================================
+     Eine Einheit ueber DREI Geraete - der eigentliche Pruefgegenstand
+     ================================================================ */
+
+  await geh(pc, '/turnen/training', 1500)
+  await pc.page.locator('button', { hasText: '+ Training erfassen' }).first().click()
+  await pc.page.waitForTimeout(800)
+
+  // Boden
+  await pc.page.locator('.modal .turn-geraet', { hasText: 'Boden' }).first().click()
+  await pc.page.waitForTimeout(500)
+  const bodenZeile = pc.page.locator('.turn-zeile', { hasText: 'Doppelsalto' }).first()
+  await bodenZeile.locator('.turn-zaehler-knopf').first().click()
+  await bodenZeile.locator('.turn-zaehler-knopf').first().click()
+
+  // Barren - Wechsel mitten in der Einheit
+  await pc.page.locator('.modal .turn-geraet', { hasText: 'Barren' }).first().click()
+  await pc.page.waitForTimeout(500)
+  const barrenSicht = await text(pc)
+  pruefe('Nach dem Wechsel stehen die Elemente des neuen Geräts da',
+    /Stützkehre/.test(barrenSicht) && !/Doppelsalto/.test(barrenSicht))
+  pruefe('Das bereits bestückte Gerät ist markiert',
+    (await pc.page.locator('.modal .turn-geraet.benutzt').count()) >= 1)
+
+  const barrenZeile = pc.page.locator('.turn-zeile', { hasText: 'Stützkehre' }).first()
+  await barrenZeile.locator('.turn-zaehler-knopf').first().click()
+  await barrenZeile.locator('.turn-zaehler-knopf').nth(1).click()
+  await barrenZeile.locator('.turn-zaehler-knopf').nth(1).click()
+
+  // Reck
+  await pc.page.locator('.modal .turn-geraet', { hasText: 'Reck' }).first().click()
+  await pc.page.waitForTimeout(500)
+  const reckZeile = pc.page.locator('.turn-zeile', { hasText: 'Kippe' }).first()
+  await reckZeile.locator('.turn-zaehler-knopf').first().click()
+
+  // Zurueck zum Boden: Bleibt der Zaehlerstand erhalten?
+  await pc.page.locator('.modal .turn-geraet', { hasText: 'Boden' }).first().click()
+  await pc.page.waitForTimeout(500)
+  const zurueck = await pc.page.locator('.turn-zeile', { hasText: 'Doppelsalto' })
+    .first().locator('.turn-zaehler-zahl').first().innerText()
+  pruefe('Beim Gerätewechsel geht kein Zähler verloren', zurueck.trim() === '2', `Boden steht auf ${zurueck.trim()}`)
+
+  const markiert = await pc.page.locator('.modal .turn-geraet.benutzt').count()
+  pruefe('Alle drei benutzten Geräte sind markiert', markiert === 3, `${markiert} markiert`)
+
+  // EINMAL speichern
+  await pc.page.locator('.modal button', { hasText: 'Speichern' }).first().click()
+  await pc.page.waitForTimeout(1800)
+
+  const mehrgeraet = await text(pc)
+  pruefe('Die Einheit nennt alle drei Geräte',
+    /Boden/.test(mehrgeraet) && /Barren/.test(mehrgeraet) && /Reck/.test(mehrgeraet))
+  pruefe('Mit der Gesamtzahl der Versuche über alle Geräte', /6 Versuche/.test(mehrgeraet),
+    mehrgeraet.split(/\r?\n/).find((z) => z.includes('Versuche')))
+
+  await abgleich(pc)
+  const dreiGeraete = server.zeilen('gym_attempts').filter((v) => v.session_id
+    && server.zeilen('workout_sessions').some((s) => s.id === v.session_id && s.title.includes('Barren')))
+  pruefe('Ein Speichern hat die Versuche ALLER Geräte angelegt', dreiGeraete.length === 3,
+    `${dreiGeraete.length} Versuchszeilen`)
+
+  const sitzungen = server.zeilen('workout_sessions').filter((s) => s.discipline === 'turnen')
+  pruefe('Und dafür genau EINE Sitzung angelegt', sitzungen.length === 3,
+    `${sitzungen.length} Sitzungen insgesamt (2 aus den Schritten davor)`)
+
+  // Erneut speichern: keine Dubletten
+  const vorErneut = server.zeilen('gym_attempts').length
+  await geh(pc, '/turnen/training', 1500)
+  await pc.page.locator('.list-row').first().click()
+  await pc.page.waitForTimeout(1000)
+  await pc.page.locator('.modal button', { hasText: 'Speichern' }).first().click()
+  await pc.page.waitForTimeout(1500)
+  await abgleich(pc)
+  pruefe('Erneutes Speichern der Mehrgeräte-Einheit erzeugt keine Dublette',
+    server.zeilen('gym_attempts').length === vorErneut,
+    `${vorErneut} vorher, ${server.zeilen('gym_attempts').length} nachher`)
+
+  // Jedes benutzte Geraet gilt als trainiert
+  await geh(pc, '/turnen', 2000)
+  const kacheln = await pc.page.locator('.turn-kachel').allInnerTexts()
+  const heuteTrainiert = kacheln.filter((k) => /heute/.test(k)).length
+  pruefe('Jedes benutzte Gerät gilt als heute trainiert', heuteTrainiert >= 3,
+    `${heuteTrainiert} Geräte auf "heute"`)
 
   /* ------------------------------------------------- Konsolenfehler */
   const echte = [...pc.fehler, ...handy.fehler].filter(

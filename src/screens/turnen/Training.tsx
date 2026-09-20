@@ -34,6 +34,7 @@ import { todayString, formatDay, formatDuration } from '../../core/dates'
 import { GERAETE, geraetName, type GeraetKey } from '../../core/turnen/geraete'
 import { GUETEN, planeVersuche, planIstLeer, versucheGesamt, type ZaehlerStand } from '../../core/turnen/versuche'
 import { statusLabel } from '../../core/turnen/status'
+import { geraeteDerEinheit, geraeteJeEinheit } from '../../core/turnen/elemente'
 import type { GymAttempt, GymElement, WorkoutSession } from '../../core/types'
 
 export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
@@ -58,9 +59,16 @@ export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
     return m
   }, [data.gymAttempts])
 
-  const elementeNachId = useMemo(
-    () => new Map(data.gymElements.map((e) => [e.id, e])),
-    [data.gymElements],
+  /**
+   * Je Einheit die benutzten Geräte – in einem Durchgang.
+   *
+   * Eine Einheit kann über mehrere Geräte gehen; die Liste nennt sie alle.
+   * Je Zeile einzeln zu rechnen wäre bei zweihundert Einheiten zweihundert
+   * Durchläufe über alle Versuche.
+   */
+  const geraeteJeSitzung = useMemo(
+    () => geraeteJeEinheit(data.gymAttempts, data.gymElements),
+    [data.gymAttempts, data.gymElements],
   )
 
   const hatElemente = data.gymElements.some((e) => !e.deleted_at && e.is_active)
@@ -90,15 +98,15 @@ export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
             {einheiten.slice(0, 40).map((s) => {
               const versuche = versucheJeEinheit.get(s.id) ?? []
               const gesamt = versuche.reduce((n, v) => n + versucheGesamt(v), 0)
-              const geraete = [...new Set(versuche
-                .map((v) => elementeNachId.get(v.element_id)?.apparatus)
-                .filter(Boolean))] as string[]
+              const geraete = GERAETE
+                .filter((g) => geraeteJeSitzung.get(s.id)?.has(g.key))
+                .map((g) => g.name)
               return (
                 <button className="list-row" key={s.id} onClick={() => setOffen(s)}>
                   <span className="list-main">
                     <span className="list-title">{formatDay(s.day)}</span>
                     <span className="list-sub">
-                      {geraete.length ? geraete.map(geraetName).join(' · ') : s.title || 'ohne Gerät'}
+                      {geraete.length ? geraete.join(' · ') : s.title || 'ohne Gerät'}
                       {s.duration_minutes ? ` · ${formatDuration(s.duration_minutes)}` : ''}
                       {gesamt > 0 ? ` · ${gesamt} Versuche` : ''}
                     </span>
@@ -131,16 +139,22 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
     [data.gymAttempts, einheit],
   )
 
-  // Das Geraet der Einheit: beim Bearbeiten aus den vorhandenen Versuchen,
-  // sonst noch offen.
+  /**
+   * Das gerade ANGEZEIGTE Geraet.
+   *
+   * Es ist ein Umschalter, kein Merkmal der Einheit: Ein Turntraining geht
+   * ueber Boden, Barren und Reck, und alle drei gehoeren derselben Sitzung.
+   * Welche Geraete tatsaechlich vorkamen, steht nirgends gespeichert - es
+   * ergibt sich aus den Versuchen ueber `gym_elements.apparatus`
+   * (core/turnen/elemente.ts, geraeteDerEinheit).
+   *
+   * Beim Bearbeiten wird mit dem ersten benutzten Geraet begonnen, damit man
+   * sieht, was schon dasteht.
+   */
   const geraetAusVersuchen = useMemo(() => {
-    const nachId = new Map(data.gymElements.map((e) => [e.id, e]))
-    for (const v of vorhandeneVersuche) {
-      const g = nachId.get(v.element_id)?.apparatus
-      if (g) return g as GeraetKey
-    }
-    return null
-  }, [vorhandeneVersuche, data.gymElements])
+    const benutzt = geraeteDerEinheit(einheit?.id ?? '', vorhandeneVersuche, data.gymElements)
+    return (benutzt[0] as GeraetKey) ?? null
+  }, [einheit, vorhandeneVersuche, data.gymElements])
 
   const [geraet, setGeraet] = useState<GeraetKey | null>(geraetAusVersuchen)
   const [day, setDay] = useState(einheit?.day ?? todayString())
@@ -188,12 +202,36 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
   const gesamt = Object.values(stand).reduce((n, s) => n + s.clean + s.shaky + s.failed, 0)
 
   /**
+   * Welche Geräte in dieser Einheit schon Versuche haben – aus dem
+   * Zählerstand, nicht aus der Datenbank. So ist die Markierung sofort da,
+   * noch bevor gespeichert wurde.
+   */
+  const benutzteGeraete = useMemo(() => {
+    const geraetVon = new Map(data.gymElements.map((e) => [e.id, e.apparatus]))
+    const zaehler = new Map<string, number>()
+    for (const st of Object.values(stand)) {
+      const n = st.clean + st.shaky + st.failed
+      if (n === 0) continue
+      const g = geraetVon.get(st.elementId)
+      if (!g) continue
+      zaehler.set(g, (zaehler.get(g) ?? 0) + n)
+    }
+    return zaehler
+  }, [stand, data.gymElements])
+
+  /**
    * Alles in EINEM Stapel: eine Datenbanktransaktion, ein Nachladen am Ende.
    * Einzeln geschrieben wären das bei zwölf Elementen dreizehn vollständige
    * Neuladungen des Datenbildes.
    */
   const speichern = () => {
-    const titel = geraet ? geraetName(geraet) : 'Turnen'
+    // Der Titel nennt ALLE Geraete der Einheit, nicht das gerade angezeigte.
+    // Sonst hiesse ein Training ueber Boden, Barren und Reck "Reck", nur weil
+    // dort zuletzt gezaehlt wurde.
+    const benutzt = GERAETE.filter((g) => benutzteGeraete.has(g.key)).map((g) => g.name)
+    const titel = benutzt.length
+      ? benutzt.join(' · ')
+      : geraet ? geraetName(geraet) : 'Turnen'
     m.batch(() => {
       const sessionId = einheit
         ? (m.patch('workout_sessions', einheit.id, {
@@ -226,17 +264,23 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
         <button className="btn btn-primary" onClick={speichern}>Speichern</button>
       </>}>
 
-      {/* Schritt 1: Gerät. Eine Reihe, ein Tipp. */}
-      <Field label="Gerät">
+      {/* Schritt 1: Gerät. Ein Umschalter – zwischen den Geräten lässt sich
+          beliebig wechseln, alles gehört derselben Einheit. */}
+      <Field label="Gerät" hint="Zum Wechseln antippen – alle Geräte gehören derselben Einheit.">
         <div className="turn-geraete">
-          {GERAETE.map((g) => (
-            <button key={g.key} type="button"
-              className={`turn-geraet${geraet === g.key ? ' aktiv' : ''}`}
-              onClick={() => setGeraet(geraet === g.key ? null : g.key)}>
-              <span className="turn-geraet-kurz">{g.kurz}</span>
-              <span className="turn-geraet-name">{g.name}</span>
-            </button>
-          ))}
+          {GERAETE.map((g) => {
+            const n = benutzteGeraete.get(g.key) ?? 0
+            return (
+              <button key={g.key} type="button"
+                className={`turn-geraet${geraet === g.key ? ' aktiv' : ''}${n > 0 ? ' benutzt' : ''}`}
+                onClick={() => setGeraet(g.key)}
+                aria-label={`${g.name}${n > 0 ? `, ${n} Versuche` : ''}`}>
+                <span className="turn-geraet-kurz">{g.kurz}</span>
+                <span className="turn-geraet-name">{g.name}</span>
+                {n > 0 && <span className="turn-geraet-marke">{n}</span>}
+              </button>
+            )
+          })}
         </div>
       </Field>
 
@@ -253,8 +297,9 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
           die ganze Elementliste und der Bildschirm wäre wieder ein Formular. */}
       {!geraet ? (
         <div className="hint-box small">
-          Gerät wählen, um Elemente zu zählen. Ohne Gerät wird nur die Einheit
-          festgehalten – das ist ausdrücklich in Ordnung.
+          Gerät antippen, um dessen Elemente zu zählen. Du kannst jederzeit
+          wechseln – Gezähltes bleibt erhalten. Ohne jedes Gerät wird nur die
+          Einheit festgehalten, und das ist ausdrücklich in Ordnung.
         </div>
       ) : elemente.length === 0 ? (
         <Empty kompakt title={`Für ${geraetName(geraet)} sind noch keine Elemente angelegt.`}
@@ -275,7 +320,13 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
       </Field>
 
       {gesamt > 0 && (
-        <div className="small muted">{gesamt} Versuche an {Object.values(stand).filter((s) => s.clean + s.shaky + s.failed > 0).length} Elementen</div>
+        <div className="small muted">
+          {gesamt} Versuche an{' '}
+          {Object.values(stand).filter((s) => s.clean + s.shaky + s.failed > 0).length} Elementen
+          {benutzteGeraete.size > 1 && (
+            <> · {GERAETE.filter((g) => benutzteGeraete.has(g.key)).map((g) => g.name).join(', ')}</>
+          )}
+        </div>
       )}
 
       <Confirm open={loeschen} title="Training löschen?"

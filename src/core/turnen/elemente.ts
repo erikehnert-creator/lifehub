@@ -119,7 +119,13 @@ function tagMinus(tag: DayString, n: number, tagDifferenz: (a: DayString, b: Day
 
 export interface GeraetBild {
   apparatus: string
-  /** Einheiten mit mindestens einem Versuch an diesem Gerät. */
+  /**
+   * Einheiten mit mindestens einem Versuch an diesem Gerät.
+   *
+   * Gezählt werden SITZUNGEN, nicht Tage. Der Unterschied fällt erst auf,
+   * wenn an einem Tag zweimal trainiert wurde – dann sind es zwei Einheiten
+   * und nicht eine.
+   */
   einheiten: number
   versuche: number
   zuletzt: DayString | null
@@ -135,6 +141,15 @@ export interface GeraetBild {
  * Gezählt wird über die Versuche, nicht über die Einheiten: Eine Einheit
  * „Turnen" ohne einen einzigen Versuch sagt nicht, an welchem Gerät sie
  * stattfand. Für „zuletzt trainiert je Gerät" ist das die ehrlichere Zahl.
+ *
+ * ---------------------------------------------------------------------------
+ * Eine Einheit, mehrere Geräte
+ *
+ * Ein normales Turntraining geht über Boden, Barren und Reck. Diese Rechnung
+ * zählt jedes Gerät für sich: Die Sitzung erscheint bei allen drei Geräten
+ * als trainiert, bleibt aber EINE Einheit. Die Dauer der Sitzung taucht hier
+ * bewusst gar nicht auf – sie hängt an der Sitzung und liesse sich sonst
+ * dreifach zählen.
  */
 export function geraetBilder(
   elemente: GymElement[],
@@ -166,20 +181,23 @@ export function geraetBilder(
     if (brauchtArbeitStatus.includes(e.status)) b.brauchtArbeit++
   }
 
-  const tageJeGeraet = new Map<string, Set<string>>()
+  // Je Geraet die Sitzungen, in denen es vorkam. Ueber die SITZUNG und nicht
+  // ueber den Tag: Wer an einem Tag zweimal in die Halle geht, hat zweimal
+  // trainiert.
+  const sitzungenJeGeraet = new Map<string, Set<string>>()
   for (const { block, day } of bloecke) {
     const apparatus = geraetVon.get(block.element_id)
     if (!apparatus) continue
     const b = hole(apparatus)
     b.versuche += (block.clean ?? 0) + (block.shaky ?? 0) + (block.failed ?? 0)
     if (!b.zuletzt || day > b.zuletzt) b.zuletzt = day
-    if (!tageJeGeraet.has(apparatus)) tageJeGeraet.set(apparatus, new Set())
-    tageJeGeraet.get(apparatus)!.add(day)
+    if (!sitzungenJeGeraet.has(apparatus)) sitzungenJeGeraet.set(apparatus, new Set())
+    sitzungenJeGeraet.get(apparatus)!.add(block.session_id)
   }
 
-  for (const [apparatus, tage] of tageJeGeraet) {
+  for (const [apparatus, sitzungen] of sitzungenJeGeraet) {
     const b = hole(apparatus)
-    b.einheiten = tage.size
+    b.einheiten = sitzungen.size
   }
   for (const b of out.values()) {
     b.tageHer = b.zuletzt ? Math.max(0, tagDifferenz(b.zuletzt, heute)) : null
@@ -204,4 +222,72 @@ export function langeNichtTrainiert(bilder: ElementBild[], anzahl = 5): ElementB
       return b.tageHer - a.tageHer
     })
     .slice(0, anzahl)
+}
+
+/* ------------------------------------------------ Geräte einer Einheit */
+
+/**
+ * Welche Geräte in einer Einheit vorkamen – abgeleitet, nicht gespeichert.
+ *
+ * ---------------------------------------------------------------------------
+ * Warum das keine Spalte an der Sitzung ist
+ *
+ * Ein Turntraining geht über mehrere Geräte. Man könnte sie an der Sitzung
+ * vermerken – dann müsste dieser Vermerk aber bei jedem Zähler nachgezogen
+ * werden, und der erste vergessene Nachzug wäre eine Sitzung, die an einem
+ * Gerät steht, an dem nichts passiert ist.
+ *
+ * Jedes Element trägt sein Gerät ohnehin (`gym_elements.apparatus`), und
+ * jeder Versuch zeigt auf ein Element. Das Gerät ist damit bereits
+ * eindeutig ableitbar – eine Spalte dafür wäre eine zweite Quelle für
+ * dieselbe Auskunft.
+ *
+ * Ein Versuch, dessen Element gelöscht wurde, wird übergangen: Sein Gerät
+ * ist nicht mehr feststellbar, und Raten wäre schlechter als Schweigen.
+ */
+export function geraeteDerEinheit(
+  sessionId: string,
+  versuche: GymAttempt[],
+  elemente: GymElement[],
+): string[] {
+  const geraetVon = new Map<string, string>()
+  for (const e of elemente) {
+    if (e.deleted_at) continue
+    geraetVon.set(e.id, e.apparatus)
+  }
+  const gefunden = new Set<string>()
+  for (const v of versuche) {
+    if (v.deleted_at || v.session_id !== sessionId) continue
+    if ((v.clean ?? 0) + (v.shaky ?? 0) + (v.failed ?? 0) === 0) continue
+    const g = geraetVon.get(v.element_id)
+    if (g) gefunden.add(g)
+  }
+  return [...gefunden]
+}
+
+/**
+ * Je Einheit die Geräte – in einem Durchgang für eine ganze Liste.
+ *
+ * Für die Einheitenliste: `geraeteDerEinheit` je Zeile aufzurufen wäre bei
+ * zweihundert Einheiten zweihundert Durchläufe über alle Versuche.
+ */
+export function geraeteJeEinheit(
+  versuche: GymAttempt[],
+  elemente: GymElement[],
+): Map<string, Set<string>> {
+  const geraetVon = new Map<string, string>()
+  for (const e of elemente) {
+    if (e.deleted_at) continue
+    geraetVon.set(e.id, e.apparatus)
+  }
+  const out = new Map<string, Set<string>>()
+  for (const v of versuche) {
+    if (v.deleted_at) continue
+    if ((v.clean ?? 0) + (v.shaky ?? 0) + (v.failed ?? 0) === 0) continue
+    const g = geraetVon.get(v.element_id)
+    if (!g) continue
+    if (!out.has(v.session_id)) out.set(v.session_id, new Set())
+    out.get(v.session_id)!.add(g)
+  }
+  return out
 }
