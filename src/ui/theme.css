@@ -1079,3 +1079,98 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .fest-marke { display: inline-flex; color: var(--bereich-plan); margin-right: 5px; vertical-align: -2px; }
 .kal-feiertag { font-size: 11px; }
 .kal-kopf .segment { margin-left: auto; }
+
+/* ---------------------------------------------------------------- Turnen
+   Die Zählerflächen sind bewusst grösser als alles andere in LifeHub.
+   Erfasst wird zwischen zwei Durchgängen, mit Magnesium an den Fingern –
+   ein Knopf in normaler Grösse wird dann nicht getroffen. 56 px sind das
+   Mass, das Apple und Google als kleinste sichere Trefferfläche nennen,
+   plus etwas Luft.
+
+   Keine eigenen Farben: Die Töne kommen aus --good / --warning / --critical,
+   also genau dort, wo auch Ampeln und Statuszeichen ihre Farbe holen. Die
+   rgba-Werte spiegeln die vorhandenen .pill-Regeln weiter oben.          */
+
+.turn-geraete {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(94px, 1fr));
+  gap: 6px;
+}
+.turn-geraet {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; min-height: 56px; padding: 6px 4px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); color: var(--text-2);
+  cursor: pointer;
+}
+.turn-geraet:hover { border-color: var(--border-strong); }
+.turn-geraet.aktiv {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--text);
+}
+.turn-geraet-kurz { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+.turn-geraet-name { font-size: 11px; color: var(--text-muted); }
+.turn-geraet.aktiv .turn-geraet-name { color: var(--text-2); }
+
+.turn-zaehler-liste { display: flex; flex-direction: column; gap: 8px; }
+
+.turn-zeile {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 10px 10px; background: var(--surface-1);
+}
+.turn-zeile.hat-versuche { border-color: var(--accent); background: var(--surface-2); }
+
+.turn-zeile-kopf {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;
+}
+.turn-zeile-name { font-size: 14px; font-weight: 600; flex: 1; }
+.turn-wert {
+  margin-left: 6px; padding: 1px 6px; border-radius: 6px;
+  background: var(--surface-3); color: var(--text-2);
+  font-size: 11px; font-weight: 700;
+}
+.turn-zeile-status { flex: 0 0 auto; }
+
+.turn-zaehler { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.turn-zaehler-knopf {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 56px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text-2); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.turn-zaehler-knopf:active { transform: scale(.97); }
+.turn-zaehler-zahl { font-size: 20px; font-weight: 700; line-height: 1.1; }
+.turn-zaehler-name { font-size: 10.5px; color: var(--text-muted); }
+
+.turn-zaehler-knopf.ton-gut.gesetzt {
+  background: rgba(12,163,12,.14); border-color: var(--good); color: var(--good-text);
+}
+.turn-zaehler-knopf.ton-warnung.gesetzt {
+  background: rgba(250,178,25,.16); border-color: var(--warning); color: var(--warn-text);
+}
+.turn-zaehler-knopf.ton-kritisch.gesetzt {
+  background: rgba(208,59,59,.14); border-color: var(--critical); color: var(--critical);
+}
+.turn-zaehler-knopf.gesetzt .turn-zaehler-name { color: inherit; opacity: .8; }
+
+.turn-zeile-fuss {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+}
+
+/* Gerätekacheln auf der Übersicht */
+.turn-kacheln {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
+}
+.turn-kachel {
+  display: block; width: 100%; text-align: left;
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; background: var(--surface-1); cursor: pointer;
+}
+.turn-kachel:hover { border-color: var(--border-strong); }
+.turn-kachel-name { font-size: 13.5px; font-weight: 600; }
+.turn-kachel-zahl { font-size: 19px; font-weight: 700; margin-top: 2px; }
+.turn-kachel-zusatz { font-size: 11.5px; color: var(--text-muted); }
+
+@media (max-width: 480px) {
+  .turn-geraete { grid-template-columns: repeat(3, 1fr); }
+  .turn-zaehler-knopf { min-height: 60px; }
+}

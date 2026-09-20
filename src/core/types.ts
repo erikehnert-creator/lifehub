@@ -340,6 +340,16 @@ export interface WorkoutSession extends BaseEntity {
   status: 'planned' | 'completed' | 'skipped' | 'rest'
   perceived_effort: number | null
   note: string | null
+  /**
+   * Welche Art Training. `'turnen'` kennzeichnet eine Geraeteinheit, deren
+   * Versuche in `gym_attempts` liegen; `'kraft'` waere eine mit
+   * `workout_sets`. `null` ist der Bestand vor Migration 14 und bleibt
+   * gueltig - eine Einheit ohne Kennzeichen ist keine Luecke.
+   *
+   * Bewusst eine eigene Spalte und nicht `type`: Dort steht der Schwerpunkt
+   * aus dem Trainingsplan als freier Text.
+   */
+  discipline: string | null
 }
 
 export interface WorkoutSet extends BaseEntity {

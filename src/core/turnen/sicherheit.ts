@@ -25,7 +25,6 @@
  */
 import type { GymAttempt } from '../types'
 import type { ElementStatus } from './status'
-import { versucheGesamt } from './versuche'
 
 export const SCHWELLEN = {
   /** Darunter wird nichts vorgeschlagen. */

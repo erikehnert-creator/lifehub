@@ -8,6 +8,7 @@ import { useAutomatik } from './state/automatik'
 import { TodayScreen } from './screens/Today'
 import { FinanceScreen } from './screens/Finance'
 import { PlannerScreen } from './screens/Planner'
+import { TurnenScreen } from './screens/Turnen'
 import { TrackingScreen } from './screens/Tracking'
 import { GoalsScreen } from './screens/Goals'
 import { AnalysisScreen } from './screens/Analysis'
@@ -79,6 +80,7 @@ const NAV: NavEintrag[] = [
 const NAV_MORE: NavEintrag[] = [
   { area: 'kalender', route: '#/plan/kalender', icon: 'kalender', label: 'Kalender' },
   { area: 'einkauf', route: '#/einkauf', icon: 'einkauf', label: 'Einkauf' },
+  { area: 'turnen', route: '#/turnen', icon: 'training', label: 'Turnen' },
   { area: 'ziele', route: '#/ziele', icon: 'ziele', label: 'Ziele' },
   { area: 'analysen', route: '#/analysen', icon: 'analysen', label: 'Analysen' },
   { area: 'suche', route: '#/suche', icon: 'suche', label: 'Suche' },
@@ -445,6 +447,7 @@ function Shell() {
       case 'finanzen': return <FinanceScreen sub={route.sub} params={route.params} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'plan': return <PlannerScreen sub={route.sub} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'tracking': return <TrackingScreen sub={route.sub} navigate={navigate} />
+      case 'turnen': return <TurnenScreen sub={route.sub} navigate={navigate} />
       case 'einkauf': return <ShoppingScreen />
       case 'ziele': return <GoalsScreen />
       case 'analysen': return <AnalysisScreen sub={route.sub} navigate={navigate} />

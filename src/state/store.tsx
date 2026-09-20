@@ -25,7 +25,7 @@ import { repariereVerwaisteTageswerte } from '../db/reparatur'
 import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
 import type {
-  Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession,
+  Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession, GymElement, GymAttempt,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
   ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
@@ -113,6 +113,8 @@ export interface AppData {
   events: CalendarEvent[]
   dayTypes: DayType[]
   sleepSessions: SleepSession[]
+  gymElements: GymElement[]
+  gymAttempts: GymAttempt[]
   importTokens: any[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
@@ -149,7 +151,7 @@ export interface AppData {
 const EMPTY: AppData = {
   settings: DEFAULT_SETTINGS,
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
-  tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [],
+  tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [], gymElements: [], gymAttempts: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -191,6 +193,8 @@ const LADER: Record<string, Lader> = {
   day_types: { schluessel: 'dayTypes', laden: () => list<DayType>('day_types', { orderBy: 'sort_order' }) },
   sleep_sessions: { schluessel: 'sleepSessions', laden: () => list<SleepSession>('sleep_sessions', { orderBy: 'day DESC' }) },
   import_tokens: { schluessel: 'importTokens', laden: () => list('import_tokens', { orderBy: 'created_at DESC' }) },
+  gym_elements: { schluessel: 'gymElements', laden: () => list<GymElement>('gym_elements', { orderBy: 'sort_order, name' }) },
+  gym_attempts: { schluessel: 'gymAttempts', laden: () => list<GymAttempt>('gym_attempts', { orderBy: 'sort_order' }) },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },
