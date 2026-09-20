@@ -1,5 +1,5 @@
 /**
- * Doppelte Konten und Kategorien: sammeln, anzeigen, zusammenführen.
+ * Doppelte Konten, Kategorien und Tagesarten: sammeln, anzeigen, zusammenführen.
  *
  * Die Entscheidung, welche Zeile bleibt, steht in core/dubletten.ts und ist
  * dort ohne Datenbank prüfbar. Hier wird sie ausgeführt.
@@ -22,6 +22,7 @@ import type { Mutations } from './store'
 export interface DublettenBefund {
   konten: Zusammenfuehrung[]
   kategorien: Zusammenfuehrung[]
+  tagesarten: Zusammenfuehrung[]
 }
 
 /* ------------------------------------------------------------- Einsammeln */
@@ -80,6 +81,31 @@ function kategorieVerweise(): Verweis[] {
   return out
 }
 
+/**
+ * Jede Stelle, an der eine Tagesart-Kennung steht.
+ *
+ * Nur zwei – aber beide wiegen schwer. `day_assignments` ist der bemalte
+ * Arbeitsplan; `task_templates` bindet eine Vorlage an eine Schicht.
+ *
+ * Letzteres ist der Grund, warum doppelte Tagesarten überhaupt auffallen:
+ * Die Automatik vergleicht die Kennung EXAKT (`vorlageGiltAm` in
+ * core/automation.ts). Hängt die Vorlage am einen Zwilling und der Kalender
+ * am anderen, greift sie nie mehr – die Aufgaben bleiben schlicht aus. Nicht
+ * doppelte Aufgaben also, sondern gar keine, und ohne jede Meldung.
+ */
+function tagesartVerweise(): Verweis[] {
+  const out: Verweis[] = []
+  const nimm = (tabelle: string, feld: string) => {
+    for (const r of list(tabelle as any, { includeDeleted: true }) as any[]) {
+      const ziel = r[feld]
+      if (ziel) out.push({ tabelle, feld, zeile: r.id, ziel })
+    }
+  }
+  nimm('day_assignments', 'day_type_id')
+  nimm('task_templates', 'day_type_id')
+  return out
+}
+
 /** Was gerade doppelt dasteht – ohne irgendetwas zu ändern. */
 export function findeDubletten(): DublettenBefund {
   const konten: DublettenZeile[] = (list('accounts') as any[]).map((a) => ({
@@ -90,9 +116,16 @@ export function findeDubletten(): DublettenBefund {
     id: c.id, name: c.name, art: c.kind, created_at: c.created_at, deleted_at: c.deleted_at,
   }))
 
+  // Die Art zaehlt mit: Eine Schicht "Frei" (off) und eine Tagesart "Frei"
+  // anderer Art waeren zwei Dinge, keine Dublette.
+  const tagesarten: DublettenZeile[] = (list('day_types') as any[]).map((t) => ({
+    id: t.id, name: t.name, art: t.kind, created_at: t.created_at, deleted_at: t.deleted_at,
+  }))
+
   return {
     konten: planeZusammenfuehrung(konten, kontoVerweise()),
     kategorien: planeZusammenfuehrung(kategorien, kategorieVerweise()),
+    tagesarten: planeZusammenfuehrung(tagesarten, tagesartVerweise()),
   }
 }
 
@@ -173,14 +206,15 @@ function zusammenfuehren(
 }
 
 /**
- * Konto oder Kategorie?
+ * Konto, Kategorie oder Tagesart?
  *
  * Am Anfangsbestand zu raten wäre unsicher – ein Konto darf durchaus bei 0
  * anfangen. Stattdessen wird nachgesehen, wo die Zeile tatsächlich liegt.
  */
-function tabelleVon(plan: Zusammenfuehrung): 'accounts' | 'categories' {
-  const alsKonto = list('accounts', {
-    includeDeleted: true, where: 'id = ?', params: [plan.behalten.id],
-  }) as any[]
-  return alsKonto.length ? 'accounts' : 'categories'
+function tabelleVon(plan: Zusammenfuehrung): 'accounts' | 'categories' | 'day_types' {
+  const liegtIn = (tabelle: 'accounts' | 'categories' | 'day_types') =>
+    (list(tabelle, { includeDeleted: true, where: 'id = ?', params: [plan.behalten.id] }) as any[]).length > 0
+  if (liegtIn('accounts')) return 'accounts'
+  if (liegtIn('categories')) return 'categories'
+  return 'day_types'
 }

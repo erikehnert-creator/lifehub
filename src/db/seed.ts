@@ -4,6 +4,7 @@
  */
 import { all } from './sqlite'
 import { tagesartFarbe, istStandardTagesartFarbe, TAGESART_FARBE } from '../core/tagesartFarben'
+import { stableId } from '../core/ids'
 import { insert, update } from './repo'
 import { todayString, addDays, holidaysForState } from '../core/dates'
 
@@ -167,8 +168,19 @@ export function seedIfEmpty(deviceId: string): void {
     ['Frei', 'FR', 'off', null, null, 0, 'var(--tag-frei)', 0],
     ['Krank', 'K', 'sick', null, null, 0, 'var(--tag-krank)', 0],
   ]
+  // Die ID wird aus dem Kürzel abgeleitet statt gewürfelt. Zwei Geräte, die
+  // unabhängig voneinander ihren Beispielbestand anlegen, erzeugen damit
+  // DIESELBE Zeile, und der Server führt sie über den Primärschlüssel
+  // zusammen - statt zweier "Frühschichten", die sich zum Verwechseln
+  // ähnlich sehen und trotzdem verschiedene Dinge sind.
+  //
+  // Das ist wichtiger, als es aussieht: Die Automatik vergleicht die
+  // Tagesart-Kennung einer Vorlage EXAKT. Hängt die Vorlage am einen
+  // Zwilling und der Arbeitsplan am anderen, entstehen gar keine Aufgaben
+  // mehr - ohne Meldung. Siehe state/dubletten.ts.
   dayTypes.forEach(([name, code, kind, s, e, br, color, work], i) => {
     insert('day_types', {
+      id: stableId('day_types', code),
       name, short_code: code, kind, default_start: s, default_end: e,
       break_minutes: br, color, counts_as_workday: work, sort_order: i,
     })

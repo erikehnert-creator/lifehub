@@ -128,7 +128,7 @@ async function main() {
   /* --------------------------------------------------- 3. Zusammenführen */
   await geh(p, '/einstellungen/sync')
   await p.waitForTimeout(1500)
-  const karte = p.locator('.card', { hasText: 'Doppelte Konten und Kategorien' })
+  const karte = p.locator('.card', { hasText: 'Doppelte Einträge' })
   pruefe('Die Aufräumkarte erscheint von selbst', await karte.count() > 0)
 
   const kartentext = await karte.first().innerText().catch(() => '')
@@ -161,7 +161,7 @@ async function main() {
 
   await geh(p, '/einstellungen/sync')
   await p.waitForTimeout(1500)
-  const wieder = await p.locator('.card', { hasText: 'Doppelte Konten und Kategorien' }).count()
+  const wieder = await p.locator('.card', { hasText: 'Doppelte Einträge' }).count()
   pruefe('Die Karte ist danach verschwunden', wieder === 0)
 
   pruefe('Keine Fehler in der Konsole', konsole.length === 0, konsole.slice(0, 2).join(' | '))

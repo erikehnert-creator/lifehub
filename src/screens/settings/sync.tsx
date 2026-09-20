@@ -22,7 +22,7 @@ import { resolvedSyncUrl, resolvedSyncKey, hasBuiltinSyncDefaults } from '../../
 /* ---------------------------------------------------------- Synchronisation */
 
 /**
- * Doppelte Konten und Kategorien zusammenführen.
+ * Doppelte Konten, Kategorien und Tagesarten zusammenführen.
  *
  * Steht hier und nicht bei den Konten, weil die Ursache hier liegt: Ein zweites
  * Gerät hat seinen Beispielbestand auf einen Server geladen, auf dem schon
@@ -37,9 +37,9 @@ export function DublettenKarte() {
   // Neu berechnet, sobald sich Konten oder Kategorien ändern.
   const befund = useMemo(
     () => findeDubletten(),
-    [data.accounts, data.categories, data.transactions],
+    [data.accounts, data.categories, data.transactions, data.dayTypes],
   )
-  const alle = [...befund.konten, ...befund.kategorien]
+  const alle = [...befund.konten, ...befund.kategorien, ...befund.tagesarten]
   if (!alle.length) return null
 
   const umzuege = alle.reduce((n, p) => n + p.umzuege.length, 0)
@@ -60,12 +60,22 @@ export function DublettenKarte() {
   }
 
   return (
-    <Card className="mb16" title="Doppelte Konten und Kategorien"
+    <Card className="mb16" title="Doppelte Einträge"
       sub={`${alle.length} Paar${alle.length === 1 ? '' : 'e'} gefunden`}>
       <div className="hint-box crit small mb12">
         Gleiche Namen, verschiedene Kennungen – das entsteht, wenn ein zweites Gerät
         seinen Beispielbestand auf einen Server lädt, auf dem schon Daten liegen.
       </div>
+
+      {befund.tagesarten.length > 0 && (
+        <div className="hint-box crit small mb12">
+          <strong>Doppelte Tagesarten wirken sich still aus.</strong> Eine Aufgabenvorlage,
+          die „nur bei Frühschicht" gilt, vergleicht die Kennung genau. Hängt sie am einen
+          Zwilling und dein Arbeitsplan am anderen, entstehen daraus <strong>gar keine
+          Aufgaben mehr</strong> – ohne Fehlermeldung. Nach dem Zusammenführen greifen die
+          Vorlagen wieder.
+        </div>
+      )}
 
       <div className="small mb12">
         LifeHub hängt alles um, was daran hängt ({umzuege} {umzuege === 1 ? 'Eintrag' : 'Einträge'}),

@@ -1,5 +1,5 @@
 /**
- * Doppelte Konten und Kategorien zusammenführen.
+ * Doppelte Konten, Kategorien und Tagesarten zusammenführen.
  *
  * ---------------------------------------------------------------------------
  * Wie sie entstehen
