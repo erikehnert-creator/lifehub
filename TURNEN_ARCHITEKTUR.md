@@ -1,6 +1,6 @@
 # Turnen in LifeHub – Architektur und Umsetzungsplan
 
-**Stand:** 20.09.2026 · Analyse und Planung, noch keine Umsetzung.
+**Stand:** 20.09.2026 · **Phase 1 umgesetzt** (Migration 14, Bereich `#/turnen`).
 **Geklärt:** Kür mit D-Wert · Erfassung je Element mit Zählern · Protokolle als PDF.
 
 Dieses Dokument hält fest, was der Bestand hergibt, welches Datenmodell daraus folgt und
@@ -588,3 +588,92 @@ daran, ob das Erfassen am Mittwochabend in der Halle in unter einer Minute erled
 
 Alles Weitere – Küren, Wettkämpfe, Auswertung, Empfehlungen – baut auf den Daten auf, die
 Phase 1 erzeugt. Ohne sie sind es leere Listen.
+
+---
+
+## 12. Was die Umsetzung von Phase 1 konkretisiert hat
+
+Der Plan hat sich getragen; umgeplant wurde nichts. An fünf Stellen hat die
+Umsetzung ihn geschärft:
+
+### 12.1 `with_help` ist ein Kennzeichen, keine Anzahl
+
+Geplant war „Anzahl mit Hilfestellung". Umgesetzt ist ein Kennzeichen für den
+ganzen Block (`with_help INTEGER`, 0 oder 1).
+
+Grund ist der Erfassungsweg: Neben den drei grossen Zählerflächen wäre ein
+vierter Zähler am Handy nicht mehr ehrlich auszufüllen. Für den Fortschritt,
+den man sehen will – von „mit Hilfe" nach „ohne" – genügt das Kennzeichen:
+Über die Wochen kippen die Blöcke von markiert nach unmarkiert, und genau das
+ist die Aussage.
+
+Im Statusvorschlag deckelt es weiterhin: Ein Element, das im Fenster auch nur
+einmal mit Hilfe geturnt wurde, bekommt höchstens „unsicher" vorgeschlagen.
+
+### 12.2 Die Gesamtzahl der Versuche wird nicht gespeichert
+
+Geplant war `attempts` neben `clean`, `shaky`, `failed`. Umgesetzt ist nur
+die Dreiteilung; die Summe wird gerechnet.
+
+Zwei Quellen für dieselbe Zahl können auseinanderlaufen – eine kann es nicht.
+Der Fall „ich habe zehn Versuche gemacht, aber nur sechs gezählt" ist damit
+nicht abbildbar, und das ist richtig so: Die Zähler *sind* die Aufzeichnung.
+
+### 12.3 Kein UNIQUE-Index auf (session_id, element_id)
+
+Der Dublettenschutz läuft allein über die abgeleitete ID
+(`stableId('gym_attempts', session_id, element_id)`). Ein zusätzlicher
+UNIQUE-Index wäre überflüssig und riskant:
+
+`tests/natuerliche-schluessel.test.ts` erkennt nur **einspaltige** UNIQUE
+(`/CREATE UNIQUE INDEX \w+ ON (\w+)\((\w+)\)/`). Ein zusammengesetzter Index
+liefe also durch die Prüfung hindurch – während `gen-supabase-sql.mjs` ihn auf
+dem Server streicht. Genau diese Asymmetrie (lokal UNIQUE, auf dem Server
+nicht) lässt `INSERT OR REPLACE` beim Holen still Zeilen löschen; so sind
+Eriks Ballaststoffwerte verschwunden.
+
+### 12.4 Fünf Statusstufen, nicht vier
+
+`wettkampfreif` ist dazugekommen. Im Kürturnen ist „steht im Training sicher"
+etwas anderes als „steht unter Wettkampfdruck", und diese Unterscheidung ist
+gerade das, was man wissen will.
+
+LifeHub schlägt diese Stufe **niemals** selbst vor – aus Trainingszahlen lässt
+sie sich nicht ablesen. Sie setzt nur der Turner.
+
+### 12.5 Die Schwellen des Statusvorschlags
+
+Sie stehen in `core/turnen/sicherheit.ts` und nirgends sonst:
+
+| | Wert | Bedeutung |
+|---|---|---|
+| `mindestVersuche` | 10 | Darunter **kein** Vorschlag – nicht einmal ein vorsichtiger |
+| `fensterTage` | 56 | Acht Wochen; ältere Versuche sagen über die heutige Form wenig |
+| `sicher` | 0,9 | Ab 90 % gelungen, ohne Sturz und ohne Hilfe |
+| `unsicher` | 0,6 | Darunter gilt es als „im Aufbau" |
+
+Sie sind eine **Verabredung, keine Messung** – es gibt keine Studie dazu, und
+das steht auch so im Code. Rund gewählt, damit man sie im Kopf nachrechnen
+kann. Die Mindestzahl folgt derselben Überlegung wie `MINDESTTAGE = 20` in
+`core/zusammenhaenge.ts`: Aus drei Versuchen lässt sich nichts ableiten.
+
+### 12.6 Gemessen
+
+`tests/turnen-benchmark.mjs`, mit 60 Elementen, 200 Einheiten und 2.000
+Versuchszeilen:
+
+| | |
+|---|---|
+| Navigation → Turnen | 17 ms |
+| Navigation → Elemente | 12 ms |
+| Erfassungsweg öffnen | 267 ms |
+| Ein Zählertipp | 45 ms |
+| Einheit mit 12 Elementen speichern | 423 ms |
+
+Der Gesamtbenchmark blieb unverändert (Kaltstart 2.267 → 2.255 ms, Abgleich
+6.766 → 6.733 ms) – die erwarteten ~5 % für zwei neue Tabellen sind nicht
+eingetreten, weil die Tabellen dort leer sind. Mit wachsendem Bestand ist mit
+den üblichen Kosten je Tabelle zu rechnen.
+
+Im E2E gemessen: **acht Berührungen** für eine Einheit mit fünf Versuchen an
+zwei Elementen.
