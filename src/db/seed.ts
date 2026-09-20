@@ -128,31 +128,33 @@ export function seedIfEmpty(deviceId: string): void {
   const today = todayString()
 
   // ---- Kategorien
+  // Abgeleitete IDs, damit zwei Geraete denselben Beispielbestand als DASSELBE
+  // erkennen - siehe den Block bei den Tagesarten weiter unten.
   EXPENSE_CATEGORIES.forEach(([name, icon, color], i) => {
-    insert('categories', { name, kind: 'expense', icon, color, sort_order: i, parent_id: null, is_archived: 0, is_system: 0, exclude_from_stats: 0 })
+    insert('categories', { id: stableId('categories', 'expense', name), name, kind: 'expense', icon, color, sort_order: i, parent_id: null, is_archived: 0, is_system: 0, exclude_from_stats: 0 })
   })
   INCOME_CATEGORIES.forEach(([name, icon], i) => {
-    insert('categories', { name, kind: 'income', icon, color: 'var(--series-6)', sort_order: i, parent_id: null, is_archived: 0, is_system: 0, exclude_from_stats: 0 })
+    insert('categories', { id: stableId('categories', 'income', name), name, kind: 'income', icon, color: 'var(--series-6)', sort_order: i, parent_id: null, is_archived: 0, is_system: 0, exclude_from_stats: 0 })
   })
 
   // ---- Konten
   const giro = insert('accounts', {
-    name: 'Girokonto', type: 'checking', currency: 'EUR', opening_balance_cents: 0,
+    id: stableId('accounts', 'Girokonto'), name: 'Girokonto', type: 'checking', currency: 'EUR', opening_balance_cents: 0,
     opening_date: today, color: 'var(--series-1)', icon: '🏦', is_active: 1,
     counts_as_savings: 0, counts_as_available: 1, include_in_net_worth: 1, sort_order: 0,
   })
   insert('accounts', {
-    name: 'Bargeld', type: 'cash', currency: 'EUR', opening_balance_cents: 0,
+    id: stableId('accounts', 'Bargeld'), name: 'Bargeld', type: 'cash', currency: 'EUR', opening_balance_cents: 0,
     opening_date: today, color: 'var(--series-4)', icon: '💵', is_active: 1,
     counts_as_savings: 0, counts_as_available: 1, include_in_net_worth: 1, sort_order: 1,
   })
   insert('accounts', {
-    name: 'Tagesgeld', type: 'savings', currency: 'EUR', opening_balance_cents: 0,
+    id: stableId('accounts', 'Tagesgeld'), name: 'Tagesgeld', type: 'savings', currency: 'EUR', opening_balance_cents: 0,
     opening_date: today, color: 'var(--series-3)', icon: '🐖', is_active: 1,
     counts_as_savings: 1, counts_as_available: 0, include_in_net_worth: 1, sort_order: 2,
   })
   insert('accounts', {
-    name: 'GIVE-Card', type: 'custom', currency: 'EUR', opening_balance_cents: 0,
+    id: stableId('accounts', 'GIVE-Card'), name: 'GIVE-Card', type: 'custom', currency: 'EUR', opening_balance_cents: 0,
     opening_date: today, color: 'var(--series-5)', icon: '🎁', is_active: 1,
     counts_as_savings: 0, counts_as_available: 1, include_in_net_worth: 1, sort_order: 3,
   })
