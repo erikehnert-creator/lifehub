@@ -644,6 +644,39 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_sleep_day ON sleep_sessions(day);
     `,
   },
+  {
+    id: 13,
+    name: 'import_tokens',
+    sql: `
+    ------------------------------------------------------------ Importzugang
+    -- Ein widerrufbarer Zugang fuer Geraete, die KEINE LifeHub-Anmeldung
+    -- haben koennen - derzeit der iOS-Kurzbefehl, der den Schlaf aus Apple
+    -- Health schickt.
+    --
+    -- Hier steht NUR der SHA-256-Abdruck, nie das Token selbst. Wer diese
+    -- Tabelle liest (auch auf einem gestohlenen Geraet), kann daraus keinen
+    -- Zugang herstellen. Das Token bekommt Erik beim Anlegen genau einmal zu
+    -- sehen; danach ist es nirgends mehr gespeichert.
+    --
+    -- Warum synchronisiert: So kann Erik den Zugang auf jedem Geraet sehen
+    -- und widerrufen, und die Zeilensicherheit des Servers gilt automatisch.
+    -- Abdruecke zu synchronisieren ist unbedenklich - sie sind nicht
+    -- umkehrbar.
+    --
+    -- Widerrufen heisst revoked_at setzen, nicht loeschen: Ein Zugang, der
+    -- einmal missbraucht wurde, soll als Spur erhalten bleiben.
+    CREATE TABLE import_tokens (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'schlaf',
+      last_used_at TEXT,
+      revoked_at TEXT,
+      ${BASE}
+    );
+    CREATE INDEX ix_import_tokens_hash ON import_tokens(token_hash);
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
@@ -659,7 +692,7 @@ export const SYNCED_TABLES = [
   'body_measurements', 'progress_photos', 'goals', 'goal_contributions',
   'notes', 'notifications', 'insights', 'task_templates', 'account_checks',
   'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries',
-  'sleep_sessions',
+  'sleep_sessions', 'import_tokens',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

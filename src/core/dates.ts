@@ -302,3 +302,17 @@ export function liveDurationPreview(rawDigits: string): string {
   if (rawDigits.length <= 2) return rawDigits
   return `${rawDigits.slice(0, -2)}:${rawDigits.slice(-2)}`
 }
+
+/**
+ * Die Uhrzeit aus einem ISO-Zeitpunkt – so, wie die Uhr am Ort sie zeigte.
+ *
+ * Bei einem Zeitstempel mit Versatz (`…T23:14:00+02:00`) steht die Ortszeit
+ * wörtlich im Text; sie herauszuschneiden ist deshalb richtiger, als daraus
+ * ein `Date` zu bauen. Denn `new Date(...)` rechnete auf die Zeitzone DIESES
+ * Geräts um – und eine Nacht, die im Urlaub um 23:14 begann, stünde zu Hause
+ * plötzlich mit einer anderen Uhrzeit da.
+ */
+export function uhrzeitAusIso(iso: string | null | undefined): string {
+  const m = /^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})/.exec((iso ?? '').trim())
+  return m ? `${m[1]}:${m[2]}` : '–'
+}

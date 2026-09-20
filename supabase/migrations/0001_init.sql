@@ -731,6 +731,24 @@ CREATE TABLE IF NOT EXISTS sleep_sessions (
 
 CREATE INDEX IF NOT EXISTS ix_sleep_day ON sleep_sessions(user_id, day);
 
+CREATE TABLE IF NOT EXISTS import_tokens (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      label text NOT NULL,
+      token_hash text NOT NULL,
+      scope text NOT NULL DEFAULT 'schlaf',
+      last_used_at text,
+      revoked_at text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_import_tokens_hash ON import_tokens(user_id, token_hash);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -1035,6 +1053,12 @@ DROP TRIGGER IF EXISTS trg_sleep_sessions_rev ON sleep_sessions;
 CREATE TRIGGER trg_sleep_sessions_rev BEFORE INSERT OR UPDATE ON sleep_sessions
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE import_tokens ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_import_tokens_rev ON import_tokens(server_rev);
+DROP TRIGGER IF EXISTS trg_import_tokens_rev ON import_tokens;
+CREATE TRIGGER trg_import_tokens_rev BEFORE INSERT OR UPDATE ON import_tokens
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1187,6 +1211,9 @@ REVOKE ALL ON food_entries FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON sleep_sessions TO authenticated;
 REVOKE ALL ON sleep_sessions FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON import_tokens TO authenticated;
+REVOKE ALL ON import_tokens FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1424,10 +1451,15 @@ DROP POLICY IF EXISTS sleep_sessions_own ON sleep_sessions;
 CREATE POLICY sleep_sessions_own ON sleep_sessions FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE import_tokens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS import_tokens_own ON import_tokens;
+CREATE POLICY import_tokens_own ON import_tokens FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 46 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 47 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1528,6 +1560,8 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM food_entries
   UNION ALL
   SELECT max(server_rev) AS rev FROM sleep_sessions
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM import_tokens
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;
@@ -1555,7 +1589,7 @@ REVOKE ALL ON sync_head FROM anon;
 -- Durchlauf, obwohl nichts falsch war.
 DO $$
 DECLARE ohne_rls text; ohne_regel text; anon_rechte text;
-  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions'];
+  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens'];
 BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

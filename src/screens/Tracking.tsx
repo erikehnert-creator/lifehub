@@ -18,6 +18,7 @@ import { ErnaehrungsTag } from './Ernaehrung'
 import { MetricInput } from '../ui/metricInput'
 import { Icon, BEREICH_FARBE, type IconName } from '../ui/icons'
 import type { FoodEntry, Metric, MetricEntry, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
+import { SchlafView } from './tracking/SchlafView'
 
 /** Wertebereich mit Einheit einmal am Ende, z. B. "18,0–22,0 kg" bzw. für Schlaf "7:00–8:00". */
 function formatRange(metric: Metric, min: number, max: number): string {
@@ -56,6 +57,7 @@ export function TrackingScreen({ sub, navigate }: { sub: string; navigate: (r: s
     { key: '', label: 'Tag' },
     { key: 'verlauf', label: 'Verlauf' },
     { key: 'training', label: 'Training' },
+    { key: 'schlaf', label: 'Schlaf' },
     { key: 'koerper', label: 'Körper' },
     { key: 'ziele', label: 'Zielbereiche' },
   ]
@@ -70,6 +72,7 @@ export function TrackingScreen({ sub, navigate }: { sub: string; navigate: (r: s
       {sub === '' && <DailyEntry />}
       {sub === 'verlauf' && <TrendView />}
       {sub === 'training' && <TrainingView />}
+      {sub === 'schlaf' && <SchlafView />}
       {sub === 'koerper' && <BodyView />}
       {sub === 'ziele' && <TargetsView />}
     </div>

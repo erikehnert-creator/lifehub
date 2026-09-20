@@ -302,3 +302,44 @@ export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
   }
   return { ok: true, proben }
 }
+
+/* ------------------------------------------------- Anlegen oder ändern */
+
+/** Die Felder, die aus Apple Health stammen – und nur die. */
+export const IMPORT_FELDER = [
+  'start_at', 'end_at', 'duration_min', 'awake_min',
+  'in_bed_min', 'core_min', 'deep_min', 'rem_min', 'source',
+] as const
+
+export type Entscheidung = 'neu' | 'geaendert' | 'gleich'
+
+/**
+ * Was mit einer eingegangenen Nacht geschehen soll.
+ *
+ * Drei Fälle, und der dritte ist der wichtigste:
+ *
+ *   neu        Für diesen Tag steht noch nichts da.
+ *   geaendert  Es steht etwas da, und Apple Health sagt inzwischen etwas
+ *              anderes – etwa, weil die Uhr nachträglich korrigiert hat.
+ *   gleich     Es steht dasselbe da. Dann wird NICHT geschrieben.
+ *
+ * Der dritte Fall ist der Alltag: Läuft der Kurzbefehl morgens zweimal, oder
+ * greift die Automation beim Entsperren mehrfach, kommt dieselbe Nacht
+ * mehrfach an. Ohne diesen Vergleich bekäme sie jedes Mal eine neue
+ * `version` und ein neues `updated_at` – und der Abgleich schöbe jedes Mal
+ * eine Änderung über alle Geräte, für die sich nichts geändert hat.
+ *
+ * Verglichen wird als Text, weil aus der Datenbank Zahlen auch als
+ * Zeichenkette zurückkommen können; `null` und „nicht gesetzt" gelten
+ * dabei als dasselbe.
+ */
+export function entscheideSchreiben(
+  alt: Record<string, any> | null | undefined,
+  neu: Nacht,
+): Entscheidung {
+  if (!alt) return 'neu'
+  const gleich = IMPORT_FELDER.every(
+    (f) => String(alt[f] ?? '') === String((neu as any)[f] ?? ''),
+  )
+  return gleich ? 'gleich' : 'geaendert'
+}

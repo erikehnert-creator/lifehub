@@ -67,39 +67,13 @@ export function shortId(len = 8): string {
  * oder bei zwei gleichzeitig geöffneten Geräten aber nicht gegeben.
  */
 
-/** Ein 32-Bit-FNV-1a-Durchlauf mit wählbarem Startwert. */
-function fnv1a(text: string, seed: number): number {
-  let h = seed >>> 0
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i)
-    // FNV-Primzahl 16777619, in 32 Bit multipliziert
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-  return h >>> 0
-}
-
 /**
- * Eine aus ihrem Inhalt abgeleitete, UUID-förmige ID.
+ * Die abgeleiteten IDs stehen in supabase/functions/_shared/stabileId.ts.
  *
- * `namespace` trennt die Anwendungsfälle voneinander, damit dieselben
- * Bestandteile in zwei verschiedenen Zusammenhängen nicht dieselbe ID
- * ergeben. Die Versionsstelle ist 8 (anwendungsdefinierte UUID nach RFC 9562)
- * – damit ist auf den ersten Blick erkennbar, dass die ID nicht zufällig ist.
+ * Dort, weil die Edge Function `schlaf` sie ebenfalls braucht und nicht in
+ * das Bündel der App hineinsehen kann. Zwei Fassungen derselben Rechnung
+ * wären hier besonders teuer: Wichen sie auch nur um ein Bit voneinander ab,
+ * entstünde je Nacht eine zweite Zeile – und weil `day` lokal UNIQUE ist,
+ * löschte `INSERT OR REPLACE` beim Holen still die vorhandene.
  */
-export function stableId(namespace: string, ...parts: (string | number)[]): string {
-  const input = [namespace, ...parts.map((p) => String(p))].join('\u0000')
-  // Vier Durchläufe mit verschiedenen Startwerten und leicht verändertem
-  // Text ergeben 128 Bit, die weit genug auseinanderliegen.
-  const words = [
-    fnv1a(input, 0x811c9dc5),
-    fnv1a(`${input}\u00011`, 0x9e3779b9),
-    fnv1a(`${input}\u00012`, 0x85ebca6b),
-    fnv1a(`${input}\u00013`, 0xc2b2ae35),
-  ]
-  const hex = words.map((w) => w.toString(16).padStart(8, '0')).join('')
-  const bytes = hex.match(/../g)!.map((h) => parseInt(h, 16))
-  bytes[6] = (bytes[6] & 0x0f) | 0x80 // Version 8: anwendungsdefiniert
-  bytes[8] = (bytes[8] & 0x3f) | 0x80 // Variante RFC 4122
-  const out = bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
-  return `${out.slice(0, 8)}-${out.slice(8, 12)}-${out.slice(12, 16)}-${out.slice(16, 20)}-${out.slice(20)}`
-}
+export { stableId } from '../../supabase/functions/_shared/stabileId'

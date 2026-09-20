@@ -18,6 +18,7 @@ import {
   type Session, type SyncRolle,
 } from '../../sync/auth'
 import { resolvedSyncUrl, resolvedSyncKey, hasBuiltinSyncDefaults } from '../../sync/config'
+import { SchlafImportKarte } from './schlafimport'
 
 /* ---------------------------------------------------------- Synchronisation */
 
@@ -193,6 +194,8 @@ export function SyncTab() {
       </Card>
 
       <DublettenKarte />
+
+      <SchlafImportKarte />
 
       <div className="mb16">
       <Collapsible label="Wie funktioniert die Synchronisation?">

@@ -42,6 +42,7 @@ import { formatMoney } from '../core/money'
 import { todayString } from '../core/dates'
 import { list } from '../db/repo'
 import { automatikMelden } from './meldungen'
+import { planeSchlafwerte, SCHLAF_QUELLE } from '../core/schlafMetrik'
 
 const UEBERTRAG_GELAUFEN = 'lifehub.automatik.gelaufen'
 
@@ -143,6 +144,34 @@ export function useAutomatik() {
         }
       }
 
+      /* ------------------------------------------------- Schlaf als Tageswert */
+      // Eine importierte Nacht traegt ihre Stundenzahl in die Metrik sleep_h
+      // nach - dort haengen Eriks Zielbereich, der Verlauf und die
+      // Zusammenhangsrechnung dran (core/schlafMetrik.ts).
+      //
+      // Gemeldet wird nichts: Das ist Buchhaltung, keine Handlung, und auf
+      // "Heute" stuende sonst jeden Morgen eine Zeile, die nichts erklaert.
+      const schlafwerte = planeSchlafwerte(
+        stand.sleepSessions,
+        stand.metrics.find((m) => m.key === 'sleep_h' && !m.deleted_at),
+        stand.metricEntries,
+      )
+      if (schlafwerte.length) {
+        const metrikId = stand.metrics.find((m) => m.key === 'sleep_h' && !m.deleted_at)!.id
+        mutations.batch(() => {
+          for (const w of schlafwerte) {
+            if (w.entryId) mutations.patch('metric_entries', w.entryId, { value_num: w.stunden })
+            else {
+              mutations.create('metric_entries', {
+                metric_id: metrikId, day: w.day, at_time: null,
+                value_num: w.stunden, value_text: null, note: null,
+                source: SCHLAF_QUELLE, import_batch_id: null,
+              })
+            }
+          }
+        })
+      }
+
       /* ---------------------------------------------------- Tagesübertrag */
       // Einmal pro Kalendertag und Gerät: Was gestern offen blieb, gehört in
       // den heutigen Plan. Datumsgetrieben, deshalb hier die Tagessperre.
@@ -171,5 +200,15 @@ export function useAutomatik() {
     app.ready, app.today,
     data.taskTemplates, data.tasks, data.recurring, data.transactions,
     data.dayAssignments, data.settings,
+    // Eine ueber den Abgleich hereingekommene Nacht soll ihren Tageswert
+    // sofort nachziehen, nicht erst bei der naechsten anderen Aenderung.
+    //
+    // data.metricEntries steht hier BEWUSST NICHT: Es aendert sich bei jedem
+    // einzelnen Ernaehrungseintrag, und der historische FatSecret-Import
+    // schreibt Zehntausende. Der Lauf haette dabei staendig neu angesetzt,
+    // ohne je etwas zu finden - gemessen rund sechs Prozent mehr Zeit fuer
+    // den Import. Gebraucht wird es nicht: Kommt eine Nacht herein, loest
+    // sleepSessions aus, und der Lauf liest die Eintraege ohnehin frisch.
+    data.sleepSessions,
   ])
 }

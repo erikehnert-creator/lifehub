@@ -113,6 +113,7 @@ export interface AppData {
   events: CalendarEvent[]
   dayTypes: DayType[]
   sleepSessions: SleepSession[]
+  importTokens: any[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
   holidays: any[]
@@ -148,7 +149,7 @@ export interface AppData {
 const EMPTY: AppData = {
   settings: DEFAULT_SETTINGS,
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
-  tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [],
+  tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -189,6 +190,7 @@ const LADER: Record<string, Lader> = {
   calendar_events: { schluessel: 'events', laden: () => list<CalendarEvent>('calendar_events', { orderBy: 'day, start_time' }) },
   day_types: { schluessel: 'dayTypes', laden: () => list<DayType>('day_types', { orderBy: 'sort_order' }) },
   sleep_sessions: { schluessel: 'sleepSessions', laden: () => list<SleepSession>('sleep_sessions', { orderBy: 'day DESC' }) },
+  import_tokens: { schluessel: 'importTokens', laden: () => list('import_tokens', { orderBy: 'created_at DESC' }) },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },

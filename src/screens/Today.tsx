@@ -30,7 +30,7 @@ import {
   accountBalances, availableMoney, netWorth, budgetProgress, expectedIncomeRest, forecastMonth, forecastStatus,
 } from '../core/finance'
 import { formatMoney, formatNumber } from '../core/money'
-import { todayString, formatDay, monthOf, weekdayLong, addDays, formatDuration, holidaysForState, relativeDay } from '../core/dates'
+import { todayString, formatDay, monthOf, weekdayLong, addDays, formatDuration, holidaysForState, relativeDay, uhrzeitAusIso } from '../core/dates'
 import { tasksForDay, computeCapacity, isOverdue, toggleTaskPatch, progressPatch } from '../core/planner'
 import { generateFinanceDayChecklist, financeChecklistRoute } from '../core/financeDay'
 import { dayValue, targetFor, evaluateZone, dailySeries, formatMetricValue } from '../core/metrics'
@@ -617,6 +617,11 @@ function SchlafUndGewicht({ day }: { day: string }) {
   const schlaf = data.metrics.find((x) => x.key === 'sleep_h' && !x.deleted_at)
   const gewicht = data.metrics.find((x) => x.key === 'weight_kg' && !x.deleted_at)
   const schlafWert = schlaf ? dayValue(data.metricEntries, schlaf, day) : null
+  // Gibt es eine gemessene Nacht, steht sie vor dem blossen Tageswert: "7 h
+  // 42 min" sagt mehr als "7,7 h", und die Uhrzeiten beantworten die Frage,
+  // die man morgens wirklich hat. Mehr gehoert hier nicht hin - das
+  // Ausfuehrliche steht unter Tracking.
+  const nacht = data.sleepSessions.find((n) => !n.deleted_at && n.day === day) ?? null
   // Gewogen wird nicht jeden Tag – dann zählt der letzte Wert der vergangenen zwei Wochen.
   const gewichtWert = useMemo(() => {
     if (!gewicht) return null
@@ -627,10 +632,19 @@ function SchlafUndGewicht({ day }: { day: string }) {
   if (!schlaf && !gewicht) return null
   return (
     <div className="kennzeilen mt12">
-      {schlaf && (
+      {(schlaf || nacht) && (
         <div className="kennzeile">
           <span className="kennzeile-name"><Icon name="schlaf" size={14} /> Schlaf</span>
-          <span className="kennzeile-wert">{schlafWert === null ? 'nicht eingetragen' : formatMetricValue(schlaf, schlafWert)}</span>
+          <span className="kennzeile-wert">
+            {nacht
+              ? <>
+                  {formatDuration(nacht.duration_min)}
+                  <span className="muted small"> · {uhrzeitAusIso(nacht.start_at)}–{uhrzeitAusIso(nacht.end_at)}</span>
+                </>
+              : schlafWert === null
+                ? 'nicht eingetragen'
+                : formatMetricValue(schlaf!, schlafWert)}
+          </span>
         </div>
       )}
       {gewicht && (
