@@ -749,6 +749,54 @@ CREATE TABLE IF NOT EXISTS import_tokens (
 
 CREATE INDEX IF NOT EXISTS ix_import_tokens_hash ON import_tokens(user_id, token_hash);
 
+CREATE TABLE IF NOT EXISTS gym_elements (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      apparatus text NOT NULL,
+      name text NOT NULL,
+      difficulty_letter text,
+      difficulty_value double precision,
+      element_group integer,
+      is_dismount integer NOT NULL DEFAULT 0,
+      hold_element integer NOT NULL DEFAULT 0,
+      status text NOT NULL DEFAULT 'neu',
+      video_url text,
+      note text,
+      is_active integer NOT NULL DEFAULT 1,
+      sort_order integer NOT NULL DEFAULT 0,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_elements_apparatus ON gym_elements(user_id, apparatus);
+
+CREATE TABLE IF NOT EXISTS gym_attempts (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      session_id text NOT NULL,
+      element_id text NOT NULL,
+      clean integer NOT NULL DEFAULT 0,
+      shaky integer NOT NULL DEFAULT 0,
+      failed integer NOT NULL DEFAULT 0,
+      with_help integer NOT NULL DEFAULT 0,
+      note text,
+      sort_order integer NOT NULL DEFAULT 0,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_attempts_session ON gym_attempts(user_id, session_id);
+
+CREATE INDEX IF NOT EXISTS ix_gym_attempts_element ON gym_attempts(user_id, element_id);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -773,6 +821,7 @@ ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_a_ug double precision;
 ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS vitamin_c_mg double precision;
 ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS calcium_mg double precision;
 ALTER TABLE food_entries ADD COLUMN IF NOT EXISTS iron_mg double precision;
+ALTER TABLE workout_sessions ADD COLUMN IF NOT EXISTS discipline text;
 
 
 -- server_rev: Sequenz, Index und Trigger je Tabelle
@@ -1059,6 +1108,18 @@ DROP TRIGGER IF EXISTS trg_import_tokens_rev ON import_tokens;
 CREATE TRIGGER trg_import_tokens_rev BEFORE INSERT OR UPDATE ON import_tokens
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE gym_elements ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_elements_rev ON gym_elements(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_elements_rev ON gym_elements;
+CREATE TRIGGER trg_gym_elements_rev BEFORE INSERT OR UPDATE ON gym_elements
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE gym_attempts ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_attempts_rev ON gym_attempts(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_attempts_rev ON gym_attempts;
+CREATE TRIGGER trg_gym_attempts_rev BEFORE INSERT OR UPDATE ON gym_attempts
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1214,6 +1275,12 @@ REVOKE ALL ON sleep_sessions FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON import_tokens TO authenticated;
 REVOKE ALL ON import_tokens FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_elements TO authenticated;
+REVOKE ALL ON gym_elements FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_attempts TO authenticated;
+REVOKE ALL ON gym_attempts FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1456,10 +1523,20 @@ DROP POLICY IF EXISTS import_tokens_own ON import_tokens;
 CREATE POLICY import_tokens_own ON import_tokens FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE gym_elements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_elements_own ON gym_elements;
+CREATE POLICY gym_elements_own ON gym_elements FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE gym_attempts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_attempts_own ON gym_attempts;
+CREATE POLICY gym_attempts_own ON gym_attempts FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 47 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 49 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1562,6 +1639,10 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM sleep_sessions
   UNION ALL
   SELECT max(server_rev) AS rev FROM import_tokens
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_elements
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_attempts
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;
@@ -1589,7 +1670,7 @@ REVOKE ALL ON sync_head FROM anon;
 -- Durchlauf, obwohl nichts falsch war.
 DO $$
 DECLARE ohne_rls text; ohne_regel text; anon_rechte text;
-  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens'];
+  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens', 'gym_elements', 'gym_attempts'];
 BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

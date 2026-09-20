@@ -677,6 +677,80 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_import_tokens_hash ON import_tokens(token_hash);
     `,
   },
+  {
+    id: 14,
+    name: 'turnen_elemente_und_versuche',
+    sql: `
+    ------------------------------------------------------------------ Turnen
+    -- Geraetturnen, erste Stufe: ein Elementkatalog und das, was in einer
+    -- Trainingseinheit daran passiert ist. Kueren, Wettkaempfe und
+    -- Empfehlungen kommen spaeter (siehe TURNEN_ARCHITEKTUR.md).
+    --
+    -- Es gibt KEINE eigene Sitzungstabelle. Eine Turneinheit ist eine
+    -- workout_sessions-Zeile mit discipline = 'turnen'. Eine zweite
+    -- Sitzungstabelle wuerde "Trainingstage" auf Heute, in den Analysen und
+    -- in der Jahresheatmap in zweierlei spalten.
+    --
+    -- Die Geraete sind bewusst KEINE Tabelle, sondern eine Konstante in
+    -- core/turnen/geraete.ts: sechs Werte, die sich seit Jahrzehnten nicht
+    -- aendern, gegen drei Abgleichanfragen je Synchronisation.
+    ALTER TABLE workout_sessions ADD COLUMN discipline TEXT;
+
+    -- Der Elementkatalog. "zuletzt trainiert" und "wie oft" stehen hier
+    -- bewusst NICHT als Spalten: Sie sind Ableitungen aus gym_attempts, und
+    -- der erste vergessene Nachzug machte sie still falsch.
+    CREATE TABLE gym_elements (
+      id TEXT PRIMARY KEY,
+      apparatus TEXT NOT NULL,
+      name TEXT NOT NULL,
+      difficulty_letter TEXT,
+      difficulty_value REAL,
+      element_group INTEGER,
+      is_dismount INTEGER NOT NULL DEFAULT 0,
+      hold_element INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'neu',
+      video_url TEXT,
+      note TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_elements_apparatus ON gym_elements(apparatus);
+
+    -- Eine Zeile je Element UND Einheit, nicht je Versuch: bei zwoelf
+    -- Elementen an einem Abend zwoelf Zeilen statt sechzig. Fuer jede Frage,
+    -- die das Modul beantworten soll, reichen Zaehlerstaende.
+    --
+    -- Die Gesamtzahl der Versuche wird NICHT gespeichert, sondern gerechnet
+    -- (clean + shaky + failed). Zwei Quellen fuer dieselbe Zahl koennen
+    -- auseinanderlaufen; eine kann es nicht.
+    --
+    -- with_help ist ein Kennzeichen fuer den ganzen Block, keine Anzahl.
+    -- Am Handy waere ein vierter Zaehler neben den drei grossen Flaechen
+    -- nicht mehr ehrlich auszufuellen; fuer den Fortschritt, den man sehen
+    -- will (von "mit" nach "ohne"), genuegt das Kennzeichen.
+    --
+    -- KEIN UNIQUE auf (session_id, element_id): Die ID wird aus genau diesem
+    -- Paar abgeleitet (core/turnen/versuche.ts), der Primaerschluessel
+    -- garantiert die Eindeutigkeit also schon. Ein zusaetzlicher UNIQUE-Index
+    -- stuende lokal, auf dem Server aber nicht - und genau diese Asymmetrie
+    -- laesst INSERT OR REPLACE beim Holen still Zeilen loeschen.
+    CREATE TABLE gym_attempts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      element_id TEXT NOT NULL,
+      clean INTEGER NOT NULL DEFAULT 0,
+      shaky INTEGER NOT NULL DEFAULT 0,
+      failed INTEGER NOT NULL DEFAULT 0,
+      with_help INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_attempts_session ON gym_attempts(session_id);
+    CREATE INDEX ix_gym_attempts_element ON gym_attempts(element_id);
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
@@ -693,6 +767,7 @@ export const SYNCED_TABLES = [
   'notes', 'notifications', 'insights', 'task_templates', 'account_checks',
   'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries',
   'sleep_sessions', 'import_tokens',
+  'gym_elements', 'gym_attempts',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

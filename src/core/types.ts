@@ -420,3 +420,53 @@ export interface SleepSession extends BaseEntity {
   source: string | null
   note: string | null
 }
+
+/**
+ * Ein Turnelement.
+ *
+ * „Zuletzt trainiert" und „wie oft" stehen hier bewusst NICHT: Beides sind
+ * Ableitungen aus `GymAttempt` (core/turnen/elemente.ts). Als Spalten müssten
+ * sie bei jedem Training nachgezogen werden, und der erste vergessene Nachzug
+ * machte sie still falsch.
+ */
+export interface GymElement extends BaseEntity {
+  /** Schlüssel aus core/turnen/geraete.ts – kein Fremdschlüssel. */
+  apparatus: string
+  name: string
+  /** A…I, je nach Wertungsvorschrift. Frei, weil zyklusabhängig. */
+  difficulty_letter: string | null
+  /** Zahlenwert der Schwierigkeit, z. B. 0.3 – damit sich summieren lässt. */
+  difficulty_value: number | null
+  /** Elementgruppe I…V. Relevant für Küren (Phase 3). */
+  element_group: number | null
+  is_dismount: number
+  /** Haltekraftteil – an Ringen ein eigener Trainingsgegenstand. */
+  hold_element: number
+  /** Siehe core/turnen/status.ts. Wird nur vom Nutzer gesetzt. */
+  status: string
+  /** Nur ein Verweis. Videodaten werden NICHT synchronisiert (4 MB Grenze). */
+  video_url: string | null
+  note: string | null
+  is_active: number
+  sort_order: number
+}
+
+/**
+ * Was in einer Trainingseinheit an einem Element passiert ist.
+ *
+ * Eine Zeile je Element UND Einheit, nicht je Versuch. Die Gesamtzahl der
+ * Versuche wird nicht gespeichert, sondern gerechnet – zwei Quellen für
+ * dieselbe Zahl können auseinanderlaufen, eine kann es nicht.
+ *
+ * `with_help` ist ein Kennzeichen für den ganzen Block, keine Anzahl.
+ */
+export interface GymAttempt extends BaseEntity {
+  session_id: string
+  element_id: string
+  clean: number
+  shaky: number
+  failed: number
+  with_help: number
+  note: string | null
+  sort_order: number
+}
