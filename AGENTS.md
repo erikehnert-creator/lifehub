@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 671 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 755 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -116,6 +116,47 @@ Geschrieben wird beim Umzug nichts. Die alte Einstellung bleibt stehen, die neue
 entsteht erst bei der nächsten Änderung des Nutzers – ein Schreibvorgang während
 des Renderns wäre hier sonst kaum zu vermeiden. `tests/layout-umzug.test.ts`
 prüft das.
+
+## Schlafimport: zwei Stellen rechnen dieselbe ID
+
+Der Schlaf kommt ueber einen iOS-Kurzbefehl in die Edge Function `schlaf` und von
+dort in `sleep_sessions`. Die ID einer Nacht leitet sich aus `day` ab
+(`NATUERLICHER_SCHLUESSEL`). Damit ist der Import von selbst wiederholbar - und
+genau daran haengt auch die Gefahr:
+
+**App und Edge Function muessen bitgenau dieselbe ID ausrechnen.** Weichen sie ab,
+entsteht je Nacht eine zweite Zeile, und weil `day` lokal UNIQUE ist, loescht
+`INSERT OR REPLACE` beim Holen still die vorhandene. Derselbe Mechanismus, der
+Eriks Ballaststoffwerte verschwinden liess.
+
+Deshalb liegt die Rechnung genau EINMAL in `supabase/functions/_shared/stabileId.ts`;
+`src/core/ids.ts` reicht sie nur weiter. Dasselbe gilt fuer die Abdruckbildung der
+Importtoken (`_shared/importToken.ts`). Wer dort etwas aendert, aendert beide Seiten
+zugleich - `tests/schlaf-import.test.ts` rechnet die Gleichheit nach.
+
+Die Aggregation der Health-Proben steht in `supabase/functions/schlaf/aggregat.ts`
+und ist bewusst frei von Deno-Aufrufen, damit die Tests sie laden koennen (wie
+`pfade.ts` bei FatSecret). Sie rechnet mit der VEREINIGUNG der Zeitraeume, nicht
+mit ihrer Summe: `InBed` ueberlappt die Schlafphasen, und zwei Quellen (Apple Watch
+UND Sleep Cycle) schreiben dieselbe Nacht jeweils vollstaendig.
+
+**Eine Schlafqualitaet gibt es in HealthKit nicht.** Sleep Cycle behaelt seine
+Prozentzahl in der eigenen App. Was LifeHub daraus machte, waere LifeHubs Zahl -
+sie darf nicht als Sleep-Cycle-Wert ausgegeben werden. Die Bewertung leistet der
+Zielbereich von `sleep_h`.
+
+**Nach jeder Aenderung unter `supabase/functions/schlaf/` reicht ein Push nicht:**
+
+```
+npx supabase functions deploy schlaf --no-verify-jwt
+```
+
+`--no-verify-jwt` ist Absicht: Die Anfrage traegt bewusst kein Supabase-Token,
+sondern das Importtoken. Geprueft wird in der Funktion, nicht davor.
+
+```
+node tests/schlaf-e2e.mjs   # Anzeige, Tageswert, zweiter Abgleich, PC<->Handy
+```
 
 ## Eindeutige Spalten: die ID muss sich daraus ableiten
 
