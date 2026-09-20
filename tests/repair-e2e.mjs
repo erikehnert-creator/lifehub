@@ -15,6 +15,11 @@ import http from 'node:http'
 import path from 'node:path'
 import pg from 'pg'
 
+// Diese Pruefung spielt einen echten Datenexport ein. Der liegt bewusst NICHT
+// im Repo (Eriks Finanz- und Gesundheitsdaten). Ohne ihn wird sauber
+// uebersprungen, statt mit "ENOENT" abzubrechen.
+if (!brauche(ECHTDATEN, 'Ein Datenexport wird gebraucht – LIFEHUB_ECHTDATEN setzen.')) process.exit(0)
+
 const SUPA = 'http://127.0.0.1:54321'
 const ANON = 'anon-test-key'
 const MAIL = 'erik@test.de'

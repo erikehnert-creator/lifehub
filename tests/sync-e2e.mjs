@@ -1,300 +1,195 @@
 /**
- * Zwei Geräte, ein Server: der vollständige Abgleich einmal durchgespielt.
+ * Zwei Geräte, ein Server: der Abgleich einmal vollständig durchgespielt.
  *
- * "PC"    = die Einzeldatei LifeHub.html über file://
- * "Handy" = die gehostete Fassung aus dist/ über http, in Handygröße
+ * ---------------------------------------------------------------------------
+ * Was hier geprüft wird
  *
- * Beide sprechen mit dem Nachbau der Supabase-Schnittstellen, der auf einer
- * echten Postgres-Datenbank mit dem erzeugten Serverschema läuft.
+ *   1. Hinauf   PC lädt seinen Bestand auf den Server.
+ *   2. Herunter Das Handy meldet sich an und holt ihn – dieselben Konten,
+ *               dieselben Tagesarten, nichts doppelt.
+ *   3. Zurück   Das Handy legt ein Konto an, der PC sieht es nach dem
+ *               nächsten Abgleich.
+ *   4. Rückstand Ein Gerät bleibt „offline", während das andere weiterarbeitet.
+ *               Nach dem Wiederverbinden muss ALLES ankommen.
+ *   5. Kein Dominoeffekt: Scheitert eine einzelne Tabelle, müssen die anderen
+ *               trotzdem durchgehen. Genau das war einmal nicht so – als der
+ *               Server-Tabelle `calendar_events` eine Spalte fehlte, fiel
+ *               alles aus, was in SYNCED_TABLES danach kam (u. a. tasks und
+ *               metric_entries), stillschweigend.
+ *
+ * ---------------------------------------------------------------------------
+ * Was sich gegenüber der alten Fassung geändert hat
+ *
+ * Diese Prüfung ersetzt drei Skripte, die nirgends mehr liefen:
+ * `sync-e2e.mjs` (alt), `sync-e2e-cascade.mjs` und
+ * `sync-e2e-offline-backlog.mjs`. Sie brauchten ein echtes Postgres auf
+ * 127.0.0.1:5432 mit fest eingetragenem Passwort, teils einen Server in einem
+ * bestimmten kaputten Zustand – und `sync-e2e.mjs` zusätzlich einen Export von
+ * Eriks ECHTEN Finanz- und Gesundheitsdaten, der zu Recht nicht im Repo liegt.
+ *
+ * Jetzt: der Nachbau aus `_supabase-nachbau.mjs` (kein Postgres, kein
+ * Passwort) und der Bestand, den LifeHub beim ersten Start selbst anlegt
+ * (keine echten Daten). Damit läuft die Prüfung auf jedem Rechner und in
+ * GitHub Actions.
+ *
+ * Aufruf:  node tests/sync-e2e.mjs
  */
-import { chromium } from 'playwright'
-import { startOptionen, EINZELDATEI, DIST, ECHTDATEN, brauche } from './_browser.mjs'
-import fs from 'node:fs'
-import http from 'node:http'
+import { starteNachbau, ANON, MAIL, PASS } from './_supabase-nachbau.mjs'
+import {
+  starteWebserver, starteGeraet, anmelden, abgleich, geh, pruefer, DIST,
+} from './_sync-app.mjs'
+import { brauche, EINZELDATEI } from './_browser.mjs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const SUPA = 'http://127.0.0.1:54321'
-const ANON = 'anon-test-key'
-const MAIL = 'erik@test.de'
-const PASS = 'geheim123'
+const WURZEL = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const { pruefe, fehlend } = pruefer()
 
-/* ------------------------------------------------- dist/ über http anbieten */
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }
-const site = http.createServer((req, res) => {
-  const rel = decodeURIComponent(req.url.split('?')[0])
-  const file = path.join(DIST, rel === '/' ? 'index.html' : rel)
-  if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-    res.writeHead(404); res.end('nicht gefunden'); return
-  }
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream' })
-  res.end(fs.readFileSync(file))
-})
-await new Promise((r) => site.listen(8080, r))
+if (!brauche(path.join(WURZEL, 'LifeHub.html'), 'Erst `npm run build:single` ausführen.')) process.exit(0)
+if (!brauche(path.join(DIST, 'index.html'), 'Erst `npx vite build` ausführen (dist/ fehlt).')) process.exit(0)
 
-/* ------------------------------------------------------------- Hilfsmittel */
-const log = (...a) => console.log(...a)
-const fails = []
-const norm = (v) => String(v).replace(/\u00a0/g, ' ').trim()
-function pruefe(name, ist, soll) {
-  const ok = norm(ist) === norm(soll)
-  log(`${ok ? '  ok ' : '  FEHLER '} ${name}: ${ist}${ok ? '' : `  (erwartet: ${soll})`}`)
-  if (!ok) fails.push(name)
+const server = await starteNachbau({ port: 54398 })
+const web = await starteWebserver(8087)
+const ZUGANG = { url: server.url, anon: ANON, mail: MAIL, pass: PASS }
+
+/** Ein Konto über die Oberfläche anlegen – etwas, das man hinterher wiedererkennt. */
+async function legeKontoAn(g, name) {
+  await geh(g, '/finanzen/konten')
+  await g.page.locator('button', { hasText: '+ Konto' }).first().click()
+  await g.page.waitForTimeout(600)
+  await g.page.locator('.modal input').first().fill(name)
+  await g.page.locator('.modal button', { hasText: 'Speichern' }).first().click()
+  await g.page.waitForTimeout(1200)
 }
 
-async function starte(name, url, viewport) {
-  const dir = `/tmp/e2e-${name}`
-  fs.rmSync(dir, { recursive: true, force: true })
-  const ctx = await chromium.launchPersistentContext(dir, startOptionen({ viewport }))
-  const page = ctx.pages()[0] ?? await ctx.newPage()
-  const errors = []
-  page.on('pageerror', (e) => errors.push(String(e)))
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
-  await page.goto(url)
-  await page.waitForSelector('#root > *', { timeout: 40000 })
-  await page.waitForTimeout(2500)
-  return { ctx, page, url, errors, name }
+/**
+ * Einen Termin anlegen – damit `calendar_events` etwas zu senden hat.
+ *
+ * Über die Schnelleingabe, weil der Knopf dort auf jeder Seite erreichbar ist.
+ * Der Knopf am Ende heisst „Termin erstellen", nicht „Speichern" – beim
+ * Bearbeiten hiesse er anders.
+ */
+async function legeTerminAn(g, titel) {
+  await geh(g, '/heute')
+  await g.page.locator('.fab').first().click()
+  await g.page.waitForTimeout(600)
+  await g.page.locator('.modal button', { hasText: 'Termin' }).first().click()
+  await g.page.waitForTimeout(600)
+  await g.page.locator('.modal input').first().fill(titel)
+  await g.page.locator('.modal button', { hasText: 'Termin erstellen' }).first().click()
+  await g.page.waitForTimeout(1200)
 }
 
-const geh = async (d, hash) => { await d.page.goto(d.url + '#' + hash); await d.page.waitForTimeout(1200) }
-
-async function einrichten(d) {
-  await geh(d, '/einstellungen/sync')
-  await d.page.locator('input[placeholder*="supabase.co"]').fill(SUPA)
-  await d.page.locator('input[placeholder*="supabase.co"]').blur()
-  await d.page.waitForTimeout(300)
-  const felder = d.page.locator('.card', { hasText: 'Server' }).locator('input')
-  await felder.nth(1).fill(ANON)
-  await felder.nth(1).blur()
-  await d.page.waitForTimeout(500)
-  await d.page.locator('input[type=email]').fill(MAIL)
-  await d.page.locator('input[type=password]').fill(PASS)
-  await d.page.locator('button', { hasText: 'Anmelden' }).click()
-  await d.page.waitForTimeout(2500)
-  const txt = await d.page.innerText('#root')
-  return txt.includes('angemeldet als')
+async function kontoNamen(g) {
+  await geh(g, '/finanzen/konten')
+  const text = await g.page.innerText('#root')
+  return text
 }
 
-async function abgleich(d, fresh = false) {
-  await geh(d, '/einstellungen/sync')
-  if (fresh) {
-    await d.page.locator('button', { hasText: 'Dieses Gerät vom Server befüllen' }).click()
-    await d.page.waitForTimeout(600)
-    await d.page.locator('.modal button', { hasText: 'Vom Server befüllen' }).click()
-  } else if (await d.page.locator('button', { hasText: 'Diesen Bestand auf den Server laden' }).count()) {
-    // Erstverbindung: Dieses Gerät bringt die Daten mit.
-    await d.page.locator('button', { hasText: 'Diesen Bestand auf den Server laden' }).click()
-    await d.page.waitForTimeout(600)
-    await d.page.locator('.modal button', { hasText: 'Auf den Server laden' }).click()
-  } else {
-    await d.page.locator('button', { hasText: 'Jetzt synchronisieren' }).click()
-  }
-  for (let i = 0; i < 120; i++) {
-    await d.page.waitForTimeout(1000)
-    const t = await d.page.innerText('#root')
-    const m = t.match(/(Synchronisiert:[^\n]*|Vom Server übernommen:[^\n]*|Auf den Server geladen:[^\n]*|Synchronisation fehlgeschlagen:[^\n]*|Nicht angemeldet[^\n]*)/)
-    if (m) return m[1]
-  }
-  return '(keine Rückmeldung)'
+let pc, handy
+try {
+  /* ------------------------------------------------- 1. PC lädt hinauf */
+  pc = await starteGeraet({ name: 'sync-pc', url: EINZELDATEI })
+  pruefe('PC startet', true)
+
+  const angemeldet = await anmelden(pc, ZUGANG)
+  pruefe('PC meldet sich am Server an', angemeldet)
+
+  const hinauf = await abgleich(pc)
+  pruefe('PC lädt seinen Bestand hoch', /geladen|Synchronisiert/.test(hinauf), hinauf)
+
+  const kontenAufServer = server.zeilen('accounts').length
+  pruefe('Die Konten liegen auf dem Server', kontenAufServer >= 4, `${kontenAufServer} Konten`)
+
+  const tagesartenAufServer = server.zeilen('day_types').length
+  pruefe('Die Tagesarten auch', tagesartenAufServer >= 7, `${tagesartenAufServer} Tagesarten`)
+
+  /* ------------------------------------------- 2. Handy holt herunter */
+  handy = await starteGeraet({
+    name: 'sync-handy', url: web.url, viewport: { width: 390, height: 844 },
+  })
+  pruefe('Handy startet', true)
+
+  const handyAn = await anmelden(handy, ZUGANG)
+  pruefe('Handy meldet sich an', handyAn)
+
+  const herunter = await abgleich(handy)
+  pruefe('Handy gleicht ab', /Synchronisiert|geladen/.test(herunter), herunter)
+
+  const handyText = await kontoNamen(handy)
+  pruefe('Handy sieht das Girokonto', handyText.includes('Girokonto'))
+
+  // Der eigentliche Punkt: Der Beispielbestand des Handys darf NICHT zusätzlich
+  // auf dem Server landen. Genau daraus entstanden Eriks doppelte Konten.
+  const kontenNachher = server.zeilen('accounts').length
+  pruefe('Nichts hat sich verdoppelt', kontenNachher === kontenAufServer,
+    `${kontenAufServer} vorher, ${kontenNachher} nachher`)
+
+  const tagesartenNachher = server.zeilen('day_types').length
+  pruefe('Auch die Tagesarten stehen einfach da', tagesartenNachher === tagesartenAufServer,
+    `${tagesartenAufServer} vorher, ${tagesartenNachher} nachher`)
+
+  /* ----------------------------------------- 3. Zurück zum PC */
+  await legeKontoAn(handy, 'Handy-Konto')
+  const zurueck = await abgleich(handy)
+  pruefe('Handy sendet sein neues Konto', /Synchronisiert/.test(zurueck), zurueck)
+
+  await abgleich(pc)
+  const pcText = await kontoNamen(pc)
+  pruefe('PC sieht das Konto vom Handy', pcText.includes('Handy-Konto'))
+
+  /* ------------------------------- 4. Rückstand nach längerer Trennung */
+  // Das Handy bleibt stehen, der PC arbeitet weiter.
+  await legeKontoAn(pc, 'Rueckstand A')
+  await legeKontoAn(pc, 'Rueckstand B')
+  await legeKontoAn(pc, 'Rueckstand C')
+  await abgleich(pc)
+
+  const aufServer = server.zeilen('accounts').map((a) => a.name)
+  pruefe('Alle drei Änderungen liegen auf dem Server',
+    ['Rueckstand A', 'Rueckstand B', 'Rueckstand C'].every((n) => aufServer.includes(n)))
+
+  await abgleich(handy)
+  const handyNachRueckstand = await kontoNamen(handy)
+  pruefe('Das Handy holt den ganzen Rückstand nach',
+    ['Rueckstand A', 'Rueckstand B', 'Rueckstand C'].every((n) => handyNachRueckstand.includes(n)))
+
+  /* ------------------------------------- 5. Eine Tabelle scheitert */
+  // Ab jetzt weist der Server `calendar_events` zurück – wie damals, als dort
+  // eine Spalte fehlte.
+  // Erst einen Termin anlegen - sonst hat `calendar_events` gar nichts zu
+  // senden und die Tabelle scheitert nie. Genau daran wäre diese Prüfung
+  // stillschweigend bedeutungslos geworden.
+  await legeTerminAn(pc, 'Zahnarzt')
+  server.setzeFehlerTabelle('calendar_events')
+  await legeKontoAn(pc, 'Trotzdem da')
+  const trotzFehler = await abgleich(pc)
+  pruefe('Der Abgleich meldet den Fehler, statt ihn zu verschlucken',
+    /Teilweise|fehlgeschlagen/.test(trotzFehler), trotzFehler)
+
+  const nachFehler = server.zeilen('accounts').map((a) => a.name)
+  pruefe('Die anderen Tabellen gehen trotzdem durch',
+    nachFehler.includes('Trotzdem da'),
+    nachFehler.includes('Trotzdem da') ? 'accounts kam an' : 'accounts blieb liegen')
+
+  server.setzeFehlerTabelle(null)
+  const geheilt = await abgleich(pc)
+  pruefe('Nach der Reparatur läuft der Abgleich wieder sauber',
+    /Synchronisiert/.test(geheilt), geheilt)
+
+  /* ------------------------------------------------ Konsolenfehler */
+  const echteFehler = [...pc.fehler, ...handy.fehler].filter(
+    (f) => !/favicon|manifest|Failed to load resource/i.test(f),
+  )
+  pruefe('Keine Fehler in der Konsole', echteFehler.length === 0, echteFehler.slice(0, 2).join(' | '))
+} finally {
+  await pc?.stop()
+  await handy?.stop()
+  await web.stop()
+  await server.stop()
 }
 
-const vermoegen = async (d) => {
-  await geh(d, '/finanzen')
-  await d.page.waitForTimeout(1500)
-  return ((await d.page.innerText('#root')).match(/Gesamtvermögen\s*\n?\s*([^\n]+)/) || ['', '—'])[1]
-}
-
-/* ================================================================== Ablauf */
-
-log('\n1) PC starten und die echten Daten einspielen')
-const pc = await starte('pc', EINZELDATEI, { width: 1280, height: 900 })
-await geh(pc, '/einstellungen')
-await pc.page.locator('button', { hasText: 'Daten & Backup' }).first().click()
-await pc.page.waitForTimeout(500)
-await pc.page.locator('input[type=file][accept*="json"]').first().setInputFiles(ECHTDATEN)
-await pc.page.waitForTimeout(1500)
-await pc.page.locator('.modal .btn-primary').first().click()
-await pc.page.waitForTimeout(4000)
-pruefe('PC Gesamtvermögen nach Import', await vermoegen(pc), '15.106 €')
-
-log('\n2) PC mit dem Server verbinden und alles hochladen')
-pruefe('PC angemeldet', await einrichten(pc), 'true')
-const r1 = await abgleich(pc)
-log('   →', r1)
-pruefe('PC hat Daten gesendet', /(Synchronisiert: [1-9]\d* gesendet|Auf den Server geladen: [1-9]\d*)/.test(r1), 'true')
-
-log('\n3) Handy starten (gehostete Fassung) und vom Server befüllen')
-const handy = await starte('handy', 'http://127.0.0.1:8080/', { width: 390, height: 844 })
-pruefe('Handy angemeldet', await einrichten(handy), 'true')
-const r2 = await abgleich(handy, true)
-log('   →', r2)
-pruefe('Handy Gesamtvermögen', await vermoegen(handy), '15.106 €')
-
-const buchungenHandy = async () => {
-  await geh(handy, '/finanzen/buchungen')
-  await handy.page.waitForTimeout(1200)
-  return ((await handy.page.innerText('#root')).match(/(\d+) Buchungen/) || ['', '0'])[1]
-}
-pruefe('Handy Buchungen', await buchungenHandy(), '67')
-
-log('\n4) Auf dem Handy eine Buchung erfassen')
-await geh(handy, '/finanzen')
-await handy.page.locator('.fab, button.fab').first().click()
-await handy.page.waitForTimeout(800)
-await handy.page.locator('.modal button', { hasText: 'Ausgabe' }).first().click()
-await handy.page.waitForTimeout(700)
-for (const k of ['1', '2', '3', '4']) {
-  await handy.page.locator('.numpad button', { hasText: new RegExp('^' + k + '$') }).first().click()
-}
-await handy.page.locator('button', { hasText: 'Weitere Angaben' }).click()
-await handy.page.waitForTimeout(400)
-await handy.page.locator('input[placeholder*="REWE"]').fill('Test vom Handy')
-await handy.page.locator('.modal .btn-primary, button.btn-primary').last().click()
-await handy.page.waitForTimeout(2000)
-const r3 = await abgleich(handy)
-log('   →', r3)
-pruefe('Handy hat gesendet', /(Synchronisiert: [1-9]\d* gesendet|Auf den Server geladen: [1-9]\d*)/.test(r3), 'true')
-
-log('\n5) PC abgleichen – die Handybuchung muss ankommen')
-const r4 = await abgleich(pc)
-log('   →', r4)
-await geh(pc, '/finanzen/buchungen')
-await pc.page.waitForTimeout(1500)
-const pcText = await pc.page.innerText('#root')
-pruefe('PC kennt die Handybuchung', pcText.includes('Test vom Handy'), 'true')
-pruefe('PC Buchungen', (pcText.match(/(\d+) Buchungen/) || ['', '0'])[1], '68')
-
-log('\n6) Änderung am PC – muss zurück aufs Handy')
-await pc.page.locator('.list-row', { hasText: 'Test vom Handy' }).first().click()
-await pc.page.waitForTimeout(800)
-await pc.page.locator('.modal input').first().fill('55,50')
-await pc.page.locator('.modal .btn-primary', { hasText: 'Speichern' }).click()
-await pc.page.waitForTimeout(1500)
-log('   →', await abgleich(pc))
-log('   →', await abgleich(handy))
-await geh(handy, '/finanzen/buchungen')
-await handy.page.waitForTimeout(1500)
-pruefe('Handy sieht den neuen Betrag', (await handy.page.innerText('#root')).includes('55,50'), 'true')
-
-log('\n7) Beleg am PC anhängen – muss aufs Handy wandern')
-await geh(pc, '/finanzen/buchungen')
-await pc.page.waitForTimeout(1000)
-await pc.page.locator('.list-row', { hasText: 'Test vom Handy' }).first().click()
-await pc.page.waitForTimeout(800)
-await pc.page.locator('.modal input[type=file][accept*="pdf"]').first().setInputFiles('/tmp/kassenzettel.jpg')
-await pc.page.waitForTimeout(1500)
-await pc.page.locator('.modal .btn-primary', { hasText: 'Speichern' }).click()
-await pc.page.waitForTimeout(1200)
-log('   →', await abgleich(pc))
-log('   →', await abgleich(handy))
-await geh(handy, '/finanzen/buchungen')
-await handy.page.waitForTimeout(1500)
-pruefe('Handy zeigt das Beleg-Symbol', (await handy.page.innerText('#root')).includes('📎'), 'true')
-await handy.page.locator('.list-row', { hasText: 'Test vom Handy' }).first().click()
-await handy.page.waitForTimeout(1000)
-pruefe('Beleg auf dem Handy vorhanden',
-  (await handy.page.innerText('.modal')).includes('kassenzettel'), 'true')
-const bild = await handy.page.locator('.modal .list-row button').first()
-await bild.click()
-await handy.page.waitForTimeout(1000)
-pruefe('Belegbild lässt sich öffnen', await handy.page.locator('.modal img').count() > 0, 'true')
-await handy.page.keyboard.press('Escape'); await handy.page.waitForTimeout(400)
-await handy.page.keyboard.press('Escape'); await handy.page.waitForTimeout(600)
-
-log('\n8) Löschen am Handy – muss am PC verschwinden')
-await geh(handy, '/finanzen/buchungen')
-await handy.page.locator('.list-row', { hasText: 'Test vom Handy' }).first().click()
-await handy.page.waitForTimeout(800)
-await handy.page.locator('.modal-foot button', { hasText: 'Löschen' }).first().click()
-await handy.page.waitForTimeout(700)
-// Der Bestätigungsdialog liegt über dem Editor – gezielt dort klicken
-// Der Bestätigungsdialog steckt im Editor-Fenster – deshalb die innere Ebene
-await handy.page.screenshot({ path: '/tmp/s-handy-loeschen.png' })
-await handy.page.locator('.overlay .overlay .modal-foot button', { hasText: 'Löschen' }).click()
-await handy.page.waitForTimeout(1500)
-log('   →', await abgleich(handy))
-log('   →', await abgleich(pc))
-await geh(pc, '/finanzen/buchungen')
-await pc.page.waitForTimeout(1500)
-const nachLoeschen = await pc.page.innerText('#root')
-pruefe('PC: Buchung ist weg', !nachLoeschen.includes('Test vom Handy'), 'true')
-pruefe('PC Buchungen wieder', (nachLoeschen.match(/(\d+) Buchungen/) || ['', '0'])[1], '67')
-
-log('\n9) Beide offline geändert – Konflikt bei einem Betrag')
-await pc.ctx.setOffline(true); await handy.ctx.setOffline(true)
-const zeile = async (d) => {
-  await geh(d, '/finanzen/buchungen')
-  await d.page.locator('.list-row').first().click()
-  await d.page.waitForTimeout(800)
-}
-await zeile(pc)
-await pc.page.locator('.modal input').first().fill('11,11')
-await pc.page.locator('.modal .btn-primary', { hasText: 'Speichern' }).click()
-await pc.page.waitForTimeout(1000)
-await zeile(handy)
-await handy.page.locator('.modal input').first().fill('22,22')
-await handy.page.locator('.modal .btn-primary', { hasText: 'Speichern' }).click()
-await handy.page.waitForTimeout(1000)
-// Nacheinander online nehmen – sonst löst der selbsttätige Abgleich die beiden
-// Änderungen hintereinander auf und es gibt gar keinen echten Zusammenstoß.
-// Das Handy bleibt offline, bis der PC seine Fassung auf dem Server hat.
-await pc.ctx.setOffline(false)
-log('   → PC   ', await abgleich(pc))
-await handy.ctx.setOffline(false)
-log('   → Handy', await abgleich(handy))
-
-// Welches Gerät zuletzt abgleicht, entscheidet, wo der Konflikt auftaucht –
-// mit dem selbsttätigen Abgleich ist das nicht mehr vorherbestimmt.
-const konfliktZahl = async (d) => {
-  await geh(d, '/einstellungen/sync')
-  await d.page.waitForTimeout(1000)
-  const m = (await d.page.innerText('#root')).match(/Offene Konflikte\s*\n?\s*(\d+)/)
-  return Number(m?.[1] ?? 0)
-}
-const proPC = await konfliktZahl(pc)
-const proHandy = await konfliktZahl(handy)
-log(`   Konflikte – PC: ${proPC}, Handy: ${proHandy}`)
-pruefe('Konflikt wird gemeldet statt still überschrieben', proPC + proHandy > 0, 'true')
-
-const betroffen = proHandy > 0 ? handy : pc
-const anderes = betroffen === handy ? pc : handy
-
-log('\n10) Konflikt entscheiden (auf dem Gerät, das ihn hat)')
-await geh(betroffen, '/einstellungen/sync')
-await betroffen.page.waitForTimeout(1000)
-const kkarte = betroffen.page.locator('.card', { hasText: 'entscheiden' }).first()
-pruefe('Konfliktkarte sichtbar', await kkarte.count(), '1')
-const ktext = await kkarte.innerText()
-pruefe('Konflikt nennt beide Werte', /22,22/.test(ktext) && /11,11/.test(ktext), 'true')
-pruefe('Konflikt in Klartext', /Buchung/.test(ktext) && /Betrag/.test(ktext), 'true')
-await kkarte.locator('button', { hasText: 'Meine Fassung' }).click()
-await betroffen.page.waitForTimeout(2000)
-pruefe('Konflikt ist erledigt', await konfliktZahl(betroffen), '0')
-
-// Der entschiedene Wert muss sich auf beiden Geräten durchsetzen
-const entschieden = /Dieses Gerät:\s*([\d.,]+)/.exec(ktext)?.[1] ?? '22,22'
-log('   → entschieden auf', entschieden)
-log('   →', await abgleich(betroffen))
-log('   →', await abgleich(anderes))
-await geh(anderes, '/finanzen/buchungen')
-await anderes.page.waitForTimeout(1500)
-pruefe('Das andere Gerät übernimmt die Entscheidung',
-  (await anderes.page.innerText('#root')).includes(entschieden), 'true')
-
-log('\n11) Fremder Zugang darf nichts sehen')
-const fremd = await fetch(`${SUPA}/auth/v1/token?grant_type=password`, {
-  method: 'POST', headers: { apikey: ANON, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: 'fremd@test.de', password: 'geheim123' }),
-}).then((r) => r.json())
-const fremdRows = await fetch(`${SUPA}/rest/v1/transactions?server_rev=gt.0&limit=500`, {
-  headers: { apikey: ANON, Authorization: `Bearer ${fremd.access_token}` },
-}).then((r) => r.json())
-pruefe('Fremder sieht Buchungen', Array.isArray(fremdRows) ? fremdRows.length : 'Fehler', '0')
-const ohneLogin = await fetch(`${SUPA}/rest/v1/transactions?server_rev=gt.0`, { headers: { apikey: ANON } })
-pruefe('Ohne Anmeldung abgewiesen', ohneLogin.status, '401')
-
-log('\nJS-Fehler PC   :', pc.errors.length, pc.errors.slice(0, 3))
-log('JS-Fehler Handy:', handy.errors.length, handy.errors.slice(0, 3))
-
-await pc.ctx.close(); await handy.ctx.close(); site.close()
-log(fails.length ? `\nFEHLGESCHLAGEN: ${fails.join(', ')}` : '\nAlle Prüfungen bestanden.')
-process.exit(fails.length ? 1 : 0)
+console.log(fehlend.length === 0
+  ? '\n=== alles bestanden ===\n'
+  : `\n=== ${fehlend.length} FEHLER: ${fehlend.join(', ')} ===\n`)
+process.exit(fehlend.length === 0 ? 0 : 1)

@@ -29,17 +29,14 @@ import { chromium } from 'playwright'
 import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
-import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { starteNachbau, ganzzahlSpalten, ANON, MAIL, PASS } from './_supabase-nachbau.mjs'
 
 const WURZEL = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const datei = (p) => 'file:///' + p.split(path.sep).join('/')
 const PORT = 54399
 const SUPA = `http://127.0.0.1:${PORT}`
-const ANON = 'anon-test-key'
-const MAIL = 'erik@test.de'
-const PASS = 'geheim123'
 
 let fehler = 0
 const pruefe = (name, ok, zusatz = '') => {
@@ -47,143 +44,15 @@ const pruefe = (name, ok, zusatz = '') => {
   else { console.log(`  FEHL ${name}${zusatz ? ' – ' + zusatz : ''}`); fehler++ }
 }
 
-/* ------------------------------------------- Spaltentypen aus dem Schema */
-
-/**
- * Die ganzzahligen Spalten je Tabelle, gelesen aus 0001_init.sql.
- * Gleiche Deutung wie in tests/schema-parity.test.ts – hier reicht uns, welche
- * Spalten `integer`/`bigint`/`smallint` sind.
- */
-function ganzzahlSpalten() {
-  const text = fs.readFileSync(path.join(WURZEL, 'supabase/migrations/0001_init.sql'), 'utf8')
-    .split(/\r?\n/).map((z) => z.replace(/--.*$/, '')).join('\n')
-
-  const out = new Map()
-  const merke = (tab, sp, typ) => {
-    if (!/^(integer|bigint|smallint)$/i.test(typ.trim())) return
-    if (!out.has(tab)) out.set(tab, new Set())
-    out.get(tab).add(sp)
-  }
-  const typVon = (rest) => {
-    const w = []
-    for (const t of rest.trim().split(/\s+/)) {
-      if (/^(NOT|NULL|DEFAULT|PRIMARY|REFERENCES|UNIQUE|CHECK|GENERATED|COLLATE|CONSTRAINT)$/i.test(t)) break
-      w.push(t)
-    }
-    return w.join(' ').replace(/\(.*$/, '')
-  }
-
-  const kopf = /CREATE TABLE IF NOT EXISTS (\w+)\s*\(/gi
-  for (let m = kopf.exec(text); m; m = kopf.exec(text)) {
-    const von = m.index + m[0].length
-    let tiefe = 1, i = von
-    for (; i < text.length && tiefe > 0; i++) {
-      if (text[i] === '(') tiefe++
-      else if (text[i] === ')') tiefe--
-    }
-    const teile = []
-    let stueck = '', t = 0
-    for (const c of text.slice(von, i - 1)) {
-      if (c === '(') t++
-      else if (c === ')') t--
-      if (c === ',' && t === 0) { teile.push(stueck); stueck = '' } else stueck += c
-    }
-    teile.push(stueck)
-    for (const teil of teile) {
-      const w = teil.trim().match(/^(\w+)\b/)
-      if (!w || /^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|EXCLUDE|LIKE)$/i.test(w[1])) continue
-      merke(m[1], w[1], typVon(teil.trim().slice(w[1].length)))
-    }
-  }
-  const nach = /ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)([^;]*);/gi
-  for (let m = nach.exec(text); m; m = nach.exec(text)) merke(m[1], m[2], typVon(m[3]))
-  return out
-}
-
 /* --------------------------------------------- Der strenge Server-Nachbau */
 
+/**
+ * Der Nachbau liegt in `_supabase-nachbau.mjs` – dieselbe Fassung, die auch
+ * sync-e2e benutzt. Vorher stand er hier ein zweites Mal wörtlich im Text.
+ */
 const INT = ganzzahlSpalten()
-const tabellen = new Map()      // tabelle -> Map(id -> zeile)
-let rev = 0
-const abgelehnt = []            // was der Server zurückgewiesen hat
-
-function pruefeGanzzahlen(tabelle, zeile) {
-  for (const spalte of INT.get(tabelle) ?? []) {
-    const v = zeile[spalte]
-    if (v === null || v === undefined || v === '') continue
-    const n = Number(v)
-    if (Number.isFinite(n) && !Number.isInteger(n)) {
-      return { code: '22P02', message: `invalid input syntax for type integer: "${v}"` }
-    }
-  }
-  return null
-}
-
-function antwort(res, status, body) {
-  const text = body === null ? '' : JSON.stringify(body)
-  res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer, x-client-info',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-  })
-  res.end(text)
-}
-
-const server = http.createServer((req, res) => {
-  if (req.method === 'OPTIONS') return antwort(res, 204, null)
-  const [pfad, query] = req.url.split('?')
-
-  if (pfad.startsWith('/auth/v1/token')) {
-    let body = ''
-    req.on('data', (c) => { body += c })
-    return req.on('end', () => antwort(res, 200, {
-      access_token: 'test-token', refresh_token: 'test-refresh', expires_in: 3600,
-      token_type: 'bearer', user: { id: '11111111-1111-1111-1111-111111111111', email: MAIL },
-    }))
-  }
-
-  const m = pfad.match(/^\/rest\/v1\/(\w+)$/)
-  if (!m) return antwort(res, 404, { message: 'nicht gefunden' })
-  const tabelle = m[1]
-  if (!tabellen.has(tabelle)) tabellen.set(tabelle, new Map())
-  const store = tabellen.get(tabelle)
-
-  if (req.method === 'GET') {
-    const ab = Number((query ?? '').match(/server_rev=gt\.(\d+)/)?.[1] ?? 0)
-    const zeilen = [...store.values()]
-      .filter((z) => Number(z.server_rev) > ab)
-      .sort((a, b) => a.server_rev - b.server_rev)
-    return antwort(res, 200, zeilen)
-  }
-
-  if (req.method === 'POST') {
-    let body = ''
-    req.on('data', (c) => { body += c })
-    return req.on('end', () => {
-      let zeilen
-      try { zeilen = JSON.parse(body) } catch { return antwort(res, 400, { message: 'kaputtes JSON' }) }
-
-      // PostgreSQL prüft die ganze Sendung, bevor es irgendetwas schreibt.
-      for (const z of zeilen) {
-        const schlecht = pruefeGanzzahlen(tabelle, z)
-        if (schlecht) {
-          abgelehnt.push(`${tabelle}.${Object.keys(z).find((k) => (INT.get(tabelle) ?? new Set()).has(k)
-            && !Number.isInteger(Number(z[k])) && z[k] !== null)}`)
-          return antwort(res, 400, schlecht)
-        }
-      }
-      const raus = []
-      for (const z of zeilen) {
-        const gespeichert = { ...z, server_rev: ++rev }
-        store.set(z.id, gespeichert)
-        raus.push(gespeichert)
-      }
-      return antwort(res, 200, raus)
-    })
-  }
-  return antwort(res, 405, { message: 'nicht erlaubt' })
-})
+let nachbau                       // wird in main() gestartet
+let tabellen, abgelehnt
 
 /* ---------------------------------------------------- Ablauf im Browser */
 
@@ -258,7 +127,9 @@ function basisFassung() {
 }
 
 async function main() {
-  await new Promise((r) => server.listen(PORT, '127.0.0.1', r))
+  nachbau = await starteNachbau({ port: PORT, ganzzahlen: true })
+  tabellen = nachbau.tabellen
+  abgelehnt = nachbau.abgelehnt
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lifehub-sync-'))
   const alt = path.join(tmp, 'LifeHub-alt.html')
@@ -346,10 +217,10 @@ async function main() {
   pruefe('Keine Fehler in der Konsole', konsole.length === 0, konsole.slice(0, 2).join(' | '))
 
   await ctx.close()
-  server.close()
+  await nachbau.stop()
 
   console.log(fehler === 0 ? '\n=== alles bestanden ===\n' : `\n=== ${fehler} Prüfung(en) fehlgeschlagen ===\n`)
   process.exit(fehler === 0 ? 0 : 1)
 }
 
-main().catch((e) => { console.error(e); server.close(); process.exit(1) })
+main().catch(async (e) => { console.error(e); await nachbau?.stop(); process.exit(1) })

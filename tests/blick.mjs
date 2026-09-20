@@ -6,6 +6,11 @@ import { chromium } from 'playwright'
 import { startOptionen, EINZELDATEI, DIST, ECHTDATEN, brauche } from './_browser.mjs'
 import fs from 'node:fs'
 
+// Diese Pruefung spielt einen echten Datenexport ein. Der liegt bewusst NICHT
+// im Repo (Eriks Finanz- und Gesundheitsdaten). Ohne ihn wird sauber
+// uebersprungen, statt mit "ENOENT" abzubrechen.
+if (!brauche(ECHTDATEN, 'Ein Datenexport wird gebraucht – LIFEHUB_ECHTDATEN setzen.')) process.exit(0)
+
 const ZIEL = '/tmp/blick'
 fs.rmSync(ZIEL, { recursive: true, force: true })
 fs.mkdirSync(ZIEL, { recursive: true })
