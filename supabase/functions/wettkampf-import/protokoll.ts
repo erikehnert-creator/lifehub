@@ -314,12 +314,12 @@ export function parseProtokoll(seiten: TextStueck[][]): ProtokollErgebnis {
           tag = genau(iso, geteilt[2])
           ort = genau(geteilt[1].trim(), geteilt[1].trim())
         } else {
-          ort = unklar(null, letzter)
-          tag = unklar(null, letzter)
+          ort = unklar<string>(null, letzter)
+          tag = unklar<string>(null, letzter)
         }
       } else {
-        ort = unklar(null, letzter)
-        tag = unklar(null, letzter)
+        ort = unklar<string>(null, letzter)
+        tag = unklar<string>(null, letzter)
       }
     }
 
@@ -379,13 +379,13 @@ function leseTeilnehmer(buendel: TextStueck[][], seite: number, klasse: string):
   return {
     seite,
     klasse,
-    rang: rangZahl.zahl === null ? unklar(null, rangRoh) : genau(rangZahl.zahl, rangRoh),
+    rang: rangZahl.zahl === null ? unklar<number>(null, rangRoh) : genau(rangZahl.zahl, rangRoh),
     name: nameRoh ? genau(nameRoh, nameRoh) : fehlt(),
     jahrgang: jahrTreffer ? genau(Number(jahrRoh), jahrRoh)
-      : jahrRoh ? unklar(null, jahrRoh) : fehlt(),
+      : jahrRoh ? unklar<number>(null, jahrRoh) : fehlt(),
     verein: vereinRoh ? genau(vereinRoh, vereinRoh) : fehlt(),
     geraete,
-    gesamt: gesamtZahl.zahl === null ? unklar(null, gesamtRoh) : genau(gesamtZahl.zahl, gesamtRoh),
+    gesamt: gesamtZahl.zahl === null ? unklar<number>(null, gesamtRoh) : genau(gesamtZahl.zahl, gesamtRoh),
   }
 }
 
@@ -420,10 +420,10 @@ function leseGeraet(
 
   return {
     apparatus,
-    d: !d ? fehlt() : d.zahl === null ? unklar(null, d.roh) : genau(d.zahl, d.roh),
-    e: !e ? fehlt() : e.zahl === null ? unklar(null, e.roh) : genau(e.zahl, e.roh),
+    d: !d ? fehlt() : d.zahl === null ? unklar<number>(null, d.roh) : genau(d.zahl, d.roh),
+    e: !e ? fehlt() : e.zahl === null ? unklar<number>(null, e.roh) : genau(e.zahl, e.roh),
     penalty: !abzug ? fehlt() : genau(Math.abs(abzug.zahl as number), abzug.roh),
-    final: endZahl.zahl === null ? unklar(null, endRoh) : genau(endZahl.zahl, endRoh),
+    final: endZahl.zahl === null ? unklar<number>(null, endRoh) : genau(endZahl.zahl, endRoh),
     marker: [...new Set(marker)],
   }
 }
