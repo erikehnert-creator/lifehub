@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 978 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.056 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
@@ -228,6 +228,36 @@ Funktion muss eigens veroeffentlicht werden:
 
 ```
 npx supabase functions deploy fatsecret --no-verify-jwt
+```
+
+## Der Protokollimport laeuft MIT JWT-Pruefung
+
+`supabase/functions/wettkampf-import/` liest Wettkampfprotokolle als PDF. Im
+Gegensatz zu `schlaf` wird sie OHNE `--no-verify-jwt` veroeffentlicht:
+
+```
+npx supabase functions deploy wettkampf-import
+```
+
+Der Grund ist der Absender. Der Schlafimport kommt von einem iOS-Kurzbefehl,
+der kein Supabase-Anmeldetoken hat und deshalb ein eigenes Importtoken traegt.
+Der Protokollimport kommt aus LifeHub selbst, wo Erik ohnehin angemeldet ist -
+also prueft Supabase das Token, bevor die Anfrage ankommt.
+
+Die Funktion **schreibt nichts in die Datenbank** und braucht den
+Dienstschluessel nicht. Sie gibt Vorschlaege zurueck; gespeichert wird in
+LifeHub nach ausdruecklicher Bestaetigung. Die PDF wird nicht abgelegt und
+nicht protokolliert.
+
+Die fachliche Logik liegt in `protokoll.ts` daneben und ist frei von Deno- und
+PDF-Aufrufen - dasselbe Muster wie `aggregat.ts` beim Schlaf. Nur so laesst
+sie sich aus `npm test` laden.
+
+```
+node tests/protokoll-integration.mjs   # PDF -> Werte, gegen das echte
+                                       # Protokoll; braucht `npm install
+                                       # --no-save unpdf`
+node tests/turnen-import-e2e.mjs       # der Weg durch die Oberflaeche
 ```
 
 ## FatSecret laeuft von selbst

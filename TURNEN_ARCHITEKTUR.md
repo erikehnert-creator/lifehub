@@ -1,7 +1,7 @@
 # Turnen in LifeHub – Architektur und Umsetzungsplan
 
-**Stand:** 21.09.2026 · **Phase 1, 1.1, 2A und 2B1 umgesetzt** (Migrationen 14, 15 und 16,
-Bereich `#/turnen` mit allen fünf Reitern).
+**Stand:** 22.09.2026 · **Phase 1, 1.1, 2A, 2B1 und 2B2 umgesetzt** (Migrationen 14, 15 und 16,
+Bereich `#/turnen` mit allen fünf Reitern, Protokollimport über eine Edge Function).
 **Geklärt:** Kür mit D-Wert · Erfassung je Element mit Zählern · Protokolle als PDF.
 
 **Die Phasen 2 und 3 haben die Plätze getauscht.** Die Küren kamen am 21.09.2026 vor
@@ -10,9 +10,9 @@ Wettkämpfe ohne Küren aber nur halb (der Verweis auf die geturnte Kür hätte 
 Leere gezeigt). Aus Phase 3 wurde damit **Phase 2A**, aus Phase 2 **Phase 2B**.
 
 **Phase 2B ist anschliessend in zwei Teile zerfallen:** **2B1** (Wettkämpfe,
-Ergebnisse, unveränderliche Kürfassungen) ist umgesetzt, **2B2** (PDF-Import)
-wartet weiterhin auf ein echtes Beispielprotokoll. Am Umfang ändert das nichts,
-nur an der Reihenfolge.
+Ergebnisse, unveränderliche Kürfassungen) und **2B2** (PDF-Import) sind seit
+dem 22.09.2026 beide umgesetzt. Am Umfang ändert das nichts, nur an der
+Reihenfolge.
 
 Dieses Dokument hält fest, was der Bestand hergibt, welches Datenmodell daraus folgt und
 in welchen Schritten das Turnen-Modul entstehen soll. Es ist die Grundlage für alle
@@ -373,6 +373,11 @@ Deshalb:
 
 ### 5.1 Digitale Protokolle: PDF aus einer Wettkampfsoftware
 
+> **Umgesetzt am 22.09.2026 als Phase 2B2.** Die Vermutungen dieses Abschnitts
+> haben sich bestätigt: Textebene vorhanden, Edge Function statt Bündel,
+> fachliche Logik daneben. Was das echte Protokoll darüber hinaus gezeigt hat –
+> und was der Leser deshalb wirklich tut – steht in **Abschnitt 15**.
+
 **Geklärt am 20.09.2026.** Die Protokolle kommen als PDF aus einer Wettkampfsoftware.
 Das ist der günstigste Fall: Solche PDFs haben in aller Regel eine **Textebene**, die
 Werte stehen also als Zeichen da und müssen nicht erkannt, sondern nur gefunden werden.
@@ -389,10 +394,11 @@ Bündel bleibt schlank, und der Import ist ohnehin kein Offline-Vorgang – die 
 kommen aus dem Netz. Die Zuordnungslogik („welche Zahl ist der E-Wert") liegt dann als
 reine, prüfbare Funktion daneben, genau wie `aggregat.ts` beim Schlaf.
 
-**Was noch fehlt, bevor das gebaut werden kann: ein Beispiel-PDF.** Ohne eines lässt sich
-weder das Layout erkennen noch ein Test schreiben, der etwas beweist. Ein einziges genügt
-– zwei aus verschiedenen Wettkämpfen wären besser, weil sich daran zeigt, was am Layout
-fest ist und was nicht.
+**Das Beispiel-PDF kam am 22.09.2026** – die Sächsischen Einzelmeisterschaften 2026 aus
+der Wettkampfsoftware SCORE. Es hat eine saubere Textebene, und zwar eine mit
+Koordinaten, die mehr hergibt als der blosse Fliesstext (Abschnitt 15.2). Die
+Einschränkung von damals gilt aber weiter: **Ein zweites Protokoll aus einem anderen
+Wettkampf steht noch aus.** Erst daran zeigt sich, was am Layout fest ist und was nicht.
 
 Auch beim PDF gilt die Regel aus 5.2 unverändert: **vorschlagen, nicht speichern.** Ein
 PDF-Layout kann sich ändern, und eine stillschweigend falsch zugeordnete Endnote fällt
@@ -563,16 +569,14 @@ späteren Küränderungen nicht berührt werden.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 14.
 
-### Phase 2B2 — PDF-Import
+### Phase 2B2 — PDF-Import *(umgesetzt am 22.09.2026, keine Migration)*
 
-**Blockiert:** Es fehlt weiterhin ein echtes Beispielprotokoll (offene Frage 1).
-Ohne eines lässt sich weder das Layout erkennen noch ein Test schreiben, der
-etwas beweist.
+`supabase/functions/wettkampf-import/` (Edge Function plus reiner Leser) ·
+`core/turnen/protokollImport.ts` · `sync/protokoll.ts` · Knopf im Reiter
+Wettkämpfe. Gelesen wird der Protokolltyp der Wettkampfsoftware SCORE –
+ausdrücklich kein universeller Wettkampf-PDF-Importer.
 
-Die Eingabeform steht bereit (`ErgebnisEingabe` in `core/turnen/wettkampf.ts`),
-der Importer füllt sie später nur – gespeichert wird erst auf Knopfdruck (5.2).
-Der Weg führt in einer Edge Function über den Text der PDF-Ebene (5.1); im
-Bündel ist dafür nichts hinzugekommen.
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 15.
 
 ### Phase 4 — Auswertung
 
@@ -610,7 +614,7 @@ wenn die Datenlage sie nicht trägt.
 
 ---
 
-## 10. Offene Fragen – Stand 20.09.2026
+## 10. Offene Fragen – Stand 22.09.2026
 
 ### Beantwortet
 
@@ -619,18 +623,27 @@ wenn die Datenlage sie nicht trägt.
 | Pflicht oder Kür? | **Kür mit D-Wert** | `difficulty_*`, `element_group`, `is_dismount` werden gebraucht; Phase 3 verwaltet eigene Küren (4.1) |
 | Erfassungstiefe? | **Je Element mit Zählern** | Phase 1 wie entworfen; der Erfassungsweg aus 7.3 ist der entscheidende Bildschirm |
 | Digitale Protokolle? | **PDF aus Wettkampfsoftware** | Import machbar, über eine Edge Function statt im Bündel (5.1) |
+| Wie sieht ein echtes Protokoll aus? | **Am 22.09.2026 lag eines vor** (SCORE, Sächsischer Turn-Verband) | Phase 2B2 umgesetzt; der Aufbau und die Regeln stehen in Abschnitt 15 |
 
 ### Noch offen
 
-1. **Ein Beispiel-PDF eines Wettkampfprotokolls** – blockiert den Importer in Phase 2,
-   nichts davor. Zwei PDFs aus verschiedenen Wettkämpfen wären besser als eines, weil
-   sich erst daran zeigt, was am Layout fest ist.
+1. **Ein Protokoll aus einem ANDEREN Wettkampf.** Die Frage von damals ist zur
+   Hälfte beantwortet: Ein Protokoll liegt vor, und der Importer liest es. Was
+   am Layout fest ist und was am einzelnen Wettkampf hängt, zeigt sich aber
+   erst an einem zweiten. Besonders aufschlussreich wären: ein Gerätefinale
+   (hat es Runden in einem Dokument? siehe 14.6), ein Mannschaftswettkampf,
+   ein Protokoll einer anderen Software und eines aus einem anderen Verband.
 
-2. **Nicht blockierend, erst für Phase 5:** Trainierst du nach einem Vereinsplan mit
+2. **Was bedeutet `(+)` im Protokoll?** Elf Zeilen tragen die Kennzeichnung am
+   D-Wert. Aus dem Protokoll allein geht nicht hervor, wofür sie steht.
+   LifeHub führt sie unverändert mit und deutet sie nicht. Sobald es jemand
+   sicher sagen kann, liesse sich daraus eine Angabe machen – vorher nicht.
+
+3. **Nicht blockierend, erst für Phase 5:** Trainierst du nach einem Vereinsplan mit
    festen Tagen, oder legst du die Tage selbst? Davon hängt ab, ob die
    Ersatz-Empfehlung bei Schichtkollision überhaupt freie Wahl hat.
 
-3. **Nicht blockierend, erst für Phase 1 im Detail:** Welche Elemente turnst du
+4. **Nicht blockierend, erst für Phase 1 im Detail:** Welche Elemente turnst du
    tatsächlich? Der Elementkatalog startet leer – ein Grundbestand deiner Elemente je
    Gerät würde den ersten Abend in der Halle deutlich abkürzen. Das lässt sich aber auch
    nebenbei beim ersten Erfassen anlegen.
@@ -1200,3 +1213,287 @@ ms, also unverändert.
 Die Erwartung aus 1.5 (rund 2,5 % je zwei Tabellen) liess sich damit nicht
 bestätigen und auch nicht widerlegen. Sie gilt für Tabellen mit Inhalt; im
 Benchmark sind die neuen leer.
+
+---
+
+## 15. Phase 2B2: der Protokollimport
+
+Umgesetzt am 22.09.2026. **Keine neue Migration** – der Import schreibt in die
+Tabellen aus Phase 2B1 und legt keine eigenen an.
+
+Grundlage ist erstmals ein echtes Protokoll: *Sächsische Einzelmeisterschaften
+männlich*, Bannewitz, 10.05.2026, erzeugt von der Wettkampfsoftware **SCORE**
+des Sächsischen Turn-Verbands. 12 Seiten, 12 Leistungs- und Altersklassen,
+95 Teilnehmer, 570 Gerätewertungen.
+
+### 15.1 Wie das Protokoll aufgebaut ist
+
+Jede Seite trägt genau eine Klasse und ist gleich gebaut:
+
+```
+Zeile 1   LK 2 AK 18-29
+Zeile 2   Sächsische Einzelmeisterschaften männlich | Bannewitz, 10.05.2026
+Zeile 3   Rang Name Verein Boden Pferd Ringe Sprung Barren Reck Gesamt
+danach    je Teilnehmer eine Zeile
+zuletzt   Seite 1/1
+```
+
+Die Spaltenreihenfolge ist auf allen zwölf Seiten identisch. **Boden ·
+Pferd · Ringe · Sprung · Barren · Reck · Gesamt** – geprüft, nicht
+angenommen.
+
+Eine Teilnehmerzeile besteht aus genau **16 Spaltenbündeln**:
+
+```
+Rang │ Name        │ Verein │ 2.9   │ 11.566 │ 3.1   │ … │ 67.181
+     │ (Jahrgang)  │        │ 8.666 │        │ 8.266 │   │
+     │             │        │ (-1.0)│        │       │   │
+```
+
+D-Wert, E-Wert und ein etwaiger Abzug stehen **übereinander in derselben
+Spalte**, die Endnote daneben.
+
+### 15.2 Warum über Koordinaten gelesen wird und nicht über den Fliesstext
+
+Der zusammengefügte Text ist an zwei Stellen mehrdeutig, die Koordinaten
+nicht sind:
+
+| Stelle | im Fliesstext | als Textstücke |
+|---|---|---|
+| Wettkampfname und Ort | „… männlich Bannewitz, 10.05.2026" – wo hört der Name auf? Bei „Bad Schandau" wäre jede Regel falsch | zwei Blöcke, x = 31 und x = 689 |
+| Name und Verein | Drei Teilnehmer haben **keinen Jahrgang**. Dann steht dort „Nachname, Vorname SV Beispielstadt" ohne Trennung | zwei Blöcke, x = 60 und x = 179 |
+
+Deshalb bekommt der Leser Textstücke mit x/y und keine Zeichenkette. Die
+Regeln, die daraus folgen:
+
+1. **Zeilen** entstehen durch senkrechte Verkettung: Zwei aufeinanderfolgende
+   Werte gehören zusammen, solange zwischen ihnen weniger als 12 Einheiten
+   liegen. Gemessen: eine Zeile ohne Abzug ist rund 9 Einheiten hoch, eine mit
+   Abzug 17, der Abstand zur nächsten Zeile 23.
+2. **Spalten** entstehen durch waagerechte Gruppierung: weniger als 5 Einheiten
+   Abstand heisst dieselbe Spalte.
+3. Innerhalb einer Spalte wird **von oben nach unten** gelesen – das ist die
+   Reihenfolge D, E, Abzug.
+4. Der **Spaltenkopf wird hart geprüft**. Steht dort etwas anderes, wird
+   abgelehnt (`format_unbekannt`), nicht geraten.
+5. Eine Zeile, die nicht 16 Bündel hat, wird mit einer Warnung übergangen –
+   der Rest des Protokolls geht dadurch nicht verloren.
+
+### 15.3 Die Sonderfälle, die in diesem Protokoll wirklich vorkommen
+
+| Fall | Anzahl | Was daraus folgt |
+|---|---|---|
+| **Abzüge** (−0.3, −1.0, −2.0, −3.0, −4.0) | 13 Wertungen in 12 Zeilen | Stehen als dritter Wert unter D und E, immer negativ. LifeHub führt sie als **Betrag**, weil `plausibilitaet()` mit `D + E − Abzug` rechnet. D, E und Endnote verschieben sich dadurch nicht. |
+| **Kennzeichnung `(+)`** | 11 Zeilen | Hängt am D-Wert, im selben Textstück: `"1.9 (+)"`. Die Zahl wird gelesen, die Marke **unverändert mitgeführt und nicht gedeutet** – was sie bedeutet, geht aus dem Protokoll nicht hervor. |
+| **Nullwerte** | 6 Zeilen | `0.0 / 0.000 / 0.000` ist eine echte Null und wird als Null übernommen. **Fehlend ist nicht null**: Ein nicht vorhandener Abzug bleibt `null` und erscheint als „—". |
+| **Kein Jahrgang** | 3 Teilnehmer | Der Jahrgang steht als zweites Stück unter dem Namen. Fehlt er, bleibt er leer – der Verein rutscht nicht in den Namen. |
+| **Zweistellige Ränge** | 20 Teilnehmer | Bis Rang 17. Keine Sonderbehandlung nötig. |
+| **Mehrteilige Namen** | mehrere | „Nachname, Vorname Zweitname", „Nachname, Vorname Zweitname" – ein Textstück, keine Trennung nötig. |
+| **Mehrteilige Vereine** | mehrere | „ESV Musterstadt", „KTV Musterstadt" |
+
+**Nachgerechnet:** In allen 570 Gerätewertungen geht `D + E − Abzug` mit der
+Endnote auf. Das ist die schärfste Probe darauf, dass nichts verrutscht ist –
+und ausdrücklich **keine** Wertungsregel, die LifeHub anwendet. Gerechnet wird
+weiterhin nichts; die Prüfung dient dem Leser, nicht der Note.
+
+### 15.4 Die Architektur
+
+```
+Browser                    Edge Function                   Browser
+─────────                  ─────────────                   ─────────
+PDF wählen
+  │  multipart + JWT
+  └────────────────────►   index.ts
+                           ├─ Grösse ≤ 8 MB
+                           ├─ %PDF-Signatur
+                           ├─ Seiten ≤ 200
+                           ├─ unpdf → Textstücke
+                           └─ protokoll.ts  (rein, testbar)
+                                  │  Vorschläge
+                                  └──────────────────────► Teilnehmer wählen
+                                                             │
+                                                           protokollImport.ts
+                                                             │
+                                                           ErgebnisEingabe[]
+                                                             │
+                                                           derselbe Editor
+                                                           wie die Handeingabe
+                                                             │
+                                                           „Import bestätigen"
+                                                             │
+                                                           planeErgebnisse()
+```
+
+**Der Parser läuft nicht im Bündel.** `LifeHub.html` liegt bei 2 MB; eine
+PDF-Bibliothek brächte rund ein weiteres MB mit, auf jedem Seitenaufruf. Der
+Import ist ohnehin kein Offline-Vorgang. Geprüft: `pdfjs` kommt im Bündel
+nicht vor; es ist um 9 kB gewachsen (Oberfläche und Abbildung).
+
+**Die fachliche Logik liegt neben der Funktion**, nicht darin:
+`protokoll.ts` ist frei von Deno-, Browser- und PDF-Aufrufen und bekommt
+fertige Textstücke. Dasselbe Muster wie `aggregat.ts` beim Schlaf – und der
+Grund, warum sich 43 Tests gegen das echte Protokoll rechnen lassen, ohne dass
+ein PDF im Spiel ist.
+
+### 15.5 Das Sicherheitsmodell
+
+Anders als beim Schlafimport, und der Unterschied ist Absicht:
+
+| | Schlafimport | Protokollimport |
+|---|---|---|
+| Anfrage kommt von | iOS-Kurzbefehl | LifeHub selbst |
+| Nachweis | Importtoken (SHA-256-Abdruck in der Datenbank) | **Supabase-Anmeldetoken** |
+| Veröffentlicht mit | `--no-verify-jwt` | **ohne** – Supabase prüft vorher |
+| Dienstschlüssel | gebraucht (schreibt in die Datenbank) | **nicht gebraucht und nicht gelesen** |
+| Schreibt in die Datenbank | ja | **nein** |
+
+Die Funktion gibt Vorschläge zurück, sonst nichts. Gespeichert wird in
+LifeHub, nach ausdrücklicher Bestätigung, über den gewöhnlichen Weg mit der
+Zeilensicherheit des angemeldeten Kontos.
+
+**Die PDF wird nicht abgelegt.** Sie lebt für die Dauer der Anfrage im
+Arbeitsspeicher. Im Protokoll der Funktion stehen nur Seitenzahl,
+Teilnehmerzahl und Dauer – keine Namen, keine Vereine, keine Noten, kein
+Dateiinhalt.
+
+### 15.6 Der Bedienablauf
+
+1. **Turnen → Wettkämpfe → „Protokoll importieren"**
+2. PDF auswählen. Grösse und Endung werden schon hier geprüft, damit ein
+   Fehlgriff nicht erst nach dem Upload auffällt.
+3. **Teilnehmer wählen.** Die Liste zeigt Name, Jahrgang, Verein, Klasse und
+   Rang. Gesucht wird über alles davon. Steht in den Einstellungen ein Name,
+   wird der passende Eintrag als **Vorschlag** markiert – aber nur bei genau
+   einem Treffer, und nichts wird übernommen.
+4. **Der gewöhnliche Wettkampfeditor geht auf**, vorbefüllt. Kein zweiter
+   Bildschirm, kein zweites Eingabemodell.
+5. Korrigieren, je Gerät eine **Kür wählen** (wird dann wie in 2B1
+   eingefroren), und **„Import bestätigen"**.
+
+Erst der letzte Klick schreibt. Vorher steht nichts in der Datenbank – dafür
+gibt es eine eigene Prüfung im E2E.
+
+**Ein zweiter Import desselben Protokolls** aktualisiert den vorhandenen
+Wettkampf, statt einen zweiten anzulegen: Erkannt wird er über Tag und Namen,
+die Ergebniszeilen führt `planeErgebnisse()` über `(Wettkampf, Gerät)`
+zusammen. Wer wirklich einen zweiten Eintrag will – Mehrkampf und
+Gerätefinale am selben Tag –, legt ihn von Hand an.
+
+### 15.7 Unsicherheit
+
+Drei Stufen, keine Prozentzahl: `exact`, `ambiguous`, `missing`. Für eine
+Wahrscheinlichkeit gäbe es hier keine Grundlage – die Struktur ist eindeutig
+oder sie ist es nicht.
+
+Was nicht sicher gelesen wurde, steht über den Feldern, mit dem **Rohtext aus
+dem Protokoll** daneben. Bei diesem Protokoll ist die Liste leer: Alles wurde
+eindeutig erkannt. Ein fehlender Abzug zählt bewusst **nicht** als
+Unsicherheit – kein Abzug ist der Normalfall.
+
+### 15.8 Was der Import ablehnt
+
+| Code | Wann |
+|---|---|
+| `keine_pdf` | keine PDF-Signatur, oder schon im Browser die falsche Endung |
+| `zu_gross` | über 8 MB |
+| `zu_viele_seiten` | über 200 Seiten |
+| `pdf_kaputt` | beschädigt oder verschlüsselt |
+| `keine_textebene` | gescanntes Protokoll ohne Text |
+| `format_unbekannt` | andere Spaltenköpfe |
+| `keine_teilnehmer` | richtiges Format, aber keine Zeile |
+| `nicht_veroeffentlicht` | die Funktion ist noch nicht auf dem Server |
+
+Jeder Fall nennt einen Satz, mit dem sich etwas anfangen lässt, und weist bei
+`format_unbekannt` auf die Handeingabe hin.
+
+### 15.9 Was dieser Importer NICHT ist
+
+**Kein universeller Wettkampf-PDF-Importer.** Getestet ist genau ein
+Protokolltyp: die PDF-Ausgabe der Wettkampfsoftware SCORE, wie sie der
+Sächsische Turn-Verband 2026 erzeugt hat. Ein anderes Layout wird abgelehnt,
+nicht erraten.
+
+**Keine Texterkennung.** Ein gescanntes Protokoll ohne Textebene wird
+abgelehnt. OCR bliebe ein späterer Ausbau und brächte die Fragen aus 5.2
+wieder mit – sie wäre nur dann vertretbar, wenn erkannte Werte weiterhin
+vorgeschlagen und nicht gespeichert werden.
+
+**Bekannte Grenzen:**
+
+- Der Wettkampfname kommt aus der Kopfzeile und lautet bei diesem Protokoll
+  für alle Klassen gleich. Enthielte eine PDF mehrere Wettkämpfe, bekäme man
+  einen Namen für alle.
+- Die **Klasse** wird als Text in `class_name` übernommen („LK 2 AK 18-29").
+  LifeHub deutet sie nicht.
+- Eine **Platzierung je Gerät** steht in diesem Protokolltyp nicht; das Feld
+  bleibt leer und lässt sich von Hand füllen.
+- Die Teilnehmersuche ist absichtlich grosszügig und findet über Name,
+  Verein, Jahrgang und Klasse. Zu „LK 2 AK 18-29" erscheinen deshalb auch
+  Teilnehmer anderer Klassen, deren Jahrgang eine 2 enthält. Die Klasse steht
+  in jeder Zeile daneben.
+- `(+)` bleibt ungedeutet.
+
+### 15.10 Gemessen
+
+Gegen das echte Protokoll (1,19 MB, 12 Seiten, 95 Teilnehmer), dreimal
+gelaufen, jedes Mal gleich:
+
+| | |
+|---|---|
+| PDF → Textstücke (`unpdf`) | 86 ms |
+| Textstücke → Struktur (`protokoll.ts`) | 4 ms |
+| zusammen auf dem Server | **90 ms** |
+
+In der Oberfläche, gegen den örtlichen Nachbau:
+
+| | |
+|---|---|
+| Hochladen und Teilnehmerliste (95 Namen) zeigen | 52 ms |
+| Teilnehmer wählen und Vorschau aufbauen | 256 ms |
+| Import bestätigen (Wettkampf + 6 Ergebnisse + Fassung) | 251 ms |
+
+Die Übertragung selbst hängt an der Verbindung und ist hier nicht gemessen:
+1,19 MB sind bei 10 Mbit/s rund eine Sekunde. Der Gesamtabgleich blieb
+unverändert (6.690 ms gegen 6.870/7.070 ms in Phase 2B1) – der Import legt
+keine Tabelle an.
+
+### 15.11 Der Testbestand und die Daten anderer Leute
+
+Das Protokoll nennt 95 Teilnehmer mit Namen, Jahrgang und Verein, überwiegend
+Minderjährige. **Dieses Repository ist öffentlich.** Weder die PDF noch ein
+Textbestand mit Klarnamen gehört hinein.
+
+`tests/fixtures/protokoll-score-2026.json` trägt deshalb **ersetzte Namen**.
+Unverändert sind: Ränge, Jahrgänge, Vereine, sämtliche Zahlen, Abzüge,
+Kennzeichnungen, Nullwerte, die fehlenden Jahrgänge und die Koordinaten.
+Eriks eigene Zeile steht im Klartext – es sind seine Daten.
+
+Neu erzeugen:
+
+```
+node scripts/protokoll-fixture.mjs <pdf> tests/fixtures/<name>.json --behalte Ehnert
+```
+
+Den ganzen Weg samt PDF prüft `tests/protokoll-integration.mjs`. Er läuft
+nicht in `npm test`, weil er `unpdf` und das echte Protokoll braucht, und
+meldet sich ab, wenn eines fehlt:
+
+```
+npm install --no-save unpdf
+node tests/protokoll-integration.mjs "<pfad/zum/protokoll.pdf>"
+```
+
+### 15.12 Veröffentlichen
+
+Ein Push reicht **nicht**. Die Funktion muss eigens veröffentlicht werden:
+
+```
+npx supabase functions deploy wettkampf-import
+```
+
+**Ohne** `--no-verify-jwt`, im Gegensatz zu `schlaf` – siehe 15.5. Bis dahin
+meldet der Import „Die Importfunktion ist auf dem Server noch nicht
+veröffentlicht"; alles andere am Turnen-Modul läuft davon unberührt weiter.
+
+Eine Datenbankänderung gibt es in dieser Phase nicht: `0001_init.sql` ist
+unverändert.
