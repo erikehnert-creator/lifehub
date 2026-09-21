@@ -34,11 +34,23 @@ const server = await starteNachbau({ port: 54397 })
 const web = await starteWebserver(8088)
 const ZUGANG = { url: server.url, anon: ANON, mail: MAIL, pass: PASS }
 
-const heute = new Date().toISOString().slice(0, 10)
+/**
+ * Heute – in ORTSZEIT, so wie `todayString()` in der App.
+ *
+ * `toISOString()` rechnet in UTC. Zwischen Mitternacht und zwei Uhr liegt
+ * Mitteleuropa einen Tag davor: Um 00:18 Uhr am 22. wäre das UTC-Datum noch
+ * der 21. Der Test legte die Nacht dann auf einen anderen Tag, als die
+ * Heute-Seite anzeigt, und die Prüfung fiel um – zuverlässig, aber nur
+ * nachts. Genau so ist sie am 22.09.2026 aufgefallen.
+ */
+const alsTag = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+const heute = alsTag(new Date())
 const tagVor = (n) => {
-  const d = new Date(`${heute}T12:00:00Z`)
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return alsTag(d)
 }
 
 /**
