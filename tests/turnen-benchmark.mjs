@@ -27,12 +27,24 @@
  *  12. Ein Ergebnis bearbeiten
  *  13. Den Wettkampf speichern
  *
+ * Seit Phase 2B2 zusätzlich der Protokollimport:
+ *
+ *  14. Protokoll hochladen und die Teilnehmerliste zeigen
+ *  15. Teilnehmer wählen und die Vorschau aufbauen
+ *  16. Den Import bestätigen
+ *
+ * Die PDF-Textextraktion steckt hier NICHT drin – der Nachbau deutet einen
+ * fertigen Textbestand. Sie misst `tests/protokoll-integration.mjs` gegen
+ * das echte Protokoll, mit derselben Bibliothek wie die Edge Function.
+ *
  * Aufruf:  node tests/turnen-benchmark.mjs [elemente] [einheiten] [kueren] [wettkaempfe]
  */
 import { starteNachbau, ANON, MAIL, PASS } from './_supabase-nachbau.mjs'
 import { starteGeraet, anmelden, abgleich, geh, DIST } from './_sync-app.mjs'
 import { brauche, EINZELDATEI } from './_browser.mjs'
 import { stableId } from '../supabase/functions/_shared/stabileId.ts'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -45,7 +57,13 @@ const WETTKAEMPFE = Number(process.argv[5] ?? 25)
 if (!brauche(path.join(WURZEL, 'LifeHub.html'), 'Erst `npm run build:single` ausführen.')) process.exit(0)
 
 const GERAETE = ['boden', 'pauschenpferd', 'ringe', 'sprung', 'barren', 'reck']
-const server = await starteNachbau({ port: 54395 })
+/* Den Protokollbestand mitgeben, damit sich auch der Importweg messen
+   laesst. Die PDF-Textextraktion steckt nicht darin - die misst
+   tests/protokoll-integration.mjs gegen das echte Protokoll. */
+const FIXTURE = path.join(WURZEL, 'tests', 'fixtures', 'protokoll-score-2026.json')
+const protokollBestand = fs.existsSync(FIXTURE)
+  ? JSON.parse(fs.readFileSync(FIXTURE, 'utf8')) : null
+const server = await starteNachbau({ port: 54395, protokoll: protokollBestand })
 const ZUGANG = { url: server.url, anon: ANON, mail: MAIL, pass: PASS }
 
 const jetzt = () => new Date().toISOString()
@@ -377,6 +395,41 @@ try {
   await miss('Abgleich nach den Wettkampfänderungen', async () => {
     await abgleich(pc)
   })
+
+  /* ------------------------------------------------ Protokollimport */
+
+  if (protokollBestand) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lifehub-bench-'))
+    const pdf = path.join(tmp, 'Protokoll.pdf')
+    fs.writeFileSync(pdf, Buffer.from('%PDF-1.4 Platzhalter fuer die Messung'))
+
+    await geh(pc, '/turnen/wettkaempfe', 1200)
+    await miss('Protokoll hochladen und Teilnehmerliste zeigen', async () => {
+      await pc.page.locator('button', { hasText: 'Protokoll importieren' }).first().click()
+      await pc.page.waitForSelector('.modal input[type=file]', { state: 'attached', timeout: 30000 })
+      await pc.page.locator('.modal input[type=file]').first().setInputFiles(pdf)
+      // Gewartet wird, bis die Teilnehmer wirklich dastehen - nicht nur,
+      // bis der Klick durch ist.
+      await pc.page.waitForSelector('.modal .list-row', { timeout: 30000 })
+    })
+
+    await miss('Teilnehmer waehlen und Vorschau aufbauen', async () => {
+      await pc.page.locator('.modal input[placeholder="Suchen…"]').first().fill('Ehnert')
+      await pc.page.waitForFunction(
+        () => document.querySelectorAll('.modal .list-row').length === 1, null, { timeout: 30000 })
+      await pc.page.locator('.modal .list-row').first().click()
+      await pc.page.waitForFunction(
+        () => document.querySelectorAll('.modal .wk-karte').length === 6, null, { timeout: 30000 })
+    })
+
+    await miss('Import bestaetigen', async () => {
+      await pc.page.locator('.modal').last()
+        .locator('button', { hasText: 'Import bestätigen' }).first().click()
+      await pc.page.waitForSelector('.modal', { state: 'detached', timeout: 30000 })
+    })
+
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
 
   const fehler = pc.fehler.filter((f) => !/favicon|manifest|Failed to load resource/i.test(f))
   if (fehler.length) console.log(`\n  ACHTUNG: ${fehler.length} Konsolenfehler: ${fehler[0]}`)
