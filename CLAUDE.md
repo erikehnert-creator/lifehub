@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 909 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 978 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der

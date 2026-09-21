@@ -1,14 +1,18 @@
 # Turnen in LifeHub – Architektur und Umsetzungsplan
 
-**Stand:** 21.09.2026 · **Phase 1, 1.1 und 2A umgesetzt** (Migrationen 14 und 15,
-Bereich `#/turnen` mit den Reitern Übersicht · Elemente · Training · Küren).
+**Stand:** 21.09.2026 · **Phase 1, 1.1, 2A und 2B1 umgesetzt** (Migrationen 14, 15 und 16,
+Bereich `#/turnen` mit allen fünf Reitern).
 **Geklärt:** Kür mit D-Wert · Erfassung je Element mit Zählern · Protokolle als PDF.
 
 **Die Phasen 2 und 3 haben die Plätze getauscht.** Die Küren kamen am 21.09.2026 vor
 den Wettkämpfen an die Reihe, weil sie ohne Wettkampfdaten nützlich sind, die
-Wettkämpfe ohne Küren aber nur halb (`gym_results.routine_id` hätte ins Leere
-gezeigt). Aus Phase 3 wurde damit **Phase 2A**, aus Phase 2 **Phase 2B**. Am Umfang
-der beiden ändert das nichts.
+Wettkämpfe ohne Küren aber nur halb (der Verweis auf die geturnte Kür hätte ins
+Leere gezeigt). Aus Phase 3 wurde damit **Phase 2A**, aus Phase 2 **Phase 2B**.
+
+**Phase 2B ist anschliessend in zwei Teile zerfallen:** **2B1** (Wettkämpfe,
+Ergebnisse, unveränderliche Kürfassungen) ist umgesetzt, **2B2** (PDF-Import)
+wartet weiterhin auf ein echtes Beispielprotokoll. Am Umfang ändert das nichts,
+nur an der Reihenfolge.
 
 Dieses Dokument hält fest, was der Bestand hergibt, welches Datenmodell daraus folgt und
 in welchen Schritten das Turnen-Modul entstehen soll. Es ist die Grundlage für alle
@@ -235,11 +239,28 @@ Zur **Schwierigkeit**: siehe 4.2. Es wird nichts erfunden.
 
 #### `gym_competitions` und `gym_results` — Wettkämpfe
 
+**Umgesetzt am 21.09.2026 (Migration 16), und an drei Stellen anders als hier
+entworfen.** Der Entwurf stand so:
+
 ```
 gym_competitions:  id, day, name, location, class_name, note, rank_allround
 gym_results:       id, competition_id, apparatus, routine_id, d_value, e_value,
                    penalty, final_score, rank, note
 ```
+
+Umgesetzt ist:
+
+```
+gym_competitions:  id, day, name, location, class_name,
+                   rank_allround, score_allround, protocol_url, note
+gym_results:       id, competition_id, apparatus, routine_version_id,
+                   d_score, e_score, penalty, final_score, rank_apparatus, note
+```
+
+Die drei Unterschiede und ihre Begründung stehen in Abschnitt 14.5. Der
+wichtigste: **`routine_version_id` statt `routine_id`.** Ein Verweis auf die
+lebende Kür hätte alte Wettkämpfe mitverändert, sobald die Kür bearbeitet wird
+– dazu Abschnitt 14.1 und die beiden neuen Tabellen darunter.
 
 Getrennt, weil ein Mehrkampf sechs Gerätewertungen und **eine** Mehrkampfplatzierung hat.
 In einer Tabelle stünden Name und Datum sechsmal, und die Mehrkampfplatzierung hätte
@@ -286,15 +307,20 @@ Konstante. Für Frauengeräte (Stufenbarren, Schwebebalken) oder Trampolin genü
           ▼                                    ▼
       exercises                           gym_elements ──┐
                                                ▲         │
-                                               │         │
                               gym_routine_elements       │
                                                ▲         │
-                                               │         │
-                                        gym_routines ────┤
+                                        gym_routines     │
                                                ▲         │
-                                               │         │
-   gym_competitions ──< gym_results ───────────┘         │
-                            (routine_id, apparatus)      │
+                         (nur Herkunft, nie für          │
+                          die Anzeige aufgelöst)         │
+                                               ┆         │
+   gym_competitions ──< gym_results ──> gym_routine_versions
+                        (routine_version_id)        │
+                                                    ▼
+                                   gym_routine_version_elements
+                                   (eingefrorene Kopie: Name,
+                                    Schwierigkeit, Gruppe,
+                                    Abgang, Reihenfolge)
                                                           │
                           metrics / metric_entries ◄──────┘
                           (optional: Tageswerte wie „Turnminuten")
@@ -472,7 +498,7 @@ in Elementen, Küren und Wettkämpfen.
 | **Elemente** | Liste, nach Gerät gefiltert, nach Status oder letztem Training sortierbar. Antippen öffnet die Elementansicht mit Verlauf, Notiz und Videoverweis. |
 | **Training** | Die Einheiten mit `discipline='turnen'`. Ganz oben der Knopf, um die heutige Einheit zu erfassen. |
 | **Küren** | *(Phase 2A, umgesetzt)* Nach Gerät gruppiert, je Kür Name, Zahl der Elemente, Schwierigkeitssumme und Hinweis auf unsichere Elemente. Die aktive Wettkampfkür steht oben und trägt eine Marke; Archiviertes liegt hinter einem Schalter. Antippen öffnet den Editor mit der sortierbaren Elementfolge. |
-| **Wettkämpfe** | Chronologisch, je Wettkampf die Gerätewertungen. Antippen zeigt das Protokoll. |
+| **Wettkämpfe** | *(Phase 2B1, umgesetzt)* Chronologisch, mit dem nächsten und dem letzten Wettkampf oben. Antippen zeigt je Gerät eine kompakte Karte mit D, E, Abzug, Endnote, Platzierung und der damals geturnten Kürfassung; beste und niedrigste Note sind markiert. Darunter die Auswertung: Verläufe je Gerät, Bestwerte, Starts. |
 
 ### 7.3 Der Erfassungsweg – der wichtigste Bildschirm
 
@@ -527,13 +553,26 @@ welche Elemente einer Kür gerade unsicher oder lange nicht dran waren.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 13.
 
-### Phase 2B — Wettkämpfe
+### Phase 2B1 — Wettkämpfe und historische Kürfassungen *(umgesetzt am 21.09.2026, Migration 16)*
 
-`gym_competitions`, `gym_results` (Migration 16) · `screens/turnen/Wettkaempfe.tsx` ·
-Eingabe von Hand mit Protokollfoto · Verläufe je Gerät · Verknüpfung
-`gym_results.routine_id` auf die Kür, mit der geturnt wurde ·
-`tests/turnen-wettkampf.test.ts` (Endnote-Plausibilität: D+E−Abzug ≈ Endnote, aber als
-**Hinweis**, nicht als Zwang – Protokolle haben Sonderfälle).
+`gym_competitions`, `gym_results`, `gym_routine_versions`,
+`gym_routine_version_elements` · `core/turnen/fassungen.ts`,
+`core/turnen/wettkampf.ts` · `screens/turnen/Wettkaempfe.tsx` · Eingabe von Hand ·
+Verläufe je Gerät · unveränderliche Kürfassungen, damit alte Wettkämpfe von
+späteren Küränderungen nicht berührt werden.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 14.
+
+### Phase 2B2 — PDF-Import
+
+**Blockiert:** Es fehlt weiterhin ein echtes Beispielprotokoll (offene Frage 1).
+Ohne eines lässt sich weder das Layout erkennen noch ein Test schreiben, der
+etwas beweist.
+
+Die Eingabeform steht bereit (`ErgebnisEingabe` in `core/turnen/wettkampf.ts`),
+der Importer füllt sie später nur – gespeichert wird erst auf Knopfdruck (5.2).
+Der Weg führt in einer Edge Function über den Text der PDF-Ebene (5.1); im
+Bündel ist dafür nichts hinzugekommen.
 
 ### Phase 4 — Auswertung
 
@@ -919,3 +958,245 @@ geordnete Liste von `element_id`; ein Versuch zeigt ebenfalls auf ein Element.
 daraus schon heute beantworten, ohne eine einzige neue Spalte. Was für „komplette
 Kür geturnt" fehlt, ist die Angabe *welche Kür* – und die gehört an die Einheit,
 wenn es so weit ist, nicht vorher.
+
+---
+
+## 14. Was die Umsetzung von Phase 2B1 konkretisiert hat
+
+Phase 2 des ursprünglichen Plans ist in zwei Teile zerfallen:
+
+- **2B1 – Wettkämpfe und historische Kürfassungen** *(umgesetzt am 21.09.2026,
+  Migration 16)*
+- **2B2 – PDF-Import** – wartet weiterhin auf ein echtes Beispielprotokoll
+  (offene Frage 1)
+
+Der Grund ist der Import selbst: Ohne ein Protokoll lässt sich weder das
+Layout erkennen noch ein Test schreiben, der etwas beweist. Alles andere an
+Phase 2 hängt nicht daran.
+
+### 14.1 Die zentrale Entscheidung: echte Fassungszeilen
+
+Ein Wettkampfergebnis muss historisch stabil bleiben. Turnt Erik im Oktober
+eine Reckkür und ändert sie im Dezember, muss der Oktober-Wettkampf weiterhin
+zeigen, *was damals geturnt wurde*.
+
+Ein `gym_results.routine_id`-Verweis auf `gym_routines` leistet das nicht. Die
+Kür dahinter ist veränderlich: Nach der Dezemberänderung zeigte der
+Oktober-Wettkampf die Dezemberfassung – ohne Fehler, ohne Meldung, und niemand
+merkte es. Dasselbe gilt für die Elemente; ein umbenanntes oder gelöschtes
+`gym_element` würde die Anzeige eines Jahre alten Wettkampfs verändern.
+
+Abgewogen wurden zwei Wege:
+
+| | **Fassungstabellen** (gewählt) | **JSON-Schnappschuss am Ergebnis** |
+|---|---|---|
+| Tabellen | zwei neue | keine |
+| Abgleichkosten | zwei Runden mehr | keine |
+| „Welche Wettkämpfe mit dieser Fassung?" | ein Vergleich | alle Ergebniszeilen parsen |
+| Zwei Wettkämpfe, dieselbe Kür | teilen sich eine Fassung | zwei gleiche Blöcke |
+| Anzeige | dieselben Zeilen wie die lebende Kür | ein zweiter Weg daneben |
+| Muster im Projekt | vorhanden | neu – strukturiertes JSON gibt es in Nutzdaten sonst nicht |
+
+Der Schnappschuss wäre **billiger**, aber nicht **sauberer** – und nur das war
+die Bedingung, unter der er zulässig gewesen wäre. `settings.value_json` ist
+ein Einstellungsblock, die `*_json` in `conflicts` sind rein lokal; ein drittes
+Muster nur an dieser Stelle hätte niemand vermutet.
+
+**Entschieden: `gym_routine_versions` und `gym_routine_version_elements`.**
+
+### 14.2 Das ist keine zweite Quelle für den aktuellen Zustand
+
+Dieses Dokument lehnt an drei Stellen gespeicherte Ableitungen ab („zuletzt
+trainiert", „Geräte einer Einheit", die aktive Wettkampfkür). Eine Fassung
+verstösst nicht dagegen, weil sie einen **anderen Gegenstand** beschreibt:
+nicht, wie die Kür *ist*, sondern wie sie an einem Tag *war*. Das lässt sich
+aus dem Heute grundsätzlich nicht ableiten – es ist die einzige Art von Angabe,
+die gespeichert werden *muss*.
+
+Der aktuelle Zustand bleibt allein in `gym_routines` und
+`gym_routine_elements`. In die Fassungstabellen wird nie geschrieben, wenn sich
+die lebende Kür ändert.
+
+### 14.3 Wann eine Fassung entsteht – und warum es kein „Version erstellen" gibt
+
+Erwogen war ein ausdrücklicher Knopf. Umgesetzt ist: **Die Fassung entsteht
+beim Auswählen einer Kür für ein Ergebnis**, ohne weiteren Handgriff.
+
+Der Grund ist derselbe wie bei der Erfassung (1.1): Ein zusätzlicher Schritt,
+den man vergessen kann, wird vergessen. Ein Knopf „Version erstellen" wäre
+genau dann nicht gedrückt worden, wenn er gebraucht würde – und der Verlust
+fiele erst Jahre später auf, wenn niemand mehr weiss, was damals geturnt wurde.
+
+Die ID kommt aus dem **Inhalt** (`fassungsId()`): Kür, Gerät, Name und die
+ganze Elementfolge. Daraus folgt alles, was die Bedienung einfach hält:
+
+- Zweimal dieselbe unveränderte Kür einfrieren trifft dieselbe Zeile. Zwei
+  Wettkämpfe mit derselben Kür teilen sich eine Fassung.
+- Ein zweites Speichern desselben Ergebnisses schreibt nichts.
+- Zwei Geräte, die offline dieselbe Kür einfrieren, erzeugen dieselbe ID; der
+  Server führt sie über den Primärschlüssel zusammen.
+- Ändert sich der Inhalt, ist es eine andere Fassung mit einer anderen ID. Die
+  alte bleibt unberührt stehen, und genau darauf zeigen die alten Ergebnisse.
+
+Es ist ausdrücklich **kein Git für Turnübungen**: Es gibt keine Versionsnummern,
+keine Historie zum Durchblättern, kein Zurücksetzen. Es gibt nur „die Fassung,
+mit der dieser Wettkampf geturnt wurde", beschriftet mit dem Tag, an dem sie
+zum ersten Mal festgehalten wurde.
+
+### 14.4 Welche Felder eingefroren werden
+
+| Feld | eingefroren | warum |
+|---|---|---|
+| `name` | **ja** | Umbenennen darf die Historie nicht umschreiben |
+| `difficulty_letter` / `_value` | **ja** | die Schwierigkeit von damals; die Summe muss reproduzierbar bleiben |
+| `element_group` | **ja** | gehört zur Zusammensetzung der Übung |
+| `is_dismount` | **ja** | der Abgang zählt gesondert und prägt die Übung |
+| `position` | **ja** | die Reihenfolge *ist* die Kür |
+| `apparatus`, Kürname | **ja** | beides ist an der lebenden Kür änderbar |
+| `element_id`, `routine_id` | nur als Herkunft | zeigen womöglich auf gelöschte Zeilen und werden für die Anzeige nie aufgelöst |
+| `status` | **nein** | Der Sicherheitsstand beschreibt den Turner *heute*. Gespeichert würde ausserdem der Stand im Moment des Einfrierens und nicht der am Wettkampftag – eine Zahl, die richtig aussieht und es nicht ist. |
+| `video_url`, Elementnotiz | **nein** | Trainingshilfen, kein Bestandteil der Übung |
+| Notiz am Kürplatz | **nein** | Arbeitsnotiz. Sie mitzufrieren hiesse, dass eine korrigierte Rechtschreibung eine neue Fassung erzeugt. |
+| `hold_element` | **nein** | für die Anzeige der Übung ohne Bedeutung |
+
+`position` wird beim Einfrieren **neu von 0 an vergeben**. In der lebenden
+`gym_routine_elements` ist sie nur ein Sortierwert und darf Lücken und
+Dubletten haben (13.3); in einer Fassung ist sie lückenlos, und darauf baut die
+abgeleitete ID der Platzzeilen.
+
+Ein Platz, dessen Element beim Einfrieren schon gelöscht war, heisst
+„Gelöschtes Element" und behält seinen Platz. Ihn zu überspringen hiesse, die
+Kür beim Einfrieren stillschweigend zu kürzen.
+
+### 14.5 Wettkämpfe und Ergebnisse
+
+```
+gym_competitions:  id, day, name, location, class_name,
+                   rank_allround, score_allround, protocol_url, note
+gym_results:       id, competition_id, apparatus, routine_version_id,
+                   d_score, e_score, penalty, final_score, rank_apparatus, note
+```
+
+Getrennt, weil ein Mehrkampf sechs Gerätewertungen und **eine**
+Mehrkampfplatzierung hat (2.3).
+
+- **`score_allround`** ist dazugekommen. Die Summe der sechs Endnoten ist nicht
+  zwingend die Mehrkampfnote; sie zu rechnen hiesse, eine Wertung zu erfinden.
+  Also abschreiben, wie `rank_allround` auch.
+- **`penalty`** bleibt wie geplant ein eigenes Feld. Neutralabzüge stehen auf
+  den meisten Protokollen getrennt, und ohne das Feld wäre `final_score` nicht
+  nachvollziehbar.
+- **`protocol_url`** ist ein *Verweis*, keine Datei – dasselbe Muster wie
+  `gym_elements.video_url` und aus demselben Grund (1.4). Anhänge liegen in
+  LifeHub als Base64 in einer synchronisierten Tabelle; ein Wettkampfprotokoll
+  gehört dort nicht hinein.
+- **`rank_apparatus`** statt `rank`: `RANK` ist in PostgreSQL ein
+  Fensterfunktionsname. Als Spaltenname wäre er zulässig, aber die Prüfungen
+  führen das erzeugte SQL nicht wirklich in Postgres aus (`_supabase-nachbau`
+  liest nur die Typen aus `0001_init.sql`) – ein Irrtum an dieser Stelle fiele
+  erst in Eriks SQL-Editor auf.
+- **Kein Wettkampftyp** (Mehrkampf/Finale) und **keine Runde**. Siehe 14.6.
+
+Die ID eines Ergebnisses leitet sich aus `(competition_id, apparatus)` ab.
+Damit trifft ein zweites Speichern dieselbe Zeile, und zwei Geräte erzeugen
+offline nicht zwei.
+
+### 14.6 Offen gelassen: mehrere Durchgänge je Gerät
+
+Ob ein echtes Protokoll Vorrunde und Finale in **einem** Dokument führt, lässt
+sich ohne ein solches Protokoll nicht beantworten. Es wurde deshalb **nicht
+geraten**.
+
+Umgesetzt ist ein Ergebnis je Wettkampf und Gerät. Ein Gerätefinale wird bis
+auf Weiteres als **eigener Wettkampf** erfasst („Landesmeisterschaft –
+Gerätefinale Reck"). Das ist fachlich vertretbar: Es hat ein eigenes Datum,
+eine eigene Platzierung und ein eigenes Protokoll. Zwei Wettkämpfe am selben
+Tag sind ausdrücklich möglich – `gym_competitions.day` hat deshalb **keinen**
+natürlichen Schlüssel.
+
+Käme später eine Runde dazu, wäre es eine Spalte plus ein Zusatz an genau einer
+Rechnung (`ergebnisId()` in `core/turnen/wettkampf.ts`). Damit vorhandene
+Zeilen dabei nicht verwaisen, müsste die leere Runde weiterhin die heutige ID
+ergeben – deshalb steht die Rechnung dort und nirgends sonst.
+
+### 14.7 Es wird weiterhin nichts gerechnet
+
+`plausibilitaet()` stellt D + E − Abzug neben die eingetragene Endnote, wenn
+alle drei dastehen und sie nicht übereinstimmen:
+
+> „D + E ergibt 12,0, eingetragen ist 12,5. Beides kann richtig sein."
+
+Kein Urteil, kein Hindernis beim Speichern, keine Angabe darüber, welche Zahl
+stimmt. Ein Test hält fest, dass der Satz die Wörter „falsch" und „Fehler"
+nicht enthält.
+
+Fehlende Noten bleiben `null`, erscheinen als „—" und fehlen im Notenverlauf
+ganz. Eine 0,0 wäre dort ein Einbruch, den es nie gab.
+
+### 14.8 Auswertung: was zulässig ist
+
+Umgesetzt sind nur beschreibende Auswertungen (6.1):
+
+- Verlauf je Gerät für Endnote, D-Wert und E-Wert
+- Bestwert und letzter Wert je Gerät
+- Zahl der Starts je Gerät
+
+**Unter drei Werten wird keine Linie gezeichnet**, sondern es stehen die
+einzelnen Werte da. Zwei Punkte ergeben immer eine Gerade, und eine Gerade
+sieht nach Entwicklung aus, wo nur zwei Zahlen sind (`MINDESTPUNKTE_LINIE`).
+
+**Keine Korrelation gegen Training** (6.2), **keine Rangfolge zwischen den
+Geräten** und keine Gesamtkennzahl über Geräte hinweg: Eine Boden- und eine
+Pauschenpferdnote sind nicht dieselbe Währung.
+
+Innerhalb *eines* Wettkampfs werden die beste und die niedrigste Endnote
+markiert – aber erst ab drei Geräten mit Endnote
+(`MINDEST_GERAETE_FUER_MARKE`). Bei zweien wäre „die bessere und die
+schlechtere" keine Auskunft, sondern eine Umschreibung von „zwei Zahlen".
+
+### 14.9 Was 2B2 vorbereitet ist – ohne einen Parser
+
+Kein `pdfjs-dist`, kein OCR, kein Dummy-Parser. Vorbereitet ist allein die
+**Form**, in der ein Importer später Werte anbieten würde:
+
+`ErgebnisEingabe` (`core/turnen/wettkampf.ts`) ist die zeichenkettenbasierte
+Eingabe, die der Editor hält; `leseNote()`, `lesePlatz()`, `werteAus()` und
+`plausibilitaet()` arbeiten ausschliesslich darauf. Ein Importer erzeugt
+dieselben Objekte, der Editor zeigt sie, und gespeichert wird erst auf
+Knopfdruck – die Regel aus 5.2 („vorschlagen, nicht speichern") ist damit
+baulich schon erfüllt, ohne dass eine Zeile Importcode existiert.
+
+### 14.10 Datenintegrität
+
+| Fall | Verhalten |
+|---|---|
+| Wettkampf löschen | Ergebnisse werden im selben Stapel mitgelöscht; Fassungen bleiben – sie gehören zur Geschichte, nicht zu diesem Eintrag |
+| Lebende Kür löschen | Fassungen unberührt. Der Löschdialog nennt die Wettkämpfe, die mit ihr geturnt wurden, und sagt, dass sie unverändert bleiben |
+| Element umbenennen | Fassung unberührt – sie trägt den Namen von damals |
+| Element löschen/archivieren | Fassung unberührt und vollständig lesbar |
+| Zweimal speichern | keine Dublette: abgeleitete IDs bei Ergebnis und Fassung, und `planeErgebnisse` schreibt nur echte Unterschiede |
+| Offline erfassen | gewöhnliche Zeilen, gewöhnlicher Abgleich, keine Sonderbehandlung |
+
+### 14.11 Gemessen
+
+`tests/turnen-benchmark.mjs`, mit 60 Elementen, 200 Einheiten, 2.000
+Versuchszeilen, 20 Küren (191 Plätze) und 25 Wettkämpfen (111 Ergebnisse,
+51 Fassungszeilen):
+
+| | |
+|---|---|
+| Navigation → Wettkämpfe | 8 ms |
+| Einen Wettkampf öffnen | 43 ms |
+| Historische Kürfassung öffnen | 709 ms (einschliesslich Schliessen) |
+| Ein Ergebnis bearbeiten | 29 ms |
+| Wettkampf speichern | 247 ms |
+
+Gesamtabgleich vorher/nachher, je **zwei** Läufe: 7.121 / 6.855 ms gegen
+7.070 / 6.870 ms. Die beiden Verteilungen überlappen vollständig – **die vier
+neuen Tabellen kosten weniger als die Messstreuung dieses Rechners**. Eine
+Prozentangabe wäre hier erfunden. Kaltstart 2.338 / 2.293 gegen 2.292 / 2.276
+ms, also unverändert.
+
+Die Erwartung aus 1.5 (rund 2,5 % je zwei Tabellen) liess sich damit nicht
+bestätigen und auch nicht widerlegen. Sie gilt für Tabellen mit Inhalt; im
+Benchmark sind die neuen leer.
