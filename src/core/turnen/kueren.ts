@@ -117,6 +117,57 @@ const LEER_SCHWIERIGKEIT: Schwierigkeit = {
   elemente: 0, summe: 0, mitWert: 0, ohneWert: 0, vollstaendig: false, buchstaben: [],
 }
 
+/** Die Schwierigkeitsangaben eines Platzes – lebend oder eingefroren. */
+export interface SchwierigkeitsAngabe {
+  difficulty_letter?: string | null
+  difficulty_value?: number | null
+}
+
+/**
+ * Die Summe über eine Folge von Schwierigkeitsangaben.
+ *
+ * Nimmt bewusst nur die beiden Felder entgegen und keine ganzen Elemente:
+ * Eine eingefrorene Kürfassung trägt dieselben zwei Angaben als Kopie
+ * (`GymRoutineVersionElement`), und die historische Anzeige muss dieselbe
+ * Zahl ausrechnen wie die lebende – mit einer zweiten Rechnung daneben
+ * liefen die beiden irgendwann auseinander.
+ *
+ * `null` an einer Stelle heisst: Platz ohne Wert. Er zählt mit, sein Wert
+ * nicht. Siehe der Hinweis oben im Modul – es wird nichts als 0 verrechnet.
+ */
+export function schwierigkeitAus(
+  angaben: (SchwierigkeitsAngabe | null)[],
+): Schwierigkeit {
+  if (!angaben.length) return LEER_SCHWIERIGKEIT
+
+  let summe = 0
+  let mitWert = 0
+  const zaehler = new Map<string, number>()
+
+  for (const a of angaben) {
+    const wert = a?.difficulty_value
+    if (a && typeof wert === 'number' && Number.isFinite(wert)) {
+      summe += wert
+      mitWert++
+    }
+    const b = a?.difficulty_letter?.trim().toUpperCase()
+    if (b) zaehler.set(b, (zaehler.get(b) ?? 0) + 1)
+  }
+
+  return {
+    elemente: angaben.length,
+    // Gleitkomma: 0.1 + 0.2 ergäbe sonst 0.30000000000000004 in der Anzeige.
+    // Drei Nachkommastellen sind mehr, als jede Wertungsvorschrift kennt.
+    summe: Math.round(summe * 1000) / 1000,
+    mitWert,
+    ohneWert: angaben.length - mitWert,
+    vollstaendig: mitWert === angaben.length,
+    buchstaben: [...zaehler.entries()]
+      .map(([buchstabe, anzahl]) => ({ buchstabe, anzahl }))
+      .sort((a, b) => a.buchstabe.localeCompare(b.buchstabe)),
+  }
+}
+
 /**
  * Die Schwierigkeitssumme der Elemente einer Kür.
  *
@@ -127,34 +178,7 @@ const LEER_SCHWIERIGKEIT: Schwierigkeit = {
  * eine Aussage, die niemand treffen wollte.
  */
 export function schwierigkeit(eintraege: KuerEintrag[]): Schwierigkeit {
-  if (!eintraege.length) return LEER_SCHWIERIGKEIT
-
-  let summe = 0
-  let mitWert = 0
-  const zaehler = new Map<string, number>()
-
-  for (const { element } of eintraege) {
-    const wert = element?.difficulty_value
-    if (element && typeof wert === 'number' && Number.isFinite(wert)) {
-      summe += wert
-      mitWert++
-    }
-    const b = element?.difficulty_letter?.trim().toUpperCase()
-    if (b) zaehler.set(b, (zaehler.get(b) ?? 0) + 1)
-  }
-
-  return {
-    elemente: eintraege.length,
-    // Gleitkomma: 0.1 + 0.2 ergäbe sonst 0.30000000000000004 in der Anzeige.
-    // Drei Nachkommastellen sind mehr, als jede Wertungsvorschrift kennt.
-    summe: Math.round(summe * 1000) / 1000,
-    mitWert,
-    ohneWert: eintraege.length - mitWert,
-    vollstaendig: mitWert === eintraege.length,
-    buchstaben: [...zaehler.entries()]
-      .map(([buchstabe, anzahl]) => ({ buchstabe, anzahl }))
-      .sort((a, b) => a.buchstabe.localeCompare(b.buchstabe)),
-  }
+  return schwierigkeitAus(eintraege.map((e) => e.element))
 }
 
 /* ====================================================== Problemstellen */
