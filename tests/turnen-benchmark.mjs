@@ -20,7 +20,14 @@
  *   8. Die Reihenfolge ändern
  *   9. Die Kür speichern
  *
- * Aufruf:  node tests/turnen-benchmark.mjs [elemente] [einheiten] [kueren]
+ * Seit Phase 2B1 zusätzlich die Wettkämpfe:
+ *
+ *  10. Navigation zu den Wettkämpfen (rechnet je Zeile ein Bild)
+ *  11. Einen Wettkampf öffnen (löst je Gerät eine Kürfassung auf)
+ *  12. Ein Ergebnis bearbeiten
+ *  13. Den Wettkampf speichern
+ *
+ * Aufruf:  node tests/turnen-benchmark.mjs [elemente] [einheiten] [kueren] [wettkaempfe]
  */
 import { starteNachbau, ANON, MAIL, PASS } from './_supabase-nachbau.mjs'
 import { starteGeraet, anmelden, abgleich, geh, DIST } from './_sync-app.mjs'
@@ -33,6 +40,7 @@ const WURZEL = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const ELEMENTE = Number(process.argv[2] ?? 60)
 const EINHEITEN = Number(process.argv[3] ?? 200)
 const KUEREN = Number(process.argv[4] ?? 20)
+const WETTKAEMPFE = Number(process.argv[5] ?? 25)
 
 if (!brauche(path.join(WURZEL, 'LifeHub.html'), 'Erst `npm run build:single` ausführen.')) process.exit(0)
 
@@ -131,9 +139,101 @@ for (let k = 0; k < KUEREN; k++) {
   }
 }
 
+/* --------------------------------------- Wettkaempfe dazulegen
+ *
+ * Fuenfundzwanzig Wettkaempfe mit je drei bis sechs Geraetewertungen, und zu
+ * jedem Reck- und Barrenergebnis eine eingefrorene Kuerfassung. Das ist der
+ * Bestand, um den es bei der Anzeige wirklich geht: Die Wettkampfliste rechnet
+ * je Zeile ein Bild, und das Detail loest je Geraet eine Fassung auf.
+ *
+ * Die IDs der Fassungen und Ergebnisse werden hier NICHT mit der Rechnung der
+ * App gebildet (core/turnen/fassungen.ts laesst sich aus Node heraus nicht
+ * laden). Das ist unschaedlich: Die Anzeige loest eine Fassung ueber
+ * routine_version_id auf, und planeErgebnisse findet vorhandene Zeilen ueber
+ * das Geraet - die abgeleitete ID braucht es nur beim NEU-Anlegen, und das
+ * tut dieser Lauf nicht. Die IDs tragen deshalb ein eigenes Praefix, damit
+ * niemand sie fuer echte haelt.
+ */
+let ergebnisZeilen = 0
+let fassungsZeilen = 0
+const fassungFuer = new Map()          // Geraet -> Fassungs-ID
+
+for (const g of GERAETE) {
+  // Je Geraet eine Fassung aus der ersten Kuer dieses Geraets.
+  const kuerIndex = GERAETE.indexOf(g)
+  if (kuerIndex >= KUEREN) continue
+  const routineId = `kuer-${kuerIndex}`
+  const passende = elementIds.filter((_, i) => GERAETE[i % GERAETE.length] === g)
+  const anzahl = 5 + (kuerIndex % 11)
+  const plaetze = []
+  for (let p = 0; p < anzahl; p++) {
+    const eid = passende[p % passende.length]
+    const i = elementIds.indexOf(eid)
+    plaetze.push({
+      position: p,
+      element_id: eid,
+      name: `Element ${i + 1}`,
+      difficulty_letter: 'ABCDEF'[i % 6],
+      difficulty_value: 0.1 * (1 + (i % 6)),
+      element_group: (i % 5) + 1,
+      is_dismount: i % 9 === 0 ? 1 : 0,
+    })
+  }
+  const versionId = stableId('bench-fassung', g, String(anzahl))
+  fassungFuer.set(g, versionId)
+
+  lege('gym_routine_versions', {
+    id: versionId, routine_id: routineId, apparatus: g,
+    name: `Kür ${kuerIndex + 1}`, frozen_at: tagVor(400) + 'T12:00:00Z',
+  })
+  fassungsZeilen++
+  for (const p of plaetze) {
+    lege('gym_routine_version_elements', {
+      id: stableId('bench-platz', versionId, String(p.position)),
+      version_id: versionId, ...p,
+    })
+    fassungsZeilen++
+  }
+}
+
+for (let w = 0; w < WETTKAEMPFE; w++) {
+  const id = `wk-${w}`
+  lege('gym_competitions', {
+    id, day: tagVor(w * 14), name: `Wettkampf ${w + 1}`,
+    location: w % 3 === 0 ? 'Dresden' : 'Glashütte',
+    class_name: 'LK3',
+    rank_allround: (w % 8) + 1,
+    score_allround: 68 + (w % 9) * 0.35,
+    protocol_url: null, note: null,
+  })
+  // Drei bis sechs Geraete je Wettkampf.
+  const wieViele = 3 + (w % 4)
+  for (let i = 0; i < wieViele; i++) {
+    const g = GERAETE[i]
+    const d = 3.2 + (w % 7) * 0.1
+    const e = 7.6 + (i % 5) * 0.15
+    lege('gym_results', {
+      id: stableId('bench-ergebnis', id, g),
+      competition_id: id, apparatus: g,
+      routine_version_id: fassungFuer.get(g) ?? null,
+      d_score: Math.round(d * 1000) / 1000,
+      // Jedes fuenfte Ergebnis ohne E-Wert - der Fall, der nirgends als 0
+      // erscheinen darf.
+      e_score: (w + i) % 5 === 0 ? null : Math.round(e * 1000) / 1000,
+      penalty: (w + i) % 7 === 0 ? 0.1 : null,
+      final_score: Math.round((d + e) * 1000) / 1000,
+      rank_apparatus: (i % 6) + 1,
+      note: null,
+    })
+    ergebnisZeilen++
+  }
+}
+
 console.log(`\n=== Turnen-Benchmark ===\n`)
 console.log(`  Bestand: ${ELEMENTE} Elemente, ${EINHEITEN} Einheiten, ${versuchsZeilen} Versuchszeilen`)
 console.log(`           ${KUEREN} Küren mit ${kuerPlaetze} Plätzen\n`)
+console.log(`           ${WETTKAEMPFE} Wettkämpfe mit ${ergebnisZeilen} Ergebnissen, ${fassungsZeilen} Fassungszeilen
+`)
 
 const messungen = []
 const miss = async (name, fn) => {
@@ -233,6 +333,48 @@ try {
   })
 
   await miss('Abgleich nach den Küränderungen', async () => {
+    await abgleich(pc)
+  })
+
+  /* ------------------------------------------------------ Wettkämpfe */
+
+  await miss('Navigation → Wettkämpfe', async () => {
+    await pc.page.goto(pc.url.split('#')[0] + '#/turnen/wettkaempfe')
+    await pc.page.waitForSelector('.list-row', { timeout: 30000 })
+  })
+
+  await miss('Einen Wettkampf öffnen', async () => {
+    await pc.page.locator('.list-row').first().click()
+    await pc.page.waitForSelector('.modal .wk-karte', { timeout: 30000 })
+  })
+
+  await miss('Die historische Kürfassung öffnen', async () => {
+    await pc.page.locator('.modal .wk-karte button', { hasText: 'Fassung vom' }).first().click()
+    await pc.page.waitForSelector('.modal .kuer-zeile', { timeout: 30000 })
+    await pc.page.locator('.modal').last().locator('button', { hasText: 'Schließen' }).first().click()
+    await pc.page.waitForTimeout(200)
+  })
+
+  await miss('Ein Ergebnis bearbeiten', async () => {
+    await pc.page.locator('.modal button', { hasText: 'Bearbeiten' }).first().click()
+    await pc.page.waitForSelector('.modal .wk-felder input', { timeout: 30000 })
+    const feld = pc.page.locator('.modal .wk-karte').first()
+      .locator('.field', { hasText: 'E-Wert' }).locator('input').first()
+    await feld.fill('8,45')
+    // Warten, bis der Wert wirklich steht - sonst misst die Uhr den Tastendruck
+    // und nicht das Neuzeichnen.
+    await pc.page.waitForFunction(() => {
+      const i = document.querySelector('.modal .wk-felder input')
+      return i && i.value.length > 0
+    }, null, { timeout: 30000 })
+  })
+
+  await miss('Wettkampf speichern', async () => {
+    await pc.page.locator('.modal').last().locator('button', { hasText: 'Speichern' }).first().click()
+    await pc.page.waitForSelector('.modal .wk-note', { timeout: 30000 })
+  })
+
+  await miss('Abgleich nach den Wettkampfänderungen', async () => {
     await abgleich(pc)
   })
 

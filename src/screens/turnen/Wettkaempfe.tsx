@@ -126,7 +126,8 @@ export function WettkaempfeView({ onZuKueren }: { onZuKueren: () => void }) {
       <AuswertungBlock />
 
       {offen && (
-        <WettkampfDetail wettkampf={offen} onClose={() => setOffen(null)} />
+        <WettkampfDetail wettkampf={offen} onZuKueren={onZuKueren}
+          onClose={() => setOffen(null)} />
       )}
       {neu && (
         <WettkampfEditor wettkampf={null} onZuKueren={onZuKueren} onClose={() => setNeu(false)} />
@@ -137,8 +138,9 @@ export function WettkaempfeView({ onZuKueren }: { onZuKueren: () => void }) {
 
 /* =============================================================== Detail */
 
-function WettkampfDetail({ wettkampf, onClose }: {
+function WettkampfDetail({ wettkampf, onZuKueren, onClose }: {
   wettkampf: GymCompetition
+  onZuKueren: () => void
   onClose: () => void
 }) {
   const data = useData()
@@ -160,7 +162,8 @@ function WettkampfDetail({ wettkampf, onClose }: {
 
   if (bearbeiten) {
     return (
-      <WettkampfEditor wettkampf={wettkampf} onZuKueren={() => { setBearbeiten(false); onClose() }}
+      <WettkampfEditor wettkampf={wettkampf}
+        onZuKueren={() => { setBearbeiten(false); onClose(); onZuKueren() }}
         onClose={() => setBearbeiten(false)} />
     )
   }
