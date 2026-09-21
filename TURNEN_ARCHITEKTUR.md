@@ -1,7 +1,14 @@
 # Turnen in LifeHub – Architektur und Umsetzungsplan
 
-**Stand:** 20.09.2026 · **Phase 1 umgesetzt** (Migration 14, Bereich `#/turnen`).
+**Stand:** 21.09.2026 · **Phase 1, 1.1 und 2A umgesetzt** (Migrationen 14 und 15,
+Bereich `#/turnen` mit den Reitern Übersicht · Elemente · Training · Küren).
 **Geklärt:** Kür mit D-Wert · Erfassung je Element mit Zählern · Protokolle als PDF.
+
+**Die Phasen 2 und 3 haben die Plätze getauscht.** Die Küren kamen am 21.09.2026 vor
+den Wettkämpfen an die Reihe, weil sie ohne Wettkampfdaten nützlich sind, die
+Wettkämpfe ohne Küren aber nur halb (`gym_results.routine_id` hätte ins Leere
+gezeigt). Aus Phase 3 wurde damit **Phase 2A**, aus Phase 2 **Phase 2B**. Am Umfang
+der beiden ändert das nichts.
 
 Dieses Dokument hält fest, was der Bestand hergibt, welches Datenmodell daraus folgt und
 in welchen Schritten das Turnen-Modul entstehen soll. Es ist die Grundlage für alle
@@ -204,15 +211,25 @@ zu „ohne" der eigentliche Fortschritt ist, den man sehen will.
 
 #### `gym_routines` und `gym_routine_elements` — Küren
 
+**Umgesetzt am 21.09.2026 (Migration 15), und anders als hier ursprünglich
+entworfen.** Der Entwurf stand so:
+
 ```
 gym_routines:          id, name, apparatus, version, status, valid_from, note
 gym_routine_elements:  id, routine_id, element_id, sort_order, note
 ```
 
-`status`: `entwurf` | `aktiv` | `archiv`. Frühere Fassungen bleiben als eigene Zeilen mit
-höherer `version` und `status='archiv'` erhalten – eine Kür wird nicht überschrieben,
-sondern bekommt eine Nachfolgerin. Nur so lässt sich später sagen, mit welcher Fassung
-ein Wettkampf geturnt wurde.
+Umgesetzt ist:
+
+```
+gym_routines:          id, apparatus, name, note, competition_since, is_active
+gym_routine_elements:  id, routine_id, element_id, position, note
+```
+
+Was sich geändert hat und warum, steht in Abschnitt 13. Der Kern: `status` und
+`version` sind entfallen, `competition_since` ist dazugekommen – ein Zeitpunkt
+statt eines Kennzeichens, weil „je Gerät höchstens eine aktive Wettkampfkür"
+sich als Kennzeichen über zwei Geräte hinweg nicht halten lässt.
 
 Zur **Schwierigkeit**: siehe 4.2. Es wird nichts erfunden.
 
@@ -442,6 +459,9 @@ Analysen). Dazu ein Verweis von Tracking → Training dorthin, damit man ihn fin
 Übersicht · Elemente · Training · Küren · Wettkämpfe
 ```
 
+Stand 21.09.2026 sind die ersten vier davon gebaut; **Wettkämpfe** ist Phase 2B
+und wird ein fünfter Eintrag in derselben Liste, ohne weiteren Umbau.
+
 **„Geräte" ist bewusst kein eigener Reiter.** Ein Gerät ist kein Ort, an den man geht,
 sondern die Gliederung von allem anderen. Es ist die Achse der Übersicht und der Filter
 in Elementen, Küren und Wettkämpfen.
@@ -451,7 +471,7 @@ in Elementen, Küren und Wettkämpfen.
 | **Übersicht** | Sechs Gerätekacheln: Tage seit letztem Training, Zahl unsicherer Elemente, letzte Endnote. Darunter „Lange nicht trainiert" (die Top-5-Liste) und die nächsten Wettkämpfe. Eine Bildschirmhöhe, nicht mehr. |
 | **Elemente** | Liste, nach Gerät gefiltert, nach Status oder letztem Training sortierbar. Antippen öffnet die Elementansicht mit Verlauf, Notiz und Videoverweis. |
 | **Training** | Die Einheiten mit `discipline='turnen'`. Ganz oben der Knopf, um die heutige Einheit zu erfassen. |
-| **Küren** | Je Gerät die aktive Kür als geordnete Liste, darunter die archivierten Fassungen. |
+| **Küren** | *(Phase 2A, umgesetzt)* Nach Gerät gruppiert, je Kür Name, Zahl der Elemente, Schwierigkeitssumme und Hinweis auf unsichere Elemente. Die aktive Wettkampfkür steht oben und trägt eine Marke; Archiviertes liegt hinter einem Schalter. Antippen öffnet den Editor mit der sortierbaren Elementfolge. |
 | **Wettkämpfe** | Chronologisch, je Wettkampf die Gerätewertungen. Antippen zeigt das Protokoll. |
 
 ### 7.3 Der Erfassungsweg – der wichtigste Bildschirm
@@ -498,18 +518,22 @@ was liegt zu lange zurück.
 zeigen, dass die Erfassung im Alltag durchgehalten wird. Genau daran ist `workout_sets`
 gescheitert.
 
-### Phase 2 — Wettkämpfe
+### Phase 2A — Küren *(umgesetzt am 21.09.2026, Migration 15)*
 
-`gym_competitions`, `gym_results` (Migration 15) · `screens/turnen/Wettkaempfe.tsx` ·
-Eingabe von Hand mit Protokollfoto · Verläufe je Gerät ·
+`gym_routines`, `gym_routine_elements` · `core/turnen/kueren.ts` ·
+`screens/turnen/Kueren.tsx` · Reihenfolge, mehrere Varianten je Gerät, aktive
+Wettkampfkür · „Schwierigkeitssumme der Elemente" mit Vorbehalt (4.2) · Anzeige,
+welche Elemente einer Kür gerade unsicher oder lange nicht dran waren.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 13.
+
+### Phase 2B — Wettkämpfe
+
+`gym_competitions`, `gym_results` (Migration 16) · `screens/turnen/Wettkaempfe.tsx` ·
+Eingabe von Hand mit Protokollfoto · Verläufe je Gerät · Verknüpfung
+`gym_results.routine_id` auf die Kür, mit der geturnt wurde ·
 `tests/turnen-wettkampf.test.ts` (Endnote-Plausibilität: D+E−Abzug ≈ Endnote, aber als
 **Hinweis**, nicht als Zwang – Protokolle haben Sonderfälle).
-
-### Phase 3 — Küren
-
-`gym_routines`, `gym_routine_elements` (Migration 16) · Reihenfolge, Fassungen, aktive
-Wettkampfübung · „Summe der Schwierigkeiten" mit Vorbehalt (4.2) · Verknüpfung
-`gym_results.routine_id` · Anzeige, welche Elemente der aktiven Kür gerade unsicher sind.
 
 ### Phase 4 — Auswertung
 
@@ -713,3 +737,185 @@ Geändert wurde deshalb:
 Die **Dauer** taucht im Gerätebild bewusst gar nicht auf. Sie hängt an der
 Sitzung; je Gerät geführt ließe sie sich bei drei Geräten dreifach zählen. Ein
 Test hält das fest.
+
+---
+
+## 13. Was die Umsetzung von Phase 2A konkretisiert hat
+
+Der Plan hat sich getragen; umgeplant wurde nichts. An sieben Stellen hat die
+Umsetzung ihn geschärft — die erste davon ist die wichtigste.
+
+### 13.1 Die aktive Wettkampfkür ist ein Zeitpunkt, kein Kennzeichen
+
+Gefordert war: **je Gerät höchstens eine aktive Wettkampfkür.** Markiert man
+Kür B, während Kür A aktiv war, soll B gelten und A sich deaktivieren – atomar,
+ohne Zwischenzustand nach dem Abgleich.
+
+Der naheliegende Weg wäre ein Kennzeichen `is_competition_routine` je Zeile,
+beim Markieren in einer Transaktion umgehängt. **Lokal ginge das. Über zwei
+Geräte hinweg nicht.**
+
+`sync/engine.ts` führt Zeilen **einzeln** zusammen (`mergeRows`). Markiert der
+PC offline Kür B und das Handy offline Kür C, gewinnt jede der beiden Zeilen für
+sich: B trägt danach eine 1, weil der PC sie zuletzt angefasst hat, und C
+ebenfalls, weil das Handy sie zuletzt angefasst hat. Zurück blieben zwei aktive
+Wettkampfküren an einem Gerät – genau der Zustand, der nicht vorkommen darf.
+
+Ein mehrspaltiger UNIQUE-Index wäre keine Abhilfe, sondern eine Falle. Aus
+demselben Grund, der schon in 12.3 steht: `tests/natuerliche-schluessel.test.ts`
+erkennt nur **einspaltige** UNIQUE, während `gen-supabase-sql.mjs` sie auf dem
+Server streicht. Lokal eindeutig, auf dem Server nicht – und genau diese
+Asymmetrie lässt `INSERT OR REPLACE` beim Holen still Zeilen löschen.
+
+Gespeichert wird deshalb nur, **wann** eine Kür zur Wettkampfkür erklärt wurde:
+
+```sql
+competition_since TEXT    -- ISO-Zeitpunkt, oder NULL
+```
+
+Welche Kür es **ist**, rechnet jedes Gerät daraus aus: die jüngste unter den
+nicht archivierten Küren dieses Geräts (`wettkampfKuer()` in
+`core/turnen/kueren.ts`). Gleichstand auf die Millisekunde entscheidet die
+kleinere ID – dieselbe Regel wie in `entscheideKollision`, und aus demselben
+Grund: Sie muss auf jedem Gerät gleich ausfallen.
+
+Damit ist die Bedingung **strukturell nicht verletzbar**. Es gibt keine zweite
+Zeile, die nachgezogen werden müsste, also kann der Nachzug auch nicht
+ausbleiben. Es ist dieselbe Überlegung wie bei „zuletzt trainiert" (2.3) und den
+„Geräten einer Einheit" (12.7): Was sich ableiten lässt, wird nicht gespeichert.
+
+**Das dokumentierte Verhalten bei Offline-Konflikten** lautet deshalb: Die
+spätere Entscheidung gilt, und die frühere geht nicht verloren – sie behält
+ihren Zeitpunkt und ist nur nicht mehr die jüngste. Beide Geräte kommen nach dem
+Abgleich unabhängig voneinander zum selben Ergebnis. Eine eigene Konfliktengine
+brauchte es dafür nicht; die vorhandene feldweise Zusammenführung genügt, weil
+je Zeile nur ein Feld betroffen ist. `tests/turnen-kueren-e2e.mjs` fährt genau
+diesen Fall mit zwei echten Browsern.
+
+**Das Aufheben braucht ein Gegenstück.** Nur den jüngsten Zeitpunkt zu löschen
+liesse die nächstältere Kür nachrücken – „keine Wettkampfkür an diesem Gerät"
+wäre dann nicht ausdrückbar. Deshalb verlieren beim Aufheben **alle** Küren des
+Geräts ihren Zeitpunkt (`zuLoeschendeZeitpunkte()`).
+
+### 13.2 `is_active` und die Wettkampfmarke sind nicht dasselbe
+
+Die Frage, ob beide Angaben nötig sind, beantwortet der Alltag mit ja – aber sie
+bedeuten Verschiedenes:
+
+| | Bedeutung |
+|---|---|
+| `is_active` | archiviert oder nicht – wortgleich mit `gym_elements.is_active` |
+| `competition_since` | wann diese Kür zur Wettkampfkür erklärt wurde |
+
+Eine Trainingsvariante ist nicht archiviert und trotzdem keine Wettkampfkür. Ein
+gemeinsames `status`-Feld (`entwurf`/`aktiv`/`archiv`, wie ursprünglich
+entworfen) müsste beides in eine Achse pressen und könnte „archivierte Kür, die
+2025 die Wettkampfkür war" nicht mehr ausdrücken.
+
+`version` und `valid_from` aus dem Entwurf sind ersatzlos entfallen. Eine Kür
+als Nachfolgerin einer früheren zu führen ist erst dann etwas wert, wenn ein
+Wettkampf darauf zeigt – und das ist Phase 2B. Vorsorglich angelegt wären es
+zwei Felder, die Phase 2A nicht füllt und niemand liest.
+
+### 13.3 `gym_routine_elements` bekommt eine gewöhnliche Zufalls-ID
+
+Die abgeleitete ID (`stableId`) ist in LifeHub der Schutz davor, dass zwei
+Geräte unabhängig voneinander dieselbe Sache anlegen. Hier passt sie **nicht**:
+
+- **nicht aus `(routine_id, element_id)`** — ein Element darf in einer Kür
+  mehrfach vorkommen. Zwei gleiche Elemente wären sonst dieselbe Zeile.
+- **nicht aus `(routine_id, position)`** — dann änderte jedes Verschieben die
+  ID, und ein Umsortieren wäre für den Abgleich ein Löschen und Neuanlegen der
+  halben Kür.
+
+Die Gefahr, gegen die abgeleitete IDs schützen, besteht hier ohnehin nicht: Ein
+Element in eine Kür aufzunehmen ist eine bewusste Handlung an *einem* Gerät.
+Tun es zwei Geräte offline gleichzeitig, sind das zwei Aufnahmen und keine
+doppelte – beide bleiben stehen, die Reihenfolge wird von Hand geradegerückt.
+Stilles Wegwerfen wäre schlimmer.
+
+`position` ist deshalb **nur ein Sortierwert, kein Schlüssel**. Gleichstand ist
+erlaubt; `kuerElemente()` bricht ihn fest über `created_at` und `id`, damit
+jedes Gerät dieselbe Reihenfolge zeigt.
+
+### 13.4 Gelöschte Elemente: kein Schnappschuss
+
+Geprüft wurde, ob `gym_routine_elements` Name und Schwierigkeit des Elements
+mitschreiben sollte, damit eine Kür ein Löschen übersteht. **Entschieden: nein.**
+
+| dafür | dagegen |
+|---|---|
+| Die Kür bleibt nach einem Löschen vollständig lesbar | Zwei Quellen für denselben Namen – benennt Erik ein Element um, zeigt die Kür weiter den alten. Genau die „zweite Quelle", die dieses Dokument an drei Stellen ablehnt |
+| | Der verlustfreie Weg existiert schon: **Archivieren** (`is_active = 0`). Archivierte Elemente bleiben geladen und in ihrer Kür vollständig lesbar |
+| | Zwei Spalten mehr auf jeder Zeile, für einen Fall, der eintreten *kann* statt regelmässig einzutreten |
+
+Stattdessen drei Dinge, die zusammen dasselbe leisten:
+
+1. **Der Platz bleibt.** `kuerElemente()` gibt den Eintrag mit `element: null`
+   zurück, statt ihn zu überspringen. Die Kür behält ihre Länge und ihre
+   Reihenfolge; die Zeile steht als „Gelöschtes Element" da.
+2. **Die Summe lügt nicht.** Ein Platz ohne Element zählt als Platz ohne Wert.
+   `schwierigkeitText()` schreibt dann „0,2 (1 von 3 ohne Wert)" statt einer
+   Zahl, die vollständig aussieht.
+3. **Das Löschen warnt vorher.** Der Elementeditor nennt die Küren, in denen das
+   Element steht, und weist auf das Archivieren hin. Keine stillen Datenverluste
+   heisst hier vor allem: nicht ohne Bescheid.
+
+### 13.5 Die Reihenfolge geht über Knöpfe, nicht über Ziehen
+
+Ziehen und Fallenlassen wäre der schönere Weg und im vorhandenen Stack der
+unzuverlässigste. Das eingebaute HTML-Ziehen (`draggable`) kennt auf
+Berührungsbildschirmen keine Ereignisse – am Handy passiert schlicht nichts. Ein
+eigener Nachbau über Zeigerereignisse müsste Scrollen, langes Drücken und den
+Bildschirmrand selbst behandeln, und zwar in einem Dialog, der ohnehin scrollt.
+Eine Fremdbibliothek dafür wäre die erste im Projekt und läge im Bündel, das
+schon bei 1,98 MB liegt.
+
+Umgesetzt sind zwei 44-px-Knöpfe je Zeile (hoch/runter) plus Entfernen – 44 px
+ist das Mass, das Apple und Google als kleinste sichere Trefferfläche nennen.
+Der E2E misst nach, dass sie am Handy auch wirklich so gross sind und
+vollständig im Bild stehen.
+
+Die Reihenfolge liegt dabei im Arbeitsspeicher und wird **einmal** geschrieben
+(`planeKuerElemente()`, dasselbe Muster wie `planeVersuche()`). Ein
+Schreibvorgang je Tippen wäre bei zehn Verschiebungen zehn Abgleichrunden für
+ein Zwischenergebnis. Geschrieben werden nur die Plätze, die sich wirklich
+bewegt haben.
+
+### 13.6 Gemessen
+
+`tests/turnen-benchmark.mjs`, mit 60 Elementen, 200 Einheiten, 2.000
+Versuchszeilen und 20 Küren mit 191 Plätzen:
+
+| | |
+|---|---|
+| Navigation → Küren | 7 ms |
+| Eine Kür öffnen | 39 ms |
+| Ein Element hinzufügen | 528 ms |
+| Reihenfolge ändern | 33 ms |
+| Kür speichern | 38 ms |
+
+Die 528 ms beim Hinzufügen sind zum grössten Teil das Aufbauen des
+Auswahlfensters, nicht das Aufnehmen selbst – dieselbe Grössenordnung wie das
+Öffnen des Erfassungswegs (268 ms), der dieselbe Elementliste baut. Deshalb
+bleibt der Wähler nach einer Aufnahme offen: Fünf Elemente kosten so fünf
+Berührungen und einen Aufbau, nicht fünf.
+
+Der Gesamtbenchmark: Abgleich 6.642 → 6.719 ms (**+1,2 %** für zwei neue
+Tabellen), Kaltstart 2.263 → 2.247 ms (unverändert). Die erwartete
+Grössenordnung aus 1.5 ist damit bestätigt.
+
+### 13.7 Was Phase 2A ausdrücklich NICHT angefasst hat
+
+An `workout_sessions` wurde **nichts** geändert. Erwogen war ein optionaler
+`routine_id`-Verweis, um später „komplette Kür geturnt" festhalten zu können –
+und wieder verworfen: Phase 2A füllt ihn nicht, und ein Feld, das niemand
+schreibt, ist beim Lesen nicht von einem zu unterscheiden, das jemand vergessen
+hat.
+
+Die Anbindung ans Training ist auch ohne Vorsorge offen. Eine Kür ist eine
+geordnete Liste von `element_id`; ein Versuch zeigt ebenfalls auf ein Element.
+„Welche Elemente der aktiven Kür wurden in dieser Einheit geturnt" lässt sich
+daraus schon heute beantworten, ohne eine einzige neue Spalte. Was für „komplette
+Kür geturnt" fehlt, ist die Angabe *welche Kür* – und die gehört an die Einheit,
+wenn es so weit ist, nicht vorher.
