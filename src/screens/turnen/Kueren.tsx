@@ -406,7 +406,12 @@ function KuerEditor({ kuer, vorgabeGeraet, onZuElementen, onClose }: {
                   <span className="kuer-platz">{e.platz}</span>
                   <span className="kuer-mitte">
                     <span className="kuer-name">
-                      {e.element ? e.element.name : 'Gelöschtes Element'}
+                      {/* Der Name steht in einer eigenen Hülle, damit sich
+                          Name und Schwierigkeit getrennt auslesen lassen –
+                          sonst liest jede Prüfung „DoppelsaltoD 0,4". */}
+                      <span className="kuer-name-text">
+                        {e.element ? e.element.name : 'Gelöschtes Element'}
+                      </span>
                       {wert && <span className="turn-wert">{wert}</span>}
                     </span>
                     <span className="kuer-meta">
