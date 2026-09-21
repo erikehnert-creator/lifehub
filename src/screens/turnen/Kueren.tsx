@@ -268,6 +268,29 @@ function KuerEditor({ kuer, vorgabeGeraet, onZuElementen, onClose }: {
   const fremdeGeraete = eintraege.filter(
     (e) => e.element && e.element.apparatus !== apparatus).length
 
+  /**
+   * Wurde mit dieser Kuer schon einmal ein Wettkampf geturnt?
+   *
+   * Geloescht wird sie trotzdem, wenn Erik das will - aber der Satz daneben
+   * nimmt die Sorge: Die Wettkaempfe haengen an eingefrorenen FASSUNGEN
+   * (gym_routine_versions), nicht an dieser Zeile. Sie bleiben vollstaendig
+   * lesbar, auch wenn die lebende Kuer verschwindet.
+   */
+  const wettkampfHinweis = useMemo(() => {
+    if (!kuer) return ''
+    const fassungen = new Set(
+      data.gymRoutineVersions.filter((v) => v.routine_id === kuer.id).map((v) => v.id))
+    if (!fassungen.size) return ''
+    const wkIds = new Set(
+      data.gymResults
+        .filter((r) => !r.deleted_at && r.routine_version_id && fassungen.has(r.routine_version_id))
+        .map((r) => r.competition_id))
+    if (!wkIds.size) return ''
+    return wkIds.size === 1
+      ? '\n\nMit dieser Kür wurde ein Wettkampf geturnt. Er bleibt unverändert: Wettkämpfe hängen an der festgehaltenen Fassung, nicht an dieser Kür.'
+      : `\n\nMit dieser Kür wurden ${wkIds.size} Wettkämpfe geturnt. Sie bleiben unverändert: Wettkämpfe hängen an der festgehaltenen Fassung, nicht an dieser Kür.`
+  }, [kuer, data.gymRoutineVersions, data.gymResults])
+
   const speichern = () => {
     if (!name.trim()) return
     m.batch(() => {
@@ -458,7 +481,7 @@ function KuerEditor({ kuer, vorgabeGeraet, onZuElementen, onClose }: {
       )}
 
       <Confirm open={loeschen} title="Kür löschen?"
-        message="Sie wandert in den Papierkorb. Die Elemente selbst bleiben unberührt – gelöscht wird nur die Zusammenstellung. Zum Aufheben genügt „Aktiv“ abzuschalten."
+        message={`Sie wandert in den Papierkorb. Die Elemente selbst bleiben unberührt – gelöscht wird nur die Zusammenstellung. Zum Aufheben genügt „Aktiv“ abzuschalten.${wettkampfHinweis}`}
         danger onCancel={() => setLoeschen(false)}
         onConfirm={() => {
           m.batch(() => {

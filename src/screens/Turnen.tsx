@@ -5,9 +5,10 @@
  * Reiter, und das Turnen-Modul braucht selbst eine Unterteilung – zwei
  * Reiterebenen übereinander sind nicht bedienbar.
  *
- * Küren sind seit Phase 2A der vierte Reiter. Wettkämpfe sind später ein
- * fünfter Eintrag in derselben Liste und sonst nichts – die Struktur bleibt
- * dafür so, wie sie ist (TURNEN_ARCHITEKTUR.md, Phase 2B). „Geräte"
+ * Seit Phase 2B1 stehen alle fünf Reiter: Übersicht, Elemente, Training,
+ * Küren, Wettkämpfe. Die Liste ist damit vollständig – der PDF-Import aus
+ * Phase 2B2 wird kein sechster Reiter, sondern ein Weg in den
+ * Wettkampfeditor hinein. „Geräte"
  * wird NIE ein Reiter: Ein Gerät ist kein Ort, an den man geht, sondern die
  * Gliederung von allem anderen – es ist die Achse der Übersicht und der Filter
  * in den Elementen.
@@ -18,6 +19,7 @@ import { UebersichtView } from './turnen/Uebersicht'
 import { ElementeView } from './turnen/Elemente'
 import { TrainingView } from './turnen/Training'
 import { KuerenView } from './turnen/Kueren'
+import { WettkaempfeView } from './turnen/Wettkaempfe'
 
 export function TurnenScreen({ sub, navigate }: { sub: string; navigate: (r: string) => void }) {
   const tabs = [
@@ -25,6 +27,7 @@ export function TurnenScreen({ sub, navigate }: { sub: string; navigate: (r: str
     { key: 'elemente', label: 'Elemente' },
     { key: 'training', label: 'Training' },
     { key: 'kueren', label: 'Küren' },
+    { key: 'wettkaempfe', label: 'Wettkämpfe' },
   ]
   const geh = (k: string) => navigate(`#/turnen${k ? '/' + k : ''}`)
 
@@ -44,6 +47,7 @@ export function TurnenScreen({ sub, navigate }: { sub: string; navigate: (r: str
       {sub === 'elemente' && <ElementeView />}
       {sub === 'training' && <TrainingView onZuElementen={() => geh('elemente')} />}
       {sub === 'kueren' && <KuerenView onZuElementen={() => geh('elemente')} />}
+      {sub === 'wettkaempfe' && <WettkaempfeView onZuKueren={() => geh('kueren')} />}
     </div>
   )
 }

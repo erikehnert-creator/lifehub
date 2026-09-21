@@ -1261,3 +1261,64 @@ table.data tbody tr:hover { background: var(--surface-2); }
   .kuer-mitte { flex-basis: calc(100% - 100px); }
   .kuer-knoepfe { margin-left: auto; }
 }
+
+
+/* Wettkaempfe: Geraeteergebnisse
+   ------------------------------------------------------------------
+   Ein Wettkampf mit sechs Geraeten muss am Handy erfassbar sein. Die
+   Noten stehen deshalb als Raster, das auch auf 390 px drei Spalten
+   behaelt: Untereinander waeren es sechs Zeilen je Geraet und
+   sechsunddreissig fuer einen Mehrkampf.
+
+   Keine uebergrossen Zahlen: Die Endnote ist die wichtigste Angabe der
+   Karte, aber eine Dashboard-Kachel waere sie deshalb noch lange nicht.
+   17 px gegen 13 px reicht, um sie zu finden.
+
+   Keine eigenen Farben - alles aus den vorhandenen Tokens.            */
+
+.wk-liste { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+
+.wk-karte {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; background: var(--surface-1);
+}
+
+.wk-karte-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.wk-geraet { font-size: 13.5px; font-weight: 650; }
+
+/* Anzeige: die Noten nebeneinander, Beschriftung darueber. */
+.wk-noten {
+  display: flex; flex-wrap: wrap; gap: 6px 18px;
+}
+.wk-note { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.wk-note-name {
+  font-size: 10.5px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.wk-note-wert { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wk-note.stark .wk-note-wert { font-size: 17px; font-weight: 700; }
+
+.wk-karte-fuss { margin-top: 10px; }
+.wk-karte-fuss .btn {
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wk-karte-notiz {
+  margin-top: 8px; font-size: 12px; color: var(--text-2);
+}
+
+/* Eingabe: drei Spalten, auch am Handy. Die .field-Abstaende wuerden
+   sonst je Feld eine eigene Zeile erzwingen. */
+.wk-felder {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 10px;
+}
+.wk-felder .field { margin-bottom: 8px; }
+.wk-felder .input { text-align: center; font-variant-numeric: tabular-nums; }
+
+.wk-verlauf-kopf {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+}
