@@ -836,7 +836,209 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_gym_routine_elements_element ON gym_routine_elements(element_id);
     `,
   },
+  {
+    id: 16,
+    name: 'turnen_wettkaempfe_und_kuerfassungen',
+    sql: `
+    ------------------------------------------------------- Turnen: Wettkaempfe
+    -- Wettkaempfe, Geraeteergebnisse und - der eigentliche Gegenstand dieser
+    -- Migration - unveraenderliche Fassungen einer Kuer.
+    --
+    -- ==================================================================
+    -- Warum eine Fassungstabelle und kein Verweis auf gym_routines
+    -- ==================================================================
+    --
+    -- Ein Wettkampfergebnis muss historisch stabil bleiben. Turnt Erik im
+    -- Oktober eine Reckkuer und aendert sie im Dezember, muss der
+    -- Oktober-Wettkampf weiterhin zeigen, WAS damals geturnt wurde.
+    --
+    -- Ein blosser gym_results.routine_id-Verweis leistet das nicht: Die Kuer
+    -- dahinter ist veraenderlich. Nach der Dezemberaenderung zeigte der
+    -- Oktober-Wettkampf die Dezemberfassung - ohne Fehler, ohne Meldung, und
+    -- niemand merkte es. Dasselbe gilt fuer die Elemente: Ein umbenanntes,
+    -- archiviertes oder geloeschtes gym_element wuerde die Anzeige eines
+    -- Jahre alten Wettkampfs veraendern.
+    --
+    -- Erwogen und verworfen wurde ein JSON-Schnappschuss an gym_results
+    -- (routine_snapshot_json). Er waere billiger - null zusaetzliche
+    -- Tabellen -, aber:
+    --
+    --   - LifeHub kennt strukturiertes JSON in Nutzdaten sonst nicht.
+    --     value_json in settings ist ein Einstellungsblock, die *_json in
+    --     conflicts sind rein lokal. Ein drittes Muster nur hier.
+    --   - "Welche Wettkaempfe wurden mit dieser Fassung geturnt" waere
+    --     kein Vergleich mehr, sondern ein Parsen aller Ergebniszeilen.
+    --   - Zwei Wettkaempfe mit derselben unveraenderten Kuer truegen zwei
+    --     gleiche Bloecke statt eines geteilten Verweises.
+    --   - Die Anzeige braeuchte einen zweiten Weg: Zeilen fuer die lebende
+    --     Kuer, JSON fuer die historische.
+    --
+    -- Eine Fassungstabelle ist damit nicht "klar einfacher und langfristig
+    -- sauberer" - im Gegenteil. Deshalb echte Zeilen.
+    --
+    -- Das ist ausdruecklich KEINE zweite Quelle fuer den aktuellen Zustand
+    -- (die Regel, die is_dismount-Zaehler und "zuletzt trainiert" aus dem
+    -- Elementkatalog heraushaelt). Eine Fassung beschreibt einen ANDEREN
+    -- Gegenstand als die lebende Kuer: nicht "wie die Kuer ist", sondern
+    -- "wie sie an einem Tag war". Der aktuelle Zustand bleibt allein in
+    -- gym_routines und gym_routine_elements.
+
+    -- Eine eingefrorene Fassung einer Kuer.
+    --
+    -- Die ID leitet sich aus dem INHALT ab (core/turnen/fassungen.ts):
+    -- Kuer, Geraet, Name und die ganze Elementfolge. Daraus folgt alles,
+    -- was diese Tabelle im Alltag braucht -
+    --
+    --   - Zweimal dieselbe unveraenderte Kuer einfrieren ergibt DIESELBE
+    --     Zeile. Zwei Wettkaempfe mit derselben Fassung teilen sie sich.
+    --   - Zwei Geraete, die offline dieselbe Kuer einfrieren, erzeugen
+    --     dieselbe ID. Der Server fuehrt sie ueber den Primaerschluessel
+    --     zusammen; es kann gar nicht erst zwei geben.
+    --   - Eine Fassung aendert sich nie. Aendert sich der Inhalt, ist es
+    --     eine andere Fassung mit einer anderen ID - die alte bleibt
+    --     unberuehrt stehen, und genau darauf zeigen die alten Ergebnisse.
+    --
+    -- routine_id ist nur eine Herkunftsangabe. Sie wird fuer die Anzeige
+    -- NIE aufgeloest: Die lebende Kuer darf geloescht, umbenannt oder auf
+    -- ein anderes Geraet gestellt werden, ohne dass sich hier etwas
+    -- aendert. apparatus und name stehen deshalb eingefroren daneben.
+    --
+    -- frozen_at ist der Zeitpunkt, zu dem diese Fassung zum ERSTEN Mal
+    -- festgehalten wurde - die Angabe hinter "Fassung vom 21.09.2026".
+    CREATE TABLE gym_routine_versions (
+      id TEXT PRIMARY KEY,
+      routine_id TEXT NOT NULL,
+      apparatus TEXT NOT NULL,
+      name TEXT NOT NULL,
+      frozen_at TEXT NOT NULL,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_routine_versions_routine ON gym_routine_versions(routine_id);
+
+    -- Ein Platz in einer eingefrorenen Fassung.
+    --
+    -- Was hier steht, ist bewusst eine Kopie aus gym_elements - und zwar
+    -- genau so viel, wie die historische Anzeige braucht: Name,
+    -- Schwierigkeit, Elementgruppe, Abgang, Reihenfolge.
+    --
+    -- Was NICHT eingefroren wird, und warum:
+    --
+    --   status        Der Sicherheitsstand ist ein Zustand des Turners
+    --                 heute, keine Eigenschaft der Kuer von damals.
+    --                 "Im Oktober war das Element unsicher" waere ausserdem
+    --                 gar nicht wahr - gespeichert wuerde der Stand im
+    --                 Moment des Einfrierens, nicht der am Wettkampftag.
+    --   video_url     Trainingshilfe, kein Bestandteil der Uebung.
+    --   note          dito - und eine Notiz am Element in der Kuer
+    --                 ("Anschluss hier schwer") ist eine Arbeitsnotiz. Sie
+    --                 mitzufrieren hiesse, dass eine korrigierte
+    --                 Rechtschreibung eine neue Fassung erzeugt.
+    --   hold_element  Fuer die Anzeige der Uebung ohne Bedeutung.
+    --
+    -- element_id ist wie routine_id nur eine Herkunftsangabe: Sie erlaubt
+    -- spaeter "dieses historische Element ist das heutige X", zeigt aber
+    -- moeglicherweise auf eine geloeschte Zeile und wird fuer die Anzeige
+    -- nie aufgeloest.
+    --
+    -- Die ID leitet sich aus Fassung und Platz ab. Innerhalb einer Fassung
+    -- ist position eindeutig, weil sie beim Einfrieren luecken- und
+    -- dublettenfrei von 0 an vergeben wird - anders als in der lebenden
+    -- gym_routine_elements, wo sie nur ein Sortierwert ist.
+    CREATE TABLE gym_routine_version_elements (
+      id TEXT PRIMARY KEY,
+      version_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      element_id TEXT,
+      name TEXT NOT NULL,
+      difficulty_letter TEXT,
+      difficulty_value REAL,
+      element_group INTEGER,
+      is_dismount INTEGER NOT NULL DEFAULT 0,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_routine_version_elements_version ON gym_routine_version_elements(version_id);
+
+    -- Ein Wettkampf.
+    --
+    -- Getrennt von den Ergebnissen, weil ein Mehrkampf sechs
+    -- Geraetewertungen und EINE Mehrkampfplatzierung hat. In einer Tabelle
+    -- stuenden Name und Datum sechsmal, und die Mehrkampfwertung haette
+    -- keinen Platz.
+    --
+    -- KEIN natuerlicher Schluessel auf day: Zwei Wettkaempfe am selben Tag
+    -- sind moeglich (Vormittag Mehrkampf, Nachmittag Geraetefinale), und
+    -- eine Eindeutigkeit auf dem Tag wuerde den zweiten beim Holen still
+    -- ueber den ersten schreiben.
+    --
+    -- rank_allround und score_allround werden EINGETRAGEN, nicht gerechnet.
+    -- Die Summe der sechs Endnoten ist nicht zwingend die Mehrkampfnote -
+    -- es gibt Wertungen, in die weitere Werte einfliessen -, und eine
+    -- selbstgerechnete Zahl saehe richtig aus, auch wenn sie es nicht ist.
+    --
+    -- protocol_url ist ein VERWEIS, keine Datei. Anhaenge liegen in LifeHub
+    -- als Base64 in einer synchronisierten Tabelle (4-MB-Grenze); ein
+    -- Wettkampfprotokoll als PDF gehoert dort nicht hinein. Dasselbe Muster
+    -- wie gym_elements.video_url.
+    CREATE TABLE gym_competitions (
+      id TEXT PRIMARY KEY,
+      day TEXT NOT NULL,
+      name TEXT NOT NULL,
+      location TEXT,
+      class_name TEXT,
+      rank_allround INTEGER,
+      score_allround REAL,
+      protocol_url TEXT,
+      note TEXT,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_competitions_day ON gym_competitions(day);
+
+    -- Das Ergebnis an einem Geraet.
+    --
+    -- Die ID leitet sich aus Wettkampf und Geraet ab (core/turnen/
+    -- wettkampf.ts, ergebnisId). Damit trifft ein zweites Speichern
+    -- dieselbe Zeile, und zwei Geraete erzeugen offline nicht zwei.
+    --
+    -- EIN Ergebnis je Wettkampf und Geraet. Ob ein echtes Protokoll
+    -- Vorrunde und Finale in EINEM Dokument fuehrt, ist ohne ein solches
+    -- Protokoll nicht zu beantworten und wird deshalb nicht geraten: Ein
+    -- Geraetefinale wird bis dahin als eigener Wettkampf erfasst. Kaeme
+    -- spaeter eine Runde dazu, waere es eine Spalte plus ein Zusatz an
+    -- genau dieser einen ID-Rechnung.
+    --
+    -- Gerechnet wird NICHTS. d_score, e_score, penalty und final_score
+    -- werden abgeschrieben, wie sie auf dem Protokoll stehen. LifeHub
+    -- behauptet nicht, dass D + E - Abzug die Endnote ergibt; je nach
+    -- Wettkampf fliessen weitere Werte ein. Fehlende Werte bleiben NULL
+    -- und werden nirgends als 0 angezeigt.
+    --
+    -- rank_apparatus statt rank: RANK ist in PostgreSQL ein
+    -- Fensterfunktionsname. Als Spaltenname waere er zwar zulaessig, aber
+    -- die Pruefungen fuehren das erzeugte SQL nicht wirklich in Postgres
+    -- aus - ein Irrtum an dieser Stelle fiele erst im SQL-Editor auf.
+    --
+    -- routine_version_id zeigt auf die eingefrorene Fassung, NICHT auf
+    -- gym_routines. Es darf leer bleiben: Ein Ergebnis ohne hinterlegte
+    -- Kuer ist ein vollstaendiger Eintrag.
+    CREATE TABLE gym_results (
+      id TEXT PRIMARY KEY,
+      competition_id TEXT NOT NULL,
+      apparatus TEXT NOT NULL,
+      routine_version_id TEXT,
+      d_score REAL,
+      e_score REAL,
+      penalty REAL,
+      final_score REAL,
+      rank_apparatus INTEGER,
+      note TEXT,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_results_competition ON gym_results(competition_id);
+    CREATE INDEX ix_gym_results_version ON gym_results(routine_version_id);
+    `,
+  },
 ]
+
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
 export const SYNCED_TABLES = [
@@ -853,6 +1055,8 @@ export const SYNCED_TABLES = [
   'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries',
   'sleep_sessions', 'import_tokens',
   'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements',
+  'gym_routine_versions', 'gym_routine_version_elements',
+  'gym_competitions', 'gym_results',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

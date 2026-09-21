@@ -834,6 +834,89 @@ CREATE INDEX IF NOT EXISTS ix_gym_routine_elements_routine ON gym_routine_elemen
 
 CREATE INDEX IF NOT EXISTS ix_gym_routine_elements_element ON gym_routine_elements(user_id, element_id);
 
+CREATE TABLE IF NOT EXISTS gym_routine_versions (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      routine_id text NOT NULL,
+      apparatus text NOT NULL,
+      name text NOT NULL,
+      frozen_at text NOT NULL,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_routine_versions_routine ON gym_routine_versions(user_id, routine_id);
+
+CREATE TABLE IF NOT EXISTS gym_routine_version_elements (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      version_id text NOT NULL,
+      position integer NOT NULL DEFAULT 0,
+      element_id text,
+      name text NOT NULL,
+      difficulty_letter text,
+      difficulty_value double precision,
+      element_group integer,
+      is_dismount integer NOT NULL DEFAULT 0,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_routine_version_elements_version ON gym_routine_version_elements(user_id, version_id);
+
+CREATE TABLE IF NOT EXISTS gym_competitions (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      day text NOT NULL,
+      name text NOT NULL,
+      location text,
+      class_name text,
+      rank_allround integer,
+      score_allround double precision,
+      protocol_url text,
+      note text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_competitions_day ON gym_competitions(user_id, day);
+
+CREATE TABLE IF NOT EXISTS gym_results (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      competition_id text NOT NULL,
+      apparatus text NOT NULL,
+      routine_version_id text,
+      d_score double precision,
+      e_score double precision,
+      penalty double precision,
+      final_score double precision,
+      rank_apparatus integer,
+      note text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_results_competition ON gym_results(user_id, competition_id);
+
+CREATE INDEX IF NOT EXISTS ix_gym_results_version ON gym_results(user_id, routine_version_id);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -1169,6 +1252,30 @@ DROP TRIGGER IF EXISTS trg_gym_routine_elements_rev ON gym_routine_elements;
 CREATE TRIGGER trg_gym_routine_elements_rev BEFORE INSERT OR UPDATE ON gym_routine_elements
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE gym_routine_versions ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_routine_versions_rev ON gym_routine_versions(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_routine_versions_rev ON gym_routine_versions;
+CREATE TRIGGER trg_gym_routine_versions_rev BEFORE INSERT OR UPDATE ON gym_routine_versions
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE gym_routine_version_elements ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_routine_version_elements_rev ON gym_routine_version_elements(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_routine_version_elements_rev ON gym_routine_version_elements;
+CREATE TRIGGER trg_gym_routine_version_elements_rev BEFORE INSERT OR UPDATE ON gym_routine_version_elements
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE gym_competitions ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_competitions_rev ON gym_competitions(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_competitions_rev ON gym_competitions;
+CREATE TRIGGER trg_gym_competitions_rev BEFORE INSERT OR UPDATE ON gym_competitions
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE gym_results ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_results_rev ON gym_results(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_results_rev ON gym_results;
+CREATE TRIGGER trg_gym_results_rev BEFORE INSERT OR UPDATE ON gym_results
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1336,6 +1443,18 @@ REVOKE ALL ON gym_routines FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON gym_routine_elements TO authenticated;
 REVOKE ALL ON gym_routine_elements FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_routine_versions TO authenticated;
+REVOKE ALL ON gym_routine_versions FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_routine_version_elements TO authenticated;
+REVOKE ALL ON gym_routine_version_elements FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_competitions TO authenticated;
+REVOKE ALL ON gym_competitions FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_results TO authenticated;
+REVOKE ALL ON gym_results FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1598,10 +1717,30 @@ DROP POLICY IF EXISTS gym_routine_elements_own ON gym_routine_elements;
 CREATE POLICY gym_routine_elements_own ON gym_routine_elements FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE gym_routine_versions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_routine_versions_own ON gym_routine_versions;
+CREATE POLICY gym_routine_versions_own ON gym_routine_versions FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE gym_routine_version_elements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_routine_version_elements_own ON gym_routine_version_elements;
+CREATE POLICY gym_routine_version_elements_own ON gym_routine_version_elements FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE gym_competitions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_competitions_own ON gym_competitions;
+CREATE POLICY gym_competitions_own ON gym_competitions FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE gym_results ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_results_own ON gym_results;
+CREATE POLICY gym_results_own ON gym_results FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 51 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 55 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1712,6 +1851,14 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM gym_routines
   UNION ALL
   SELECT max(server_rev) AS rev FROM gym_routine_elements
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_routine_versions
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_routine_version_elements
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_competitions
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_results
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;
@@ -1739,7 +1886,7 @@ REVOKE ALL ON sync_head FROM anon;
 -- Durchlauf, obwohl nichts falsch war.
 DO $$
 DECLARE ohne_rls text; ohne_regel text; anon_rechte text;
-  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens', 'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements'];
+  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens', 'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements', 'gym_routine_versions', 'gym_routine_version_elements', 'gym_competitions', 'gym_results'];
 BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

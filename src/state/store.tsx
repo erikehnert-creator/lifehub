@@ -26,7 +26,8 @@ import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
 import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession, GymElement, GymAttempt,
-  GymRoutine, GymRoutineElement,
+  GymRoutine, GymRoutineElement, GymRoutineVersion, GymRoutineVersionElement,
+  GymCompetition, GymResult,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
   ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
@@ -118,6 +119,10 @@ export interface AppData {
   gymAttempts: GymAttempt[]
   gymRoutines: GymRoutine[]
   gymRoutineElements: GymRoutineElement[]
+  gymRoutineVersions: GymRoutineVersion[]
+  gymRoutineVersionElements: GymRoutineVersionElement[]
+  gymCompetitions: GymCompetition[]
+  gymResults: GymResult[]
   importTokens: any[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
@@ -156,6 +161,7 @@ const EMPTY: AppData = {
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
   tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [], gymElements: [], gymAttempts: [],
   gymRoutines: [], gymRoutineElements: [],
+  gymRoutineVersions: [], gymRoutineVersionElements: [], gymCompetitions: [], gymResults: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -205,6 +211,13 @@ const LADER: Record<string, Lader> = {
   // ergaenzt). Ohne festen Nachrang zeigte jedes Geraet eine andere
   // Reihenfolge derselben Kuer.
   gym_routine_elements: { schluessel: 'gymRoutineElements', laden: () => list<GymRoutineElement>('gym_routine_elements', { orderBy: 'position, created_at, id' }) },
+  // Eingefrorene Fassungen: unveraenderlich, deshalb reicht eine stabile
+  // Reihenfolge ueber die Position. Sie ist hier luecken- und
+  // dublettenfrei, anders als in der lebenden gym_routine_elements.
+  gym_routine_versions: { schluessel: 'gymRoutineVersions', laden: () => list<GymRoutineVersion>('gym_routine_versions', { orderBy: 'frozen_at DESC' }) },
+  gym_routine_version_elements: { schluessel: 'gymRoutineVersionElements', laden: () => list<GymRoutineVersionElement>('gym_routine_version_elements', { orderBy: 'position' }) },
+  gym_competitions: { schluessel: 'gymCompetitions', laden: () => list<GymCompetition>('gym_competitions', { orderBy: 'day DESC' }) },
+  gym_results: { schluessel: 'gymResults', laden: () => list<GymResult>('gym_results') },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },

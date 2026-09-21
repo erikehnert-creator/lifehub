@@ -518,3 +518,86 @@ export interface GymRoutineElement extends BaseEntity {
   /** Notiz zu genau diesem Element in genau dieser Kür. */
   note: string | null
 }
+
+/**
+ * Eine eingefrorene Fassung einer Kür.
+ *
+ * Unveränderlich. Sie beschreibt einen anderen Gegenstand als `GymRoutine`:
+ * nicht wie die Kür *ist*, sondern wie sie an einem Tag *war*. Deshalb ist
+ * das ausdrücklich keine zweite Quelle für den aktuellen Zustand.
+ *
+ * `routine_id` ist nur eine Herkunftsangabe und wird für die Anzeige nie
+ * aufgelöst – die lebende Kür darf gelöscht oder umbenannt werden, ohne dass
+ * sich hier etwas ändert. `apparatus` und `name` stehen deshalb eingefroren
+ * daneben. Siehe core/turnen/fassungen.ts.
+ */
+export interface GymRoutineVersion extends BaseEntity {
+  routine_id: string
+  apparatus: string
+  name: string
+  /** Wann diese Fassung zum ersten Mal festgehalten wurde. */
+  frozen_at: string
+}
+
+/**
+ * Ein Platz in einer eingefrorenen Fassung – mit kopierten Elementdaten.
+ *
+ * Bewusst eine Kopie aus `GymElement`, und zwar genau so viel, wie die
+ * historische Anzeige braucht. `status`, `video_url` und die Notizen fehlen
+ * absichtlich: Sie beschreiben den Turner heute, nicht die Übung von damals.
+ */
+export interface GymRoutineVersionElement extends BaseEntity {
+  version_id: string
+  position: number
+  /** Herkunftsangabe. Kann auf eine gelöschte Zeile zeigen – nie auflösen. */
+  element_id: string | null
+  name: string
+  difficulty_letter: string | null
+  difficulty_value: number | null
+  element_group: number | null
+  is_dismount: number
+}
+
+/**
+ * Ein Wettkampf.
+ *
+ * `rank_allround` und `score_allround` werden abgeschrieben, nicht gerechnet:
+ * Die Summe der Gerätenoten ist nicht zwingend die Mehrkampfnote.
+ *
+ * `protocol_url` ist ein Verweis, keine Datei – Anhänge liegen in LifeHub als
+ * Base64 in einer synchronisierten Tabelle und sind für Protokolle ungeeignet.
+ */
+export interface GymCompetition extends BaseEntity {
+  day: DayString
+  name: string
+  location: string | null
+  class_name: string | null
+  rank_allround: number | null
+  score_allround: number | null
+  protocol_url: string | null
+  note: string | null
+}
+
+/**
+ * Das Ergebnis an einem Gerät.
+ *
+ * Alle Noten sind freiwillig und bleiben `null`, wenn nichts eingetragen ist.
+ * Sie werden nirgends als 0 angezeigt und nirgends auseinander gerechnet –
+ * LifeHub behauptet nicht, dass D + E − Abzug die Endnote ergibt.
+ *
+ * `routine_version_id` zeigt auf die eingefrorene Fassung, NICHT auf
+ * `gym_routines`. Es darf leer bleiben.
+ */
+export interface GymResult extends BaseEntity {
+  competition_id: string
+  apparatus: string
+  routine_version_id: string | null
+  d_score: number | null
+  e_score: number | null
+  /** Neutralabzüge (Zeit, Linie). Getrennt, weil Protokolle sie getrennt ausweisen. */
+  penalty: number | null
+  final_score: number | null
+  rank_apparatus: number | null
+  note: string | null
+}
+
