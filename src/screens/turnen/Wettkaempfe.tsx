@@ -151,7 +151,11 @@ export function WettkaempfeView({ onZuKueren }: { onZuKueren: () => void }) {
           onClose={() => setImportOffen(false)} />
       )}
       {importStand && (
-        <WettkampfEditor wettkampf={null} importStand={importStand}
+        // Gibt es den Wettkampf an diesem Tag schon unter diesem Namen, wird
+        // ER bearbeitet und kein zweiter angelegt. Die Ergebniszeilen fuehrt
+        // planeErgebnisse() dann ueber (Wettkampf, Geraet) zusammen - genau
+        // der Dublettenschutz aus Phase 2B1.
+        <WettkampfEditor wettkampf={importStand.doppelt} importStand={importStand}
           onZuKueren={onZuKueren} onClose={() => setImportStand(null)} />
       )}
     </>
@@ -930,9 +934,10 @@ function ImportBanner({ stand }: { stand: ImportStand }) {
 
       {stand.doppelt && (
         <div className="hint-box small">
-          Am {formatDay(stand.doppelt.day)} steht schon ein Wettkampf
-          „{stand.doppelt.name}". Ein zweiter Eintrag ist möglich (Mehrkampf und
-          Gerätefinale am selben Tag), wird aber nicht zusammengeführt.
+          Diesen Wettkampf gibt es schon – vom {formatDay(stand.doppelt.day)}.
+          Er wird <strong>aktualisiert</strong>, nicht ein zweites Mal angelegt.
+          Willst du einen zweiten Eintrag (etwa ein Gerätefinale am selben Tag),
+          brich hier ab und lege ihn von Hand an.
         </div>
       )}
 

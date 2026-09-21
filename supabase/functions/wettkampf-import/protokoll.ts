@@ -128,11 +128,22 @@ export interface ProtokollErgebnis {
   warnungen: string[]
 }
 
-/** Ein Protokoll, mit dem dieser Leser nichts anfangen kann. */
+/**
+ * Ein Protokoll, mit dem dieser Leser nichts anfangen kann.
+ *
+ * Die Zuweisung steht ausgeschrieben im Rumpf und nicht als
+ * Parametereigenschaft (`constructor(public code: …)`). Node kann Typen nur
+ * herausstreichen, nicht übersetzen – eine Parametereigenschaft bricht dort
+ * mit `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Und aus Node geladen wird diese
+ * Datei: vom Nachbau in den Browserprüfungen und vom Integrationslauf.
+ */
 export class ProtokollFehler extends Error {
-  constructor(public code: ProtokollFehlerCode, text: string) {
+  code: ProtokollFehlerCode
+
+  constructor(code: ProtokollFehlerCode, text: string) {
     super(text)
     this.name = 'ProtokollFehler'
+    this.code = code
   }
 }
 
