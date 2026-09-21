@@ -12,7 +12,11 @@ import { all, getDb, saveNow } from '../../db/sqlite'
 import { formatMoney } from '../../core/money'
 import { formatDay } from '../../core/dates'
 import { findeDubletten, fuehreZusammen } from '../../state/dubletten'
-import { syncStatusText, runSync, pullFresh, pushAll, KONFLIKT_ENTSCHIEDEN } from '../../sync/engine'
+import {
+  syncStatusText, runSync, pullFresh, pushAll, KONFLIKT_ENTSCHIEDEN,
+  letzterSyncStand, schemaMeldung,
+} from '../../sync/engine'
+import { MIGRATIONS, SYNCED_TABLES } from '../../db/schema'
 import {
   signIn, signOut, currentSession, syncRolle, clearSyncRolle, meldeSyncAenderung,
   type Session, type SyncRolle,
@@ -358,6 +362,8 @@ export function SyncTab() {
         </Card>
       )}
 
+      {configured && <SyncDiagnose />}
+
       <Confirm open={confirmFresh} title="Lokalen Bestand ersetzen?"
         message="Alle Daten auf diesem Gerät werden gelöscht und durch den Stand vom Server ersetzt. Anmeldung und PIN bleiben erhalten."
         confirmLabel="Vom Server befüllen" danger
@@ -486,3 +492,95 @@ function ConflictList({ onDone }: { onDone: () => void }) {
   )
 }
 
+/**
+ * Eine kleine Diagnose – keine Entwicklerkonsole.
+ *
+ * Sie beantwortet genau die vier Fragen, die man sich stellt, wenn der
+ * Abgleich klemmt: Welchen Schemastand hat dieses Gerät, wie viele Tabellen
+ * sollen überhaupt übertragen werden, welche kennt der Server nicht, und wann
+ * war der letzte Versuch.
+ *
+ * Die Liste der fehlenden Tabellen steht hinter einem Aufklapper. Sie ist die
+ * Antwort auf eine Frage, die man selten stellt – der Hinweis darüber sagt
+ * schon, was zu tun ist.
+ */
+function SyncDiagnose() {
+  const stand = letzterSyncStand()
+  const schemaStand = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].id : 0
+  const fehlend = stand?.fehlendeTabellen ?? []
+  const andereFehler = stand?.fehler ?? []
+
+  const zustandText: Record<string, string> = {
+    vollstaendig: 'vollständig synchronisiert',
+    teilweise: 'teilweise synchronisiert',
+    schema_unvollstaendig: 'Server-Schema unvollständig',
+    offline: 'offline',
+    nicht_angemeldet: 'nicht angemeldet',
+    kein_server: 'kein Server hinterlegt',
+    fehler: 'fehlgeschlagen',
+  }
+
+  return (
+    <Card title="Diagnose" className="mt16">
+      {fehlend.length > 0 && (
+        <div className="hint-box small">
+          <strong>{schemaMeldung(fehlend.length)}</strong>
+          <div className="muted mt8">
+            Die Tabellen gibt es auf diesem Gerät, aber nicht auf dem Server. Führe
+            <code> supabase/migrations/0001_init.sql</code> einmal vollständig im
+            SQL-Editor deines Supabase-Projekts aus. Die Datei ist wiederholbar und
+            löscht nichts. Alles andere wird weiterhin abgeglichen.
+          </div>
+        </div>
+      )}
+
+      <div className="kennzeilen">
+        <div className="kennzeile">
+          <span className="kennzeile-name">Schemastand auf diesem Gerät</span>
+          <span className="kennzeile-wert">Migration {schemaStand}</span>
+        </div>
+        <div className="kennzeile">
+          <span className="kennzeile-name">Tabellen im Abgleich</span>
+          <span className="kennzeile-wert">{SYNCED_TABLES.length}</span>
+        </div>
+        <div className="kennzeile">
+          <span className="kennzeile-name">Dem Server fehlen</span>
+          <span className="kennzeile-wert">
+            {stand ? (fehlend.length === 0 ? 'keine' : `${fehlend.length} Tabellen`) : 'noch nicht geprüft'}
+          </span>
+        </div>
+        <div className="kennzeile">
+          <span className="kennzeile-name">Letzter Abgleich</span>
+          <span className="kennzeile-wert">
+            {stand
+              ? `${zustandText[stand.zustand] ?? stand.zustand} · ${new Date(stand.wann).toLocaleString('de-DE')}`
+              : 'in dieser Sitzung noch keiner'}
+          </span>
+        </div>
+      </div>
+
+      {(fehlend.length > 0 || andereFehler.length > 0) && (
+        <Collapsible label="Details anzeigen">
+          {fehlend.length > 0 && (
+            <div className="small">
+              <strong>Auf dem Server nicht vorhanden:</strong>
+              <ul className="import-liste">
+                {fehlend.map((t) => <li key={t}><code>{t}</code></li>)}
+              </ul>
+            </div>
+          )}
+          {andereFehler.length > 0 && (
+            <div className="small mt8">
+              <strong>Andere Tabellen kamen nicht durch:</strong>
+              <ul className="import-liste">
+                {andereFehler.map((f) => (
+                  <li key={f.tabelle}><code>{f.tabelle}</code> – {f.grund}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Collapsible>
+      )}
+    </Card>
+  )
+}

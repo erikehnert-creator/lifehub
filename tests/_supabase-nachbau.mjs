@@ -120,6 +120,10 @@ export async function starteNachbau(opts = {}) {
   // Textstuecke, die die Importfunktion deuten soll - oder ein Fehlercode,
   // den sie stattdessen zurueckgeben soll.
   const protokollSeiten = opts.protokoll ?? null
+  /* Tabellen, die dieser Server NICHT kennt - so, wie ein Supabase-Projekt
+     antwortet, auf dem die aktuelle Migration noch nicht gelaufen ist.
+     PostgREST meldet das als 404 mit dem Code PGRST205. */
+  let fehlendeTabellen = new Set(opts.fehlendeTabellen ?? [])
   let protokollFehler = opts.protokollFehler ?? null
   const hochgeladen = []
 
@@ -202,6 +206,12 @@ export async function starteNachbau(opts = {}) {
     const m = pfad.match(/^\/rest\/v1\/(\w+)$/)
     if (!m) return antwort(res, 404, { message: 'nicht gefunden' })
     const tabelle = m[1]
+    if (fehlendeTabellen.has(tabelle)) {
+      return antwort(res, 404, {
+        code: 'PGRST205',
+        message: `Could not find the table 'public.${tabelle}' in the schema cache`,
+      })
+    }
     if (!tabellen.has(tabelle)) tabellen.set(tabelle, new Map())
     const store = tabellen.get(tabelle)
 
@@ -263,6 +273,8 @@ export async function starteNachbau(opts = {}) {
     hochgeladen,
     /** Den Importer im laufenden Betrieb scheitern lassen – oder wieder nicht. */
     setzeProtokollFehler: (f) => { protokollFehler = f },
+    /** Tabellen im laufenden Betrieb verschwinden lassen – oder zurückholen. */
+    setzeFehlendeTabellen: (liste) => { fehlendeTabellen = new Set(liste ?? []) },
     stop: () => new Promise((r) => server.close(r)),
   }
 }

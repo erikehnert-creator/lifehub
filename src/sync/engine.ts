@@ -31,12 +31,75 @@ import { uuidv7 } from '../core/ids'
 import { getDeviceId } from '../db/repo'
 import { accessToken, isSignedIn, setSyncRolle } from './auth'
 
+/**
+ * Woran der Abgleich gerade ist.
+ *
+ * Der Unterschied ist wichtiger, als er aussieht: „teilweise synchronisiert"
+ * und „dem Server fehlt das halbe Schema" haben nichts miteinander zu tun.
+ * Das eine ist eine einzelne zickige Tabelle, das andere heisst: Erik hat die
+ * aktuelle Migration noch nicht eingespielt, und ein Hinweis mit acht
+ * gleichlautenden Sätzen hilft ihm dabei nicht.
+ */
+export type SyncZustand =
+  | 'vollstaendig'
+  | 'teilweise'
+  | 'schema_unvollstaendig'
+  | 'offline'
+  | 'nicht_angemeldet'
+  | 'kein_server'
+  | 'fehler'
+
 export interface SyncResult {
   ok: boolean
   pushed: number
   pulled: number
   conflicts: number
   message: string
+  zustand: SyncZustand
+  /** Tabellen, die der Server gar nicht kennt. */
+  fehlendeTabellen: string[]
+  /** Je gescheiterter Tabelle ein Grund – für die Diagnose, nicht für den Hinweis. */
+  fehler: { tabelle: string; grund: string }[]
+}
+
+/**
+ * Ein Satz für fehlende Servertabellen – egal wie viele es sind.
+ *
+ * Vorher stand hier je Tabelle derselbe Erklärungstext, achtmal
+ * hintereinander. Das füllte den halben Bildschirm und verdeckte genau die
+ * eine Auskunft, auf die es ankommt: Der Server ist älter als die App, und
+ * ein einziger Schritt behebt das.
+ */
+export function schemaMeldung(anzahl: number): string {
+  return `Server-Schema unvollständig: ${anzahl} ${anzahl === 1 ? 'Tabelle fehlt' : 'Tabellen fehlen'}. `
+    + 'Bitte die aktuelle Supabase-Migration einmal ausführen.'
+}
+
+/** Ein Ergebnis mit Vorgaben, damit die Rückgabestellen kurz bleiben. */
+function ergebnis(teil: Partial<SyncResult> & { zustand: SyncZustand; message: string }): SyncResult {
+  return {
+    ok: teil.zustand === 'vollstaendig',
+    pushed: 0, pulled: 0, conflicts: 0,
+    fehlendeTabellen: [], fehler: [],
+    ...teil,
+  }
+}
+
+/**
+ * Der Server kennt diese Tabelle nicht.
+ *
+ * Eigene Fehlerart, damit der Abgleich sie von einer zickigen Spalte
+ * unterscheiden kann. Acht fehlende Tabellen sind EIN Problem mit einer
+ * Ursache und gehören zu einem Satz zusammengefasst – nicht zu acht.
+ */
+export class TabelleFehltFehler extends Error {
+  tabelle: string
+
+  constructor(tabelle: string) {
+    super(`Die Tabelle „${tabelle}" gibt es auf dem Server nicht.`)
+    this.name = 'TabelleFehltFehler'
+    this.tabelle = tabelle
+  }
 }
 
 /** Felder, die bei einem Konflikt niemals automatisch zusammengeführt werden. */
@@ -302,9 +365,11 @@ async function request(
   })
   if (!res.ok) {
     const body = await res.text()
-    if (res.status === 404) {
-      throw new Error(`Die Tabelle „${path.split('?')[0]}" gibt es auf dem Server nicht. `
-        + 'Wurde das Server-Schema (0001_init.sql) vollständig ausgeführt?')
+    // PostgREST meldet eine unbekannte Tabelle als 404, je nach Fassung auch
+    // mit dem Code PGRST205 im Rumpf. Beides heisst dasselbe: Das Schema auf
+    // dem Server ist aelter als die App.
+    if (res.status === 404 || /PGRST205|Could not find the table/i.test(body)) {
+      throw new TabelleFehltFehler(path.split('?')[0])
     }
     if (res.status === 401 || res.status === 403) {
       throw new Error('Der Server hat die Anmeldung abgelehnt. Melde dich in den Einstellungen neu an.')
@@ -324,20 +389,64 @@ function pushBatchSize(table: string): number {
   return table === 'attachments' ? 4 : 200
 }
 
+/* ------------------------------------------------- Letzter Abgleichstand
+ *
+ * Fuer die Diagnose unter Einstellungen -> Synchronisation. Bewusst im
+ * localStorage und NICHT in einer synchronisierten Tabelle: Was diesem Geraet
+ * beim letzten Versuch widerfahren ist, geht kein anderes etwas an - und eine
+ * Tabelle dafuer kostete drei Abgleichanfragen je Synchronisation.
+ */
+const STAND_SCHLUESSEL = 'lifehub.sync.stand'
+
+export interface SyncStand {
+  zustand: SyncZustand
+  message: string
+  fehlendeTabellen: string[]
+  fehler: { tabelle: string; grund: string }[]
+  /** Zeitpunkt in Millisekunden. */
+  wann: number
+}
+
+export function letzterSyncStand(): SyncStand | null {
+  try {
+    const roh = localStorage.getItem(STAND_SCHLUESSEL)
+    return roh ? JSON.parse(roh) as SyncStand : null
+  } catch {
+    return null
+  }
+}
+
+function merkeStand(r: SyncResult): SyncResult {
+  try {
+    localStorage.setItem(STAND_SCHLUESSEL, JSON.stringify({
+      zustand: r.zustand,
+      message: r.message,
+      fehlendeTabellen: r.fehlendeTabellen,
+      fehler: r.fehler,
+      wann: Date.now(),
+    } satisfies SyncStand))
+  } catch { /* privater Modus, voller Speicher - kein Grund, den Abgleich zu stoeren */ }
+  return r
+}
+
 export async function runSync(url: string, anonKey: string): Promise<SyncResult> {
+  return merkeStand(await runSyncIntern(url, anonKey))
+}
+
+async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> {
   if (!url || !anonKey) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Kein Server hinterlegt – die App arbeitet rein lokal.' }
+    return ergebnis({ zustand: 'kein_server', message: 'Kein Server hinterlegt – die App arbeitet rein lokal.' })
   }
   if (!isSignedIn()) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Nicht angemeldet – melde dich unter Einstellungen → Synchronisation an.' }
+    return ergebnis({ zustand: 'nicht_angemeldet', message: 'Nicht angemeldet – melde dich unter Einstellungen → Synchronisation an.' })
   }
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Offline – die Änderungen bleiben gespeichert und werden später übertragen.' }
+    return ergebnis({ zustand: 'offline', message: 'Offline – die Änderungen bleiben gespeichert und werden später übertragen.' })
   }
 
   const token = await accessToken(url, anonKey)
   if (!token) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Die Anmeldung ist abgelaufen. Bitte einmal neu anmelden.' }
+    return ergebnis({ zustand: 'nicht_angemeldet', message: 'Die Anmeldung ist abgelaufen. Bitte einmal neu anmelden.' })
   }
 
   let pushed = 0, pulled = 0, conflicts = 0
@@ -349,7 +458,8 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
   // noch gesendet. Genau das sah aus wie "nichts synct mehr", obwohl nur eine
   // einzelne Tabelle betroffen war. Jetzt läuft der Rest ganz normal weiter,
   // und die betroffene Tabelle steht namentlich in der Fehlermeldung.
-  const fehlgeschlagen: string[] = []
+  const fehlgeschlagen: { tabelle: string; grund: string }[] = []
+  const fehlendeTabellen: string[] = []
   const berichtigt: BerichtigterWert[] = []
   /** Zeilen, die als Dublette eines natürlichen Schlüssels aufgelöst wurden. */
   const aufgeloesteDubletten: string[] = []
@@ -444,7 +554,14 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
         // als "noch zu senden" markiert (change_log wurde für sie ja nicht
         // geleert) und werden beim nächsten Abgleich erneut versucht. Alle
         // anderen Tabellen laufen in DIESEM Lauf trotzdem normal weiter.
-        fehlgeschlagen.push(`${table}: ${tabErr?.message ?? String(tabErr)}`)
+        if (tabErr instanceof TabelleFehltFehler) {
+          // Acht fehlende Tabellen sind EIN Problem mit einer Ursache. Sie
+          // einzeln aufzuzaehlen macht den Hinweis riesig und die Ursache
+          // unkenntlich.
+          fehlendeTabellen.push(table)
+        } else {
+          fehlgeschlagen.push({ tabelle: table, grund: String(tabErr?.message ?? tabErr) })
+        }
       }
     }
 
@@ -459,22 +576,36 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
         ? `${aufgeloesteDubletten.length} doppelt angelegte Zeile(n) zusammengeführt.`
         : '',
     ].filter(Boolean).join(' ')
+    // Fehlende Tabellen wiegen schwerer als eine zickige: Sie haben eine
+    // einzige Ursache, die Erik in einem Schritt beheben kann.
+    if (fehlendeTabellen.length) {
+      return ergebnis({
+        zustand: 'schema_unvollstaendig',
+        pushed, pulled, conflicts,
+        fehlendeTabellen,
+        fehler: fehlgeschlagen,
+        message: schemaMeldung(fehlendeTabellen.length),
+      })
+    }
     if (fehlgeschlagen.length) {
-      return {
-        ok: false, pushed, pulled, conflicts,
-        message: `Teilweise synchronisiert (${parts.join(' · ')}). Fehlgeschlagen: ${fehlgeschlagen.join(' / ')}`
+      return ergebnis({
+        zustand: 'teilweise',
+        pushed, pulled, conflicts,
+        fehler: fehlgeschlagen,
+        message: `Teilweise synchronisiert (${parts.join(' · ')}). `
+          + `${fehlgeschlagen.length === 1 ? 'Eine Tabelle' : `${fehlgeschlagen.length} Tabellen`} kam nicht durch.`
           + (hinweis ? ` ${hinweis}` : ''),
-      }
+      })
     }
-    return {
-      ok: true, pushed, pulled, conflicts,
+    return ergebnis({
+      zustand: 'vollstaendig', pushed, pulled, conflicts,
       message: `Synchronisiert: ${parts.join(' · ')}` + (hinweis ? ` ${hinweis}` : ''),
-    }
+    })
   } catch (err: any) {
-    return {
-      ok: false, pushed, pulled, conflicts,
+    return ergebnis({
+      zustand: 'fehler', pushed, pulled, conflicts,
       message: `Synchronisation fehlgeschlagen: ${err?.message ?? String(err)} Deine Daten sind lokal vollständig gespeichert.`,
-    }
+    })
   }
 }
 
@@ -489,7 +620,7 @@ export async function runSync(url: string, anonKey: string): Promise<SyncResult>
  */
 export async function pullFresh(url: string, anonKey: string): Promise<SyncResult> {
   if (!isSignedIn()) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Bitte zuerst anmelden.' }
+    return ergebnis({ zustand: 'nicht_angemeldet', message: 'Bitte zuerst anmelden.' })
   }
   const KEEP = ['sync_url', 'sync_key', 'pin_hash', 'pin_salt', 'lock_after_minutes']
   try {
@@ -504,7 +635,7 @@ export async function pullFresh(url: string, anonKey: string): Promise<SyncResul
     getDb().run('DELETE FROM change_log')
     await saveNow()
   } catch (err: any) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: `Konnte den lokalen Bestand nicht leeren: ${err?.message ?? err}` }
+    return ergebnis({ zustand: 'fehler', message: `Konnte den lokalen Bestand nicht leeren: ${err?.message ?? err}` })
   }
   const res = await runSync(url, anonKey)
   if (res.ok) setSyncRolle('kopie')
@@ -589,7 +720,7 @@ async function serverHatBestand(
  */
 export async function pushAll(url: string, anonKey: string): Promise<SyncResult> {
   if (!isSignedIn()) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: 'Bitte zuerst anmelden.' }
+    return ergebnis({ zustand: 'nicht_angemeldet', message: 'Bitte zuerst anmelden.' })
   }
 
   const token = await accessToken(url, anonKey)
@@ -599,12 +730,12 @@ export async function pushAll(url: string, anonKey: string): Promise<SyncResult>
       all<{ n: number }>('SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL')[0]?.n ?? 0,
     )
     if (dort?.buchungen && hierBuchungen === 0) {
-      return {
-        ok: false, pushed: 0, pulled: 0, conflicts: 0,
+      return ergebnis({
+        zustand: 'fehler',
         message: 'Abgebrochen: Auf dem Server liegen schon Buchungen, auf diesem Gerät keine einzige. '
           + 'Dieses Gerät würde seinen Beispielbestand danebenlegen – danach stünde jedes Konto doppelt da. '
           + 'Nimm stattdessen „Dieses Gerät vom Server befüllen".',
-      }
+      })
     }
   }
 
@@ -615,7 +746,7 @@ export async function pushAll(url: string, anonKey: string): Promise<SyncResult>
     getDb().run('DELETE FROM sync_state')
     await saveNow()
   } catch (err: any) {
-    return { ok: false, pushed: 0, pulled: 0, conflicts: 0, message: `Vorbereitung fehlgeschlagen: ${err?.message ?? err}` }
+    return ergebnis({ zustand: 'fehler', message: `Vorbereitung fehlgeschlagen: ${err?.message ?? err}` })
   }
   const res = await runSync(url, anonKey)
   if (res.ok) setSyncRolle('quelle')

@@ -116,7 +116,11 @@ export async function abgleich(g, sekunden = 90) {
   for (let i = 0; i < sekunden; i++) {
     await p.waitForTimeout(1000)
     const t = await p.innerText('#root')
-    const m = t.match(/(Synchronisiert:[^\n]*|Teilweise synchronisiert[^\n]*|Auf den Server geladen:[^\n]*|Synchronisation fehlgeschlagen:[^\n]*)/)
+    // Der Zweig für das unvollständige Server-Schema gehört dazu, seit
+    // fehlende Tabellen zu EINEM Satz zusammengefasst werden. Ohne ihn meldete
+    // der Helfer dort „(keine Rückmeldung)" – und jede Prüfung darauf wäre
+    // blind, obwohl die App das Richtige anzeigt.
+    const m = t.match(/(Synchronisiert:[^\n]*|Teilweise synchronisiert[^\n]*|Server-Schema unvollständig[^\n]*|Auf den Server geladen:[^\n]*|Synchronisation fehlgeschlagen:[^\n]*)/)
     if (m) return m[1]
   }
   return '(keine Rückmeldung)'

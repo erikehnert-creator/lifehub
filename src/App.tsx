@@ -17,7 +17,7 @@ import { SearchScreen } from './screens/Search'
 import { ShoppingScreen } from './screens/Shopping'
 import { QuickAdd } from './screens/QuickAdd'
 import { todayString, formatDay } from './core/dates'
-import { runSync } from './sync/engine'
+import { runSync, type SyncZustand } from './sync/engine'
 import { getStorageMode, saveNow } from './db/sqlite'
 import { writeBackup, folderBackupSupported } from './io/folderBackup'
 import { exportFullJson, download, timestampSuffix } from './io/exporters'
@@ -199,6 +199,7 @@ function Shell() {
   // gibt gerade nichts zu übertragen" – identisch zu echtem Erfolg. Jetzt wird
   // der Fehler festgehalten und einmalig gemeldet.
   const [syncFehler, setSyncFehler] = useState<string | null>(null)
+  const [syncZustand, setSyncZustand] = useState<SyncZustand | null>(null)
   const letzterFehlerRef = useRef<string | null>(null)
 
   // Von Hand eingetragen geht vor, sonst greift die eingebaute
@@ -309,17 +310,26 @@ function Shell() {
       try {
         const res = await runSync(syncUrl, syncKey)
         if (!cancelled) {
+          setSyncZustand(res.zustand)
           if (res.ok) {
             setLastSync(Date.now())
             setSyncFehler(null)
             letzterFehlerRef.current = null
           } else {
             setSyncFehler(res.message)
-            // Nur bei einer NEUEN Fehlermeldung eine Meldung zeigen – sonst
-            // klingelt es alle paar Sekunden mit derselben Ursache.
+            // Nur bei einer NEUEN Meldung eine Einblendung – sonst klingelt es
+            // alle paar Minuten mit derselben Ursache. Seit die fehlenden
+            // Tabellen zu EINEM Satz zusammengefasst sind, bleibt die Meldung
+            // dabei auch stabil: Vorher aenderte sie sich mit jeder Tabelle,
+            // die gerade zuerst scheiterte, und klingelte deshalb immer neu.
             if (letzterFehlerRef.current !== res.message) {
               letzterFehlerRef.current = res.message
-              mutations.toast(`Sync fehlgeschlagen: ${res.message}`)
+              // Offline und „nicht angemeldet" sind keine Fehler, sondern
+              // Zustaende. Dafuer gibt es die Zeile in der Leiste.
+              if (res.zustand !== 'offline' && res.zustand !== 'nicht_angemeldet'
+                && res.zustand !== 'kein_server') {
+                mutations.toast(res.message)
+              }
             }
           }
           // Nur nachladen, wenn wirklich etwas hereingekommen ist.
@@ -483,12 +493,15 @@ function Shell() {
           title={syncFehler ?? (currentSession()?.email ? `angemeldet als ${currentSession()?.email}` : undefined)}>
           <span className="status-punkt" style={{
             background: !online ? 'var(--text-muted)'
+              : syncAktiv && syncZustand === 'schema_unvollstaendig' ? 'var(--warning)'
               : syncAktiv && syncFehler ? 'var(--critical)'
               : syncFehltNoch ? 'var(--warning)'
               : saveState === 'saving' ? 'var(--text-muted)' : 'var(--good)',
           }} />
           <span className="seiten-status-text">
             {!online ? 'offline'
+              : syncAktiv && syncZustand === 'schema_unvollstaendig' ? 'Server-Schema veraltet'
+              : syncAktiv && syncZustand === 'teilweise' ? 'teilweise abgeglichen'
               : syncAktiv && syncFehler ? 'Abgleich fehlgeschlagen'
               : syncAktiv ? abgeglichenText(lastSync)
               : syncFehltNoch ? `Sync ${syncFehltNoch}`
