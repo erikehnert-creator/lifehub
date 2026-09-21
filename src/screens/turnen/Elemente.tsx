@@ -163,6 +163,36 @@ function ElementEditor({ element, vorgabeGeraet, onClose }: {
     return elementBild(element, bloecke, heute, diffDays)
   }, [element, data.gymAttempts, data.workoutSessions, heute])
 
+  /**
+   * Steht dieses Element in einer Kuer?
+   *
+   * Geloescht wird es trotzdem, wenn Erik es will - aber nicht, ohne dass er
+   * es erfahren hat. Die Kuer verliert das Element sonst still: Der Platz
+   * bleibt zwar stehen (core/turnen/kueren.ts laesst ihn stehen), aber er
+   * traegt keinen Namen und keine Schwierigkeit mehr.
+   *
+   * Archivieren ist der verlustfreie Weg und steht deshalb dabei: Ein
+   * archiviertes Element bleibt geladen und in seiner Kuer vollstaendig
+   * lesbar.
+   */
+  const kuerWarnung = useMemo(() => {
+    if (!element) return ''
+    const kuerIds = new Set(
+      data.gymRoutineElements
+        .filter((v) => !v.deleted_at && v.element_id === element.id)
+        .map((v) => v.routine_id))
+    const kueren = data.gymRoutines.filter((k) => !k.deleted_at && kuerIds.has(k.id))
+    if (!kueren.length) return ''
+    const namen = kueren.map((k) => k.name).join(', ')
+    return kueren.length === 1
+      ? `
+
+Es steht in der Kür „${namen}“. Dort bleibt sein Platz erhalten, aber ohne Name und Schwierigkeit. „Aktiv“ abzuschalten hielte die Kür vollständig lesbar.`
+      : `
+
+Es steht in ${kueren.length} Küren (${namen}). Dort bleibt sein Platz jeweils erhalten, aber ohne Name und Schwierigkeit. „Aktiv“ abzuschalten hielte die Küren vollständig lesbar.`
+  }, [element, data.gymRoutineElements, data.gymRoutines])
+
   const speichern = () => {
     if (!name.trim()) return
     // element_group ist INTEGER: PostgreSQL weist eine Kommazahl mit 22P02 ab
@@ -289,7 +319,7 @@ function ElementEditor({ element, vorgabeGeraet, onClose }: {
       </Field>
 
       <Confirm open={loeschen} title="Element löschen?"
-        message="Es wandert in den Papierkorb. Die festgehaltenen Versuche bleiben erhalten, zählen aber nicht mehr zu diesem Element. Zum Ausblenden genügt „Aktiv“ abzuschalten."
+        message={`Es wandert in den Papierkorb. Die festgehaltenen Versuche bleiben erhalten, zählen aber nicht mehr zu diesem Element. Zum Ausblenden genügt „Aktiv“ abzuschalten.${kuerWarnung}`}
         danger onCancel={() => setLoeschen(false)}
         onConfirm={() => { m.remove('gym_elements', element!.id, 'Element gelöscht'); setLoeschen(false); onClose() }} />
     </Modal>

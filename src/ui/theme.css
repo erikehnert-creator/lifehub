@@ -1188,3 +1188,76 @@ table.data tbody tr:hover { background: var(--surface-2); }
   .turn-geraete { grid-template-columns: repeat(3, 1fr); }
   .turn-zaehler-knopf { min-height: 60px; }
 }
+
+/* Kueren: die Elementfolge einer Uebung
+   ------------------------------------------------------------------
+   Die Reihenfolge wird ueber Knoepfe geaendert und nicht ueber Ziehen.
+   Das eingebaute HTML-Ziehen kennt auf Berührungsbildschirmen keine
+   Ereignisse - am Handy passiert schlicht nichts -, und ein eigener
+   Nachbau muesste Scrollen, langes Druecken und den Bildschirmrand in
+   einem ohnehin scrollenden Dialog selbst behandeln.
+
+   44 px ist das Mass, das Apple und Google als kleinste sichere
+   Trefferflaeche nennen. Keine winzigen Pfeile.
+
+   Keine eigenen Farben: Der Ton fuer eine fehlende Zeile kommt aus
+   --critical, also von dort, wo auch Ampeln ihre Farbe holen.          */
+
+.kuer-kopf {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin: 4px 0 8px;
+}
+.kuer-kopf-titel { font-size: 13.5px; font-weight: 600; }
+.kuer-kopf-wert { font-size: 11.5px; color: var(--text-muted); }
+
+.kuer-liste { display: flex; flex-direction: column; gap: 6px; }
+
+.kuer-zeile {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 6px 6px 6px 8px; background: var(--surface-1);
+  min-width: 0;
+}
+.kuer-zeile.fehlt { border-style: dashed; border-color: var(--critical); }
+
+.kuer-platz {
+  flex: 0 0 auto; min-width: 20px;
+  font-size: 13px; font-weight: 700; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* min-width: 0 ist hier entscheidend: Ohne das waechst ein langer
+   Elementname ueber die Zeile hinaus und schiebt die Knoepfe am Handy
+   aus dem Bild. */
+.kuer-mitte { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.kuer-name {
+  font-size: 13.5px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kuer-meta {
+  font-size: 11px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kuer-zeile.fehlt .kuer-name { color: var(--critical); }
+
+.kuer-knoepfe { flex: 0 0 auto; display: flex; gap: 4px; }
+.kuer-knopf {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface-2); color: var(--text-2);
+  font-size: 16px; line-height: 1; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.kuer-knopf:hover:not(:disabled) { border-color: var(--border-strong); }
+.kuer-knopf:active:not(:disabled) { transform: scale(.95); }
+.kuer-knopf:disabled { opacity: .35; cursor: default; }
+.kuer-knopf.weg { color: var(--critical); }
+
+@media (max-width: 480px) {
+  /* Am Handy rutscht die Knopfreihe unter den Namen: Drei 44-px-Knoepfe
+     neben einem Elementnamen lassen auf 390 px nichts mehr uebrig. */
+  .kuer-zeile { flex-wrap: wrap; }
+  .kuer-mitte { flex-basis: calc(100% - 100px); }
+  .kuer-knoepfe { margin-left: auto; }
+}
