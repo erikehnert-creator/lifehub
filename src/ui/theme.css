@@ -1322,3 +1322,10 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .wk-verlauf-kopf {
   display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
 }
+
+/* Protokollimport: die Liste der unsicheren Angaben
+   ------------------------------------------------------------------
+   Eine schlichte Aufzaehlung im Hinweiskasten. Keine eigene Farbwelt -
+   der Kasten bringt seine schon mit.                                  */
+.import-liste { margin: 6px 0 6px 18px; padding: 0; }
+.import-liste li { margin: 2px 0; }

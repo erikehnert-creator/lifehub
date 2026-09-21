@@ -20,7 +20,7 @@
  * ohne Urteil und hält niemanden vom Speichern ab. Fehlende Noten bleiben
  * leer und erscheinen als „—", nie als 0.
  */
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { Card, Field, Modal, Empty, Confirm, Collapsible, StatusPill } from '../../ui/components'
 import { LineChart, ChartFrame } from '../../charts'
 import { useData, useMutations } from '../../state/store'
@@ -38,6 +38,12 @@ import {
   type ErgebnisEingabe, type NotenArt,
 } from '../../core/turnen/wettkampf'
 import type { GymCompetition, GymResult, GymRoutineVersion } from '../../core/types'
+import {
+  vorschlagen, suchen, teilnehmerZeile, wettkampfEntwurf, ergebnisEingaben,
+  unsichereFelder, markerListe, schonVorhanden,
+  type ProtokollErgebnis, type Teilnehmer, type Unsicher, type WettkampfEntwurf,
+} from '../../core/turnen/protokollImport'
+import { ladeProtokoll, ImportFehler } from '../../sync/protokoll'
 
 /* ============================================================ Übersicht */
 
@@ -46,6 +52,8 @@ export function WettkaempfeView({ onZuKueren }: { onZuKueren: () => void }) {
   const heute = todayString()
   const [offen, setOffen] = useState<GymCompetition | null>(null)
   const [neu, setNeu] = useState(false)
+  const [importOffen, setImportOffen] = useState(false)
+  const [importStand, setImportStand] = useState<ImportStand | null>(null)
 
   const wettkaempfe = useMemo(
     () => data.gymCompetitions
@@ -69,6 +77,7 @@ export function WettkaempfeView({ onZuKueren }: { onZuKueren: () => void }) {
       <Card className="mb16">
         <div className="row">
           <button className="btn btn-primary" onClick={() => setNeu(true)}>+ Wettkampf</button>
+          <button className="btn" onClick={() => setImportOffen(true)}>Protokoll importieren</button>
         </div>
         {(naechster || letzter) && (
           <div className="kennzeilen mt12">
@@ -131,6 +140,19 @@ export function WettkaempfeView({ onZuKueren }: { onZuKueren: () => void }) {
       )}
       {neu && (
         <WettkampfEditor wettkampf={null} onZuKueren={onZuKueren} onClose={() => setNeu(false)} />
+      )}
+
+      {/* Der Import fuellt den gewoehnlichen Editor vor. Einen zweiten
+          Eingabebildschirm gibt es nicht - und damit auch kein zweites
+          Eingabemodell, das auseinanderlaufen koennte. */}
+      {importOffen && (
+        <ProtokollImport
+          onFertig={(stand) => { setImportOffen(false); setImportStand(stand) }}
+          onClose={() => setImportOffen(false)} />
+      )}
+      {importStand && (
+        <WettkampfEditor wettkampf={null} importStand={importStand}
+          onZuKueren={onZuKueren} onClose={() => setImportStand(null)} />
       )}
     </>
   )
@@ -406,23 +428,45 @@ function FassungAnsicht({ version, onClose }: {
 
 /* =============================================================== Editor */
 
-function WettkampfEditor({ wettkampf, onZuKueren, onClose }: {
+/**
+ * Was ein Import mitbringt, wenn der Editor aus dem Protokoll heraus aufgeht.
+ *
+ * Der Import baut KEINEN eigenen Bildschirm. Er füllt diesen hier vor, und ab
+ * da ist alles wie bei der Handeingabe: dieselben Felder, dieselben Hinweise,
+ * derselbe Speicherweg. Nur die Beschriftung des Knopfes ändert sich, und
+ * oben steht, was LifeHub nicht sicher lesen konnte.
+ */
+export interface ImportStand {
+  entwurf: WettkampfEntwurf
+  eingaben: ErgebnisEingabe[]
+  unsicher: Unsicher[]
+  marker: { geraet: string; marker: string[] }[]
+  /** Dateiname des Protokolls – nur zur Anzeige. */
+  quelle: string
+  /** Ein Wettkampf, der an diesem Tag schon so heisst. */
+  doppelt: GymCompetition | null
+}
+
+function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
   wettkampf: GymCompetition | null
+  importStand?: ImportStand | null
   onZuKueren: () => void
   onClose: () => void
 }) {
   const data = useData()
   const m = useMutations()
 
-  const [name, setName] = useState(wettkampf?.name ?? '')
-  const [tag, setTag] = useState(wettkampf?.day ?? todayString())
-  const [ort, setOrt] = useState(wettkampf?.location ?? '')
-  const [klasse, setKlasse] = useState(wettkampf?.class_name ?? '')
+  const [name, setName] = useState(importStand?.entwurf.name ?? wettkampf?.name ?? '')
+  const [tag, setTag] = useState(importStand?.entwurf.tag ?? wettkampf?.day ?? todayString())
+  const [ort, setOrt] = useState(importStand?.entwurf.ort ?? wettkampf?.location ?? '')
+  const [klasse, setKlasse] = useState(importStand?.entwurf.klasse ?? wettkampf?.class_name ?? '')
   const [mkNote, setMkNote] = useState(
-    wettkampf?.score_allround !== null && wettkampf?.score_allround !== undefined
-      ? formatNote(wettkampf.score_allround) : '')
+    importStand ? importStand.entwurf.gesamt
+      : wettkampf?.score_allround !== null && wettkampf?.score_allround !== undefined
+        ? formatNote(wettkampf.score_allround) : '')
   const [mkPlatz, setMkPlatz] = useState(
-    wettkampf?.rank_allround ? String(wettkampf.rank_allround) : '')
+    importStand ? importStand.entwurf.rang
+      : wettkampf?.rank_allround ? String(wettkampf.rank_allround) : '')
   const [protokoll, setProtokoll] = useState(wettkampf?.protocol_url ?? '')
   const [notiz, setNotiz] = useState(wettkampf?.note ?? '')
   const [loeschen, setLoeschen] = useState(false)
@@ -434,11 +478,12 @@ function WettkampfEditor({ wettkampf, onZuKueren, onClose }: {
   )
 
   const [eingaben, setEingaben] = useState<ErgebnisEingabe[]>(() =>
-    vorhandene
-      .slice()
-      .sort((a, b) => GERAETE.findIndex((g) => g.key === a.apparatus)
-        - GERAETE.findIndex((g) => g.key === b.apparatus))
-      .map(eingabeAus))
+    importStand ? importStand.eingaben
+      : vorhandene
+        .slice()
+        .sort((a, b) => GERAETE.findIndex((g) => g.key === a.apparatus)
+          - GERAETE.findIndex((g) => g.key === b.apparatus))
+        .map(eingabeAus))
 
   const aktiveGeraete = new Set(eingaben.map((e) => e.apparatus))
 
@@ -520,13 +565,19 @@ function WettkampfEditor({ wettkampf, onZuKueren, onClose }: {
 
   return (
     <>
-      <Modal open wide title={wettkampf ? 'Wettkampf bearbeiten' : 'Neuer Wettkampf'} onClose={onClose}
+      <Modal open wide
+        title={importStand ? 'Protokoll prüfen' : wettkampf ? 'Wettkampf bearbeiten' : 'Neuer Wettkampf'}
+        onClose={onClose}
         footer={<>
           {wettkampf && <button className="btn btn-danger" onClick={() => setLoeschen(true)}>Löschen</button>}
           <span style={{ flex: 1 }} />
           <button className="btn" onClick={onClose}>Abbrechen</button>
-          <button className="btn btn-primary" onClick={speichern} disabled={!name.trim()}>Speichern</button>
+          <button className="btn btn-primary" onClick={speichern} disabled={!name.trim()}>
+            {importStand ? 'Import bestätigen' : 'Speichern'}
+          </button>
         </>}>
+
+        {importStand && <ImportBanner stand={importStand} />}
 
         <Field label="Name">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)}
@@ -856,5 +907,245 @@ function AuswertungBlock() {
         </div>
       </Collapsible>
     </Card>
+  )
+}
+
+/* ====================================================== Protokollimport */
+
+/**
+ * Was der Import mitgebracht hat – über den vorbefüllten Feldern.
+ *
+ * Drei Dinge, und alle drei beschreibend: woher die Werte stammen, was
+ * LifeHub nicht sicher lesen konnte, und welche Kennzeichnungen im Protokoll
+ * standen. Was `(+)` bedeutet, sagt LifeHub nicht – es steht im Protokoll und
+ * wird weitergereicht, mehr ist darüber nicht bekannt.
+ */
+function ImportBanner({ stand }: { stand: ImportStand }) {
+  return (
+    <div className="mb12">
+      <div className="hint-box small">
+        Aus <strong>{stand.quelle}</strong> gelesen. Nichts davon ist gespeichert –
+        prüfe die Werte und bestätige den Import unten.
+      </div>
+
+      {stand.doppelt && (
+        <div className="hint-box small">
+          Am {formatDay(stand.doppelt.day)} steht schon ein Wettkampf
+          „{stand.doppelt.name}". Ein zweiter Eintrag ist möglich (Mehrkampf und
+          Gerätefinale am selben Tag), wird aber nicht zusammengeführt.
+        </div>
+      )}
+
+      {stand.unsicher.length > 0 && (
+        <div className="hint-box small">
+          <strong>
+            {stand.unsicher.length === 1
+              ? 'Eine Angabe konnte LifeHub nicht sicher lesen:'
+              : `${stand.unsicher.length} Angaben konnte LifeHub nicht sicher lesen:`}
+          </strong>
+          <ul className="import-liste">
+            {stand.unsicher.map((u, i) => (
+              <li key={i}>
+                {u.feld}
+                {u.roh ? ` – im Protokoll stand „${u.roh}"` : ' – im Protokoll stand nichts'}
+              </li>
+            ))}
+          </ul>
+          Trage sie von Hand nach. Gespeichert wird nur, was hier steht.
+        </div>
+      )}
+
+      {stand.marker.length > 0 && (
+        <div className="hint-box small">
+          Das Protokoll trägt Kennzeichnungen:{' '}
+          {stand.marker.map((m) => `${m.geraet} ${m.marker.join(' ')}`).join(' · ')}.
+          {' '}Was sie bedeuten, geht aus dem Protokoll nicht hervor – LifeHub
+          übernimmt sie deshalb nicht, sondern nennt sie nur.
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Protokoll wählen und den eigenen Eintrag darin finden.
+ *
+ * Zwei Schritte in EINEM Fenster: Datei aussuchen, dann den Teilnehmer
+ * antippen. Danach geht der gewöhnliche Wettkampfeditor auf, vorbefüllt –
+ * kein dritter Bildschirm und kein zweites Eingabemodell.
+ *
+ * Gespeichert wird hier gar nichts.
+ */
+function ProtokollImport({ onFertig, onClose }: {
+  onFertig: (stand: ImportStand) => void
+  onClose: () => void
+}) {
+  const data = useData()
+  const heute = todayString()
+  const [laeuft, setLaeuft] = useState(false)
+  const [fehler, setFehler] = useState<{ code: string; text: string } | null>(null)
+  const [gelesen, setGelesen] = useState<{ protokoll: ProtokollErgebnis; quelle: string } | null>(null)
+  const [suche, setSuche] = useState('')
+  const eingabe = useRef<HTMLInputElement>(null)
+
+  const waehle = async (datei: File | undefined) => {
+    if (!datei) return
+    setFehler(null)
+    setLaeuft(true)
+    try {
+      const antwort = await ladeProtokoll(data.settings, datei)
+      if (!antwort.ok) throw new ImportFehler(antwort.code, antwort.message)
+      setGelesen({ protokoll: antwort, quelle: datei.name })
+      // Der Name aus dem Profil ist der Ausgangspunkt der Suche - nicht mehr.
+      // Ohne hinterlegten Namen bleibt die volle Liste stehen.
+      setSuche(data.settings.user_name ?? '')
+    } catch (e) {
+      const f = e as ImportFehler
+      setFehler({ code: f.code ?? 'unerwartet', text: f.message })
+    } finally {
+      setLaeuft(false)
+    }
+  }
+
+  const treffer = useMemo(
+    () => gelesen ? suchen(gelesen.protokoll.teilnehmer, suche) : [],
+    [gelesen, suche],
+  )
+
+  const vorgeschlagen = useMemo(
+    () => gelesen ? vorschlagen(gelesen.protokoll.teilnehmer, data.settings.user_name ?? '') : null,
+    [gelesen, data.settings.user_name],
+  )
+
+  const nimm = (t: Teilnehmer) => {
+    if (!gelesen) return
+    const entwurf = wettkampfEntwurf(gelesen.protokoll, t, heute)
+    onFertig({
+      entwurf,
+      eingaben: ergebnisEingaben(t),
+      unsicher: unsichereFelder(gelesen.protokoll, t),
+      marker: markerListe(t),
+      quelle: gelesen.quelle,
+      doppelt: schonVorhanden(data.gymCompetitions, entwurf),
+    })
+  }
+
+  return (
+    <Modal open wide title="Protokoll importieren" onClose={onClose}
+      footer={<>
+        {gelesen && (
+          <button className="btn" onClick={() => { setGelesen(null); setSuche('') }}>
+            Andere Datei
+          </button>
+        )}
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={onClose}>Abbrechen</button>
+      </>}>
+
+      {!gelesen && (
+        <>
+          <div className="hint-box small">
+            LifeHub liest das PDF-Protokoll der Wettkampfsoftware SCORE. Die Datei
+            wird zum Lesen an den Server geschickt, dort nicht gespeichert und
+            landet auch nicht in der Datenbank – du bekommst Vorschläge, die du
+            vor dem Speichern prüfst.
+          </div>
+
+          <input ref={eingabe} type="file" accept="application/pdf,.pdf"
+            style={{ display: 'none' }}
+            onChange={(e) => waehle(e.target.files?.[0])} />
+
+          <div className="row mt12">
+            <button className="btn btn-primary" disabled={laeuft}
+              onClick={() => eingabe.current?.click()}>
+              {laeuft ? 'Wird gelesen…' : 'PDF auswählen'}
+            </button>
+          </div>
+
+          {fehler && (
+            <div className="hint-box small mt12">
+              <strong>{fehler.text}</strong>
+              {fehler.code === 'nicht_veroeffentlicht' && (
+                <div className="muted mt8">
+                  Die Importfunktion muss einmal veröffentlicht werden, bevor
+                  Protokolle gelesen werden können.
+                </div>
+              )}
+              {fehler.code === 'format_unbekannt' && (
+                <div className="muted mt8">
+                  Bisher ist nur das Protokoll der Wettkampfsoftware SCORE bekannt.
+                  Ein Wettkampf lässt sich jederzeit von Hand eintragen.
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {gelesen && (
+        <>
+          <div className="kennzeilen mb12">
+            <div className="kennzeile">
+              <span className="kennzeile-name">Wettkampf</span>
+              <span className="kennzeile-wert">
+                {gelesen.protokoll.wettkampf.name.wert ?? '—'}
+              </span>
+            </div>
+            <div className="kennzeile">
+              <span className="kennzeile-name">Ort und Datum</span>
+              <span className="kennzeile-wert">
+                {[gelesen.protokoll.wettkampf.ort.wert,
+                  gelesen.protokoll.wettkampf.tag.wert
+                    ? formatDay(gelesen.protokoll.wettkampf.tag.wert) : null]
+                  .filter(Boolean).join(' · ') || '—'}
+              </span>
+            </div>
+            <div className="kennzeile">
+              <span className="kennzeile-name">Gelesen</span>
+              <span className="kennzeile-wert">
+                {gelesen.protokoll.seiten} Seiten · {gelesen.protokoll.teilnehmer.length} Teilnehmer
+              </span>
+            </div>
+          </div>
+
+          {gelesen.protokoll.warnungen.length > 0 && (
+            <div className="hint-box small">
+              {gelesen.protokoll.warnungen.join(' ')}
+            </div>
+          )}
+
+          <Field label="Welcher Teilnehmer bist du?"
+            hint={vorgeschlagen
+              ? 'Der Vorschlag kommt aus deinem Namen in den Einstellungen. Du kannst jeden anderen wählen.'
+              : 'Suche nach Name, Verein, Jahrgang oder Klasse.'}>
+            <input className="input" value={suche} autoFocus
+              onChange={(e) => setSuche(e.target.value)} placeholder="Suchen…" />
+          </Field>
+
+          {treffer.length === 0 ? (
+            <Empty kompakt title="Niemand passt zur Suche"
+              hint="Lösche die Suche, um alle Teilnehmer zu sehen." />
+          ) : (
+            <div className="list">
+              {treffer.slice(0, 60).map((t, i) => (
+                <button key={`${t.seite}-${t.rang.wert}-${i}`} className="list-row"
+                  onClick={() => nimm(t)}>
+                  <span className="list-main">
+                    <span className="list-title">{t.name.wert ?? '—'}</span>
+                    <span className="list-sub">{teilnehmerZeile(t)}</span>
+                  </span>
+                  {vorgeschlagen === t && <StatusPill status="green">Vorschlag</StatusPill>}
+                </button>
+              ))}
+            </div>
+          )}
+          {treffer.length > 60 && (
+            <div className="muted small mt8">
+              {treffer.length} Treffer – die ersten 60 stehen hier. Such genauer.
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
   )
 }
