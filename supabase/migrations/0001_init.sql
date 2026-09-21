@@ -797,6 +797,43 @@ CREATE INDEX IF NOT EXISTS ix_gym_attempts_session ON gym_attempts(user_id, sess
 
 CREATE INDEX IF NOT EXISTS ix_gym_attempts_element ON gym_attempts(user_id, element_id);
 
+CREATE TABLE IF NOT EXISTS gym_routines (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      apparatus text NOT NULL,
+      name text NOT NULL,
+      note text,
+      competition_since text,
+      is_active integer NOT NULL DEFAULT 1,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_routines_apparatus ON gym_routines(user_id, apparatus);
+
+CREATE TABLE IF NOT EXISTS gym_routine_elements (
+  user_id uuid NOT NULL DEFAULT auth.uid(),
+      id text PRIMARY KEY,
+      routine_id text NOT NULL,
+      element_id text NOT NULL,
+      position integer NOT NULL DEFAULT 0,
+      note text,
+  created_at     text NOT NULL,
+  updated_at     text NOT NULL,
+  deleted_at     text,
+  version        integer NOT NULL DEFAULT 1,
+  last_device_id text NOT NULL DEFAULT '',
+  server_rev bigint
+);
+
+CREATE INDEX IF NOT EXISTS ix_gym_routine_elements_routine ON gym_routine_elements(user_id, routine_id);
+
+CREATE INDEX IF NOT EXISTS ix_gym_routine_elements_element ON gym_routine_elements(user_id, element_id);
+
 -- Spalten aus späteren Migrationen
 
 ALTER TABLE goals ADD COLUMN IF NOT EXISTS progress_percent double precision;
@@ -1120,6 +1157,18 @@ DROP TRIGGER IF EXISTS trg_gym_attempts_rev ON gym_attempts;
 CREATE TRIGGER trg_gym_attempts_rev BEFORE INSERT OR UPDATE ON gym_attempts
   FOR EACH ROW EXECUTE FUNCTION set_server_rev();
 
+ALTER TABLE gym_routines ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_routines_rev ON gym_routines(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_routines_rev ON gym_routines;
+CREATE TRIGGER trg_gym_routines_rev BEFORE INSERT OR UPDATE ON gym_routines
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
+ALTER TABLE gym_routine_elements ALTER COLUMN server_rev SET DEFAULT nextval('server_rev_seq');
+CREATE INDEX IF NOT EXISTS ix_gym_routine_elements_rev ON gym_routine_elements(server_rev);
+DROP TRIGGER IF EXISTS trg_gym_routine_elements_rev ON gym_routine_elements;
+CREATE TRIGGER trg_gym_routine_elements_rev BEFORE INSERT OR UPDATE ON gym_routine_elements
+  FOR EACH ROW EXECUTE FUNCTION set_server_rev();
+
 
 -- Rechte: Nur angemeldete Personen dürfen überhaupt zugreifen. Der öffentliche
 -- Schlüssel allein (Rolle "anon") bekommt bewusst nichts – er dient nur dazu,
@@ -1281,6 +1330,12 @@ REVOKE ALL ON gym_elements FROM anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON gym_attempts TO authenticated;
 REVOKE ALL ON gym_attempts FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_routines TO authenticated;
+REVOKE ALL ON gym_routines FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON gym_routine_elements TO authenticated;
+REVOKE ALL ON gym_routine_elements FROM anon;
 
 
 -- Zeilensicherheit: Jede Tabelle ist standardmäßig gesperrt und gibt nur die
@@ -1533,10 +1588,20 @@ DROP POLICY IF EXISTS gym_attempts_own ON gym_attempts;
 CREATE POLICY gym_attempts_own ON gym_attempts FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+ALTER TABLE gym_routines ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_routines_own ON gym_routines;
+CREATE POLICY gym_routines_own ON gym_routines FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+ALTER TABLE gym_routine_elements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS gym_routine_elements_own ON gym_routine_elements;
+CREATE POLICY gym_routine_elements_own ON gym_routine_elements FOR ALL
+  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 
 -- Neuigkeiten-Anzeiger
 --
--- Ohne diesen Blick müsste ein Gerät alle 49 Tabellen einzeln
+-- Ohne diesen Blick müsste ein Gerät alle 51 Tabellen einzeln
 -- abfragen, nur um festzustellen, dass sich nichts getan hat. Mit ihm genügt
 -- eine Anfrage: Ist der Zählerstand höher als der zuletzt gesehene, lohnt sich
 -- ein Abgleich.
@@ -1643,6 +1708,10 @@ SELECT max(rev) AS server_rev FROM (
   SELECT max(server_rev) AS rev FROM gym_elements
   UNION ALL
   SELECT max(server_rev) AS rev FROM gym_attempts
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_routines
+  UNION ALL
+  SELECT max(server_rev) AS rev FROM gym_routine_elements
 ) AS alle;
 
 GRANT SELECT ON sync_head TO authenticated;
@@ -1670,7 +1739,7 @@ REVOKE ALL ON sync_head FROM anon;
 -- Durchlauf, obwohl nichts falsch war.
 DO $$
 DECLARE ohne_rls text; ohne_regel text; anon_rechte text;
-  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens', 'gym_elements', 'gym_attempts'];
+  meine_tabellen text[] := ARRAY['settings', 'devices', 'tags', 'taggables', 'links', 'attachments', 'import_batches', 'accounts', 'categories', 'transactions', 'budgets', 'recurring_rules', 'monthly_closings', 'finance_day_runs', 'projects', 'tasks', 'time_blocks', 'calendar_events', 'day_types', 'day_assignments', 'shift_patterns', 'holidays', 'metrics', 'metric_entries', 'metric_targets', 'exercises', 'workout_plans', 'workout_plan_days', 'workout_plan_exercises', 'workout_sessions', 'workout_sets', 'body_measurements', 'progress_photos', 'goals', 'goal_contributions', 'notes', 'notifications', 'insights', 'task_templates', 'account_checks', 'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries', 'sleep_sessions', 'import_tokens', 'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements'];
 BEGIN
   SELECT string_agg(c.relname, ', ') INTO ohne_rls
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace

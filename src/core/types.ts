@@ -480,3 +480,41 @@ export interface GymAttempt extends BaseEntity {
   note: string | null
   sort_order: number
 }
+
+/**
+ * Eine Kür – eine geordnete Folge vorhandener Elemente an einem Gerät.
+ *
+ * Mehrere Küren je Gerät sind der Normalfall: eine Wettkampffassung, eine
+ * Trainingsvariante, eine sichere Variante für den schlechten Tag.
+ *
+ * `competition_since` ist bewusst ein Zeitpunkt und kein Kennzeichen. Die
+ * aktive Wettkampfkür eines Geräts wird daraus abgeleitet (die jüngste), statt
+ * gespeichert zu werden – nur so lässt sich „höchstens eine je Gerät" auch
+ * nach einem Abgleich zweier Geräte halten. Siehe Migration 15 und
+ * core/turnen/kueren.ts.
+ */
+export interface GymRoutine extends BaseEntity {
+  /** Schlüssel aus core/turnen/geraete.ts – kein Fremdschlüssel. */
+  apparatus: string
+  name: string
+  note: string | null
+  /** Wann diese Kür zur Wettkampfkür erklärt wurde. `null` = nie. */
+  competition_since: string | null
+  /** Archiviert oder nicht – dieselbe Bedeutung wie bei GymElement. */
+  is_active: number
+}
+
+/**
+ * Ein Element an seinem Platz in einer Kür.
+ *
+ * `position` ist ein Sortierwert, kein Schlüssel: Ein Element darf mehrfach
+ * vorkommen, und Gleichstand ist erlaubt. Die feste Reihenfolge stellt
+ * `kuerElemente()` her.
+ */
+export interface GymRoutineElement extends BaseEntity {
+  routine_id: string
+  element_id: string
+  position: number
+  /** Notiz zu genau diesem Element in genau dieser Kür. */
+  note: string | null
+}

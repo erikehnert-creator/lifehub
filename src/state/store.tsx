@@ -26,6 +26,7 @@ import { LEERER_STAND, type ImportStand } from '../core/fatsecretImport'
 import type { SyncedTable } from '../db/schema'
 import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession, GymElement, GymAttempt,
+  GymRoutine, GymRoutineElement,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
   ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
@@ -115,6 +116,8 @@ export interface AppData {
   sleepSessions: SleepSession[]
   gymElements: GymElement[]
   gymAttempts: GymAttempt[]
+  gymRoutines: GymRoutine[]
+  gymRoutineElements: GymRoutineElement[]
   importTokens: any[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
@@ -152,6 +155,7 @@ const EMPTY: AppData = {
   settings: DEFAULT_SETTINGS,
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
   tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [], gymElements: [], gymAttempts: [],
+  gymRoutines: [], gymRoutineElements: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -195,6 +199,12 @@ const LADER: Record<string, Lader> = {
   import_tokens: { schluessel: 'importTokens', laden: () => list('import_tokens', { orderBy: 'created_at DESC' }) },
   gym_elements: { schluessel: 'gymElements', laden: () => list<GymElement>('gym_elements', { orderBy: 'sort_order, name' }) },
   gym_attempts: { schluessel: 'gymAttempts', laden: () => list<GymAttempt>('gym_attempts', { orderBy: 'sort_order' }) },
+  gym_routines: { schluessel: 'gymRoutines', laden: () => list<GymRoutine>('gym_routines', { orderBy: 'name' }) },
+  // Nach position, dann created_at, dann id: `position` ist nur ein
+  // Sortierwert und darf doppelt vorkommen (zwei Geraete haben offline
+  // ergaenzt). Ohne festen Nachrang zeigte jedes Geraet eine andere
+  // Reihenfolge derselben Kuer.
+  gym_routine_elements: { schluessel: 'gymRoutineElements', laden: () => list<GymRoutineElement>('gym_routine_elements', { orderBy: 'position, created_at, id' }) },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },

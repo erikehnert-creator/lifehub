@@ -751,6 +751,91 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_gym_attempts_element ON gym_attempts(element_id);
     `,
   },
+  {
+    id: 15,
+    name: 'turnen_kueren',
+    sql: `
+    ------------------------------------------------------------ Turnen: Kueren
+    -- Eine Kuer ist eine geordnete Folge vorhandener gym_elements an einem
+    -- Geraet. Mehrere Kueren je Geraet sind ausdruecklich erwuenscht
+    -- (Wettkampffassung, Trainingsvariante, sichere Variante).
+    --
+    -- Die Geraete bleiben eine Konstante in core/turnen/geraete.ts - hier
+    -- steht nur der Schluessel als Text, wie schon bei gym_elements.
+
+    -- ------------------------------------------------------------------
+    -- competition_since statt is_competition_routine
+    --
+    -- Gefordert ist: je Geraet hoechstens EINE aktive Wettkampfkuer. Ein
+    -- Kennzeichen (0/1) je Zeile kann das nicht halten:
+    --
+    --   Lokal liesse es sich in einer Transaktion sauber umsetzen (A auf 0,
+    --   B auf 1). Der Abgleich fuehrt Zeilen aber EINZELN zusammen
+    --   (sync/engine.ts, mergeRows). Markiert der PC offline Kuer B und das
+    --   Handy offline Kuer C, gewinnt jede Zeile fuer sich - danach stuenden
+    --   ZWEI Kueren auf 1. Genau der Zwischenzustand, den es nicht geben darf.
+    --
+    --   Ein mehrspaltiger UNIQUE-Index waere keine Loesung, sondern eine
+    --   Falle: tests/natuerliche-schluessel.test.ts erkennt nur einspaltige
+    --   UNIQUE, waehrend gen-supabase-sql.mjs ihn auf dem Server streicht.
+    --   Lokal eindeutig, auf dem Server nicht - und genau diese Asymmetrie
+    --   laesst INSERT OR REPLACE beim Holen still Zeilen loeschen (CLAUDE.md).
+    --
+    -- Deshalb steht hier ein Zeitpunkt statt eines Kennzeichens: WANN diese
+    -- Kuer zur Wettkampfkuer erklaert wurde. Die aktive Wettkampfkuer eines
+    -- Geraets ist dann nicht gespeichert, sondern abgeleitet - die juengste
+    -- unter denen mit einem Zeitpunkt. Damit ist "hoechstens eine je Geraet"
+    -- strukturell nicht verletzbar, jedes Geraet rechnet dasselbe Ergebnis
+    -- aus, und nichts geht verloren: Die unterlegene Kuer behaelt ihren
+    -- Zeitpunkt und ist nur nicht mehr die juengste.
+    --
+    -- Es ist dieselbe Regel wie ueberall sonst in LifeHub - die spaetere
+    -- Entscheidung gilt -, nur ohne Schreibvorgang.
+    --
+    -- is_active bedeutet daneben genau das, was es bei gym_elements bedeutet:
+    -- archiviert oder nicht. Die beiden Angaben sind nicht dasselbe - eine
+    -- Trainingsvariante ist nicht archiviert und trotzdem keine Wettkampfkuer.
+    CREATE TABLE gym_routines (
+      id TEXT PRIMARY KEY,
+      apparatus TEXT NOT NULL,
+      name TEXT NOT NULL,
+      note TEXT,
+      competition_since TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_routines_apparatus ON gym_routines(apparatus);
+
+    -- Ein Element in einer Kuer, an seinem Platz.
+    --
+    -- KEINE abgeleitete ID aus (routine_id, element_id): Ein Element darf in
+    -- einer Kuer mehrfach vorkommen, und zwei gleiche Elemente waeren dann
+    -- dieselbe Zeile. Auch nicht aus (routine_id, position): Dann aenderte
+    -- jedes Verschieben die ID, und ein Umsortieren waere fuer den Abgleich
+    -- ein Loeschen und Neuanlegen der halben Kuer.
+    --
+    -- Eine gewoehnliche Zufalls-ID ist hier richtig, weil es die Gefahr gar
+    -- nicht gibt, gegen die abgeleitete IDs schuetzen: Ein Element in eine
+    -- Kuer aufzunehmen ist eine bewusste Handlung an EINEM Geraet. Tun es
+    -- zwei Geraete offline gleichzeitig, sind das zwei Aufnahmen und keine
+    -- doppelte - beide bleiben stehen, und die Reihenfolge wird von Hand
+    -- geradegerueckt. Stilles Wegwerfen waere schlimmer.
+    --
+    -- position ist deshalb nur ein Sortierwert, kein Schluessel. Gleichstand
+    -- ist erlaubt; die Anzeige bricht ihn fest ueber created_at und id, damit
+    -- jedes Geraet dieselbe Reihenfolge zeigt.
+    CREATE TABLE gym_routine_elements (
+      id TEXT PRIMARY KEY,
+      routine_id TEXT NOT NULL,
+      element_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_routine_elements_routine ON gym_routine_elements(routine_id);
+    CREATE INDEX ix_gym_routine_elements_element ON gym_routine_elements(element_id);
+    `,
+  },
 ]
 
 /** Tabellen, die synchronisiert werden (alle außer den rein lokalen). */
@@ -767,7 +852,7 @@ export const SYNCED_TABLES = [
   'notes', 'notifications', 'insights', 'task_templates', 'account_checks',
   'shopping_items', 'day_notes', 'investments', 'investment_moves', 'food_entries',
   'sleep_sessions', 'import_tokens',
-  'gym_elements', 'gym_attempts',
+  'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
