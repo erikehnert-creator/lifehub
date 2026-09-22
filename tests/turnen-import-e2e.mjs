@@ -197,6 +197,8 @@ try {
   await pc.page.waitForTimeout(600)
   const alle = await pc.page.locator('.modal .list-row').count()
   pruefe('Ohne Suche stehen viele Teilnehmer zur Wahl', alle >= 60, `${alle} Zeilen`)
+  // Der Verein der drei Teilnehmer ohne Jahrgang - im Testbestand ersetzt,
+  // aber weiterhin von genau diesen dreien geteilt.
   await suchfeld.fill('TV zu Beispielheim-Süd')
   await pc.page.waitForTimeout(600)
   pruefe('Die Suche findet auch über den Verein',

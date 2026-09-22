@@ -1288,8 +1288,8 @@ Regeln, die daraus folgen:
 | **Nullwerte** | 6 Zeilen | `0.0 / 0.000 / 0.000` ist eine echte Null und wird als Null übernommen. **Fehlend ist nicht null**: Ein nicht vorhandener Abzug bleibt `null` und erscheint als „—". |
 | **Kein Jahrgang** | 3 Teilnehmer | Der Jahrgang steht als zweites Stück unter dem Namen. Fehlt er, bleibt er leer – der Verein rutscht nicht in den Namen. |
 | **Zweistellige Ränge** | 20 Teilnehmer | Bis Rang 17. Keine Sonderbehandlung nötig. |
-| **Mehrteilige Namen** | mehrere | „Nachname, Vorname Zweitname", „Nachname, Vorname Zweitname" – ein Textstück, keine Trennung nötig. |
-| **Mehrteilige Vereine** | mehrere | „ESV Musterstadt", „KTV Musterstadt" |
+| **Mehrteilige Namen** | 5 | Zwei Wörter vor dem Komma oder zwei dahinter – ein Textstück, keine Trennung nötig. |
+| **Mehrteilige Vereine** | 20 verschiedene | Abkürzung plus Ort, mit Jahreszahl, mit Bindestrich, mit „zu" – die ganze Spalte gehört zum Verein |
 
 **Nachgerechnet:** In allen 570 Gerätewertungen geht `D + E − Abzug` mit der
 Endnote auf. Das ist die schärfste Probe darauf, dass nichts verrutscht ist –
@@ -1463,10 +1463,36 @@ Das Protokoll nennt 95 Teilnehmer mit Namen, Jahrgang und Verein, überwiegend
 Minderjährige. **Dieses Repository ist öffentlich.** Weder die PDF noch ein
 Textbestand mit Klarnamen gehört hinein.
 
-`tests/fixtures/protokoll-score-2026.json` trägt deshalb **ersetzte Namen**.
-Unverändert sind: Ränge, Jahrgänge, Vereine, sämtliche Zahlen, Abzüge,
-Kennzeichnungen, Nullwerte, die fehlenden Jahrgänge und die Koordinaten.
+`tests/fixtures/protokoll-score-2026.json` trägt deshalb **ersetzte Namen,
+Jahrgänge und Vereine**. Der Name allein genügte nicht: Jahrgang und Verein
+grenzen zusammen mit Klasse, Platzierung und sechs Noten eine Person ebenso
+ein – und das Protokoll dazu steht im Netz.
+
+Unverändert bleibt alles, woran geprüft wird: sämtliche Zahlen, Abzüge,
+Kennzeichnungen, Nullwerte, Ränge, Klassen, die Koordinaten – und die
+**Struktur** der Personenangaben:
+
+- **ob** ein Jahrgang dasteht (drei Teilnehmer haben keinen)
+- **wer** sich einen Verein teilt (gleiche Vereine werden gleich ersetzt)
+- die Form der Vereinsnamen (mehrteilig, mit Jahreszahl, mit Bindestrich, mit „zu")
+- die Form der Personennamen (auch die fünf zwei- und dreiteiligen)
+
+Die Ersatzvereine sind zahlreicher als die echten. Fielen zwei echte auf
+denselben Ersatz, teilten sich Teilnehmer einen Verein, die ihn nicht teilen –
+und die Prüfung „wer gehört zusammen" ginge daran vorbei.
+
 Eriks eigene Zeile steht im Klartext – es sind seine Daten.
+
+`.gitignore` schliesst **jede** PDF aus, nicht nur die eine. Dieselbe
+Überlegung wie bei `_Projektablage/`: Eine Liste vergisst man, ein Muster
+nicht.
+
+**Was in der Geschichte steht, ändert das nicht.** Der erste Testbestand
+(Commit `bfb3fda`) trug bereits ersetzte Namen, aber noch die echten Vereine
+und Jahrgänge; in `acdb6ab` standen drei echte Nachnamen als Beispiele in
+diesem Dokument. Beides ist gepusht. Wer das bereinigen will, muss die
+Geschichte umschreiben und erzwungen pushen – das ist eine Entscheidung für
+den Eigentümer des Repositories, nicht für ein Werkzeug.
 
 Neu erzeugen:
 

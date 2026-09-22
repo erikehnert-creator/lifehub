@@ -60,7 +60,7 @@ describe('Teilnehmer vorschlagen', () => {
   })
 
   it('sucht auch über Verein, Klasse und Jahrgang', () => {
-    expect(suchen(protokoll.teilnehmer, 'SG Empor Possendorf').length).toBeGreaterThan(1)
+    expect(suchen(protokoll.teilnehmer, 'USV Musterstadt').length).toBeGreaterThan(1)
     expect(suchen(protokoll.teilnehmer, 'Ehnert Possendorf')).toHaveLength(1)
     expect(suchen(protokoll.teilnehmer, '2006 Possendorf')).toHaveLength(1)
   })

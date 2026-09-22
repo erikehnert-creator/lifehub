@@ -9,10 +9,15 @@
  *
  * Dieses Repository ist öffentlich, und das Protokoll enthält Namen, Jahrgänge
  * und Vereine von 95 Teilnehmern, überwiegend Minderjährigen. Der Bestand in
- * `fixtures/protokoll-score-2026.json` trägt deshalb **ersetzte Namen** –
- * alles andere ist unverändert: Ränge, Jahrgänge, Vereine, sämtliche Zahlen,
- * Abzüge, Kennzeichnungen, Nullwerte und die drei fehlenden Jahrgänge.
- * Eriks eigene Zeile steht im Klartext, weil es seine eigenen Daten sind.
+ * `fixtures/protokoll-score-2026.json` trägt deshalb **ersetzte Namen,
+ * Jahrgänge und Vereine**. Ein Jahrgang und ein Verein grenzen zusammen mit
+ * Platzierung und sechs Noten eine Person ebenso ein wie ein Name.
+ *
+ * Unverändert ist alles, woran hier geprüft wird: sämtliche Zahlen, Abzüge,
+ * Kennzeichnungen, Nullwerte, Ränge, Klassen, die Koordinaten – und die
+ * Struktur der Personenangaben: **ob** ein Jahrgang dasteht, **wer** sich
+ * einen Verein teilt und die Form der Namen. Eriks eigene Zeile steht im
+ * Klartext, weil es seine eigenen Daten sind.
  *
  * Neu erzeugen (auch aus einem anderen Protokoll):
  *
@@ -169,7 +174,7 @@ describe('Andere Teilnehmer', () => {
     expect(seite6).toHaveLength(6)
     const erster = seite6.find((t) => t.rang.wert === 1)!
     expect(erster.klasse).toBe('LK 2 AK 18-29')
-    expect(erster.verein.wert).toBe('SG Empor Possendorf')
+    expect(erster.verein.wert).toBe('TuS Beispielheim')
     expect(erster.geraete.map((g) => g.d.wert)).toEqual([4.8, 2.5, 3.4, 2.7, 3.1, 2.7])
     expect(erster.gesamt.wert).toBe(68.299)
   })
@@ -305,22 +310,25 @@ describe('Mehrzeilige und unvollständige Teilnehmerblöcke', () => {
 
   it('kommt ohne Jahrgang aus, ohne den Verein in den Namen zu ziehen', () => {
     // Drei Teilnehmer dieses Protokolls haben keinen Jahrgang. Im Fliesstext
-    // stuende dort "Nachname, Vorname TV zu Beispielheim-Süd" ohne Trennung - ueber die
+    // stuende dort "Nachname, Vorname SV Beispielstadt" ohne Trennung - ueber die
     // Spalten sind es zwei Bloecke.
     const ohne = ergebnis.teilnehmer.filter((t) => t.jahrgang.sicherheit === 'missing')
     expect(ohne).toHaveLength(3)
+    // Alle drei teilen sich einen Verein - das bleibt auch nach dem Ersetzen
+    // so, weil gleiche Vereine auf denselben Ersatz abgebildet werden.
+    expect(new Set(ohne.map((t) => t.verein.wert)).size).toBe(1)
     for (const t of ohne) {
       expect(t.verein.wert).toBe('TV zu Beispielheim-Süd')
-      expect(t.name.wert).not.toContain('TV zu')
+      expect(t.name.wert).not.toContain('TV ')
       expect(t.name.sicherheit).toBe('exact')
     }
   })
 
   it('liest mehrteilige Vereinsnamen vollständig', () => {
     const vereine = new Set(ergebnis.teilnehmer.map((t) => t.verein.wert))
-    expect(vereine.has('ESV Musterstadt')).toBe(true)
-    expect(vereine.has('KTV Musterstadt')).toBe(true)
-    expect(vereine.has('TSV Musterau')).toBe(true)
+    expect(vereine.has('TV Musterstadt von 1871')).toBe(true)
+    expect(vereine.has('SSV Blau-Weiß Beispieldorf')).toBe(true)
+    expect(vereine.has('TV zu Beispielstadt-Nord')).toBe(true)
   })
 })
 

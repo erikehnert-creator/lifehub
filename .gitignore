@@ -31,3 +31,18 @@ tests/benchmark-*.json
 
 # Bildschirmfotos aus tests/ansicht.mjs - Arbeitsmaterial, kein Quellcode
 tests/ansichten/
+
+# ------------------------------------------------------- Wettkampfprotokolle
+# Der PDF-Importer wird an echten Protokollen entwickelt. Ein solches Protokoll
+# nennt Namen, Jahrgaenge und Vereine von Dutzenden Teilnehmern, ueberwiegend
+# Minderjaehrigen - und dieses Repository ist oeffentlich.
+#
+# Deshalb bleibt JEDE PDF grundsaetzlich draussen, nicht nur die eine. Dieselbe
+# Ueberlegung wie bei _Projektablage/: Eine Liste vergisst man, ein Muster
+# nicht. Gebraucht wird im Repository ohnehin keine - die Tests laufen gegen
+# tests/fixtures/*.json mit ersetzten Personenangaben.
+*.pdf
+
+# Textbestaende mit Klarnamen, wie sie `--klar` erzeugt. Der eingecheckte
+# Bestand heisst protokoll-score-2026.json und traegt ersetzte Angaben.
+tests/fixtures/*-klar.json

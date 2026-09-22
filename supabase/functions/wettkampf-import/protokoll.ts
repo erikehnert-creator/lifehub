@@ -35,8 +35,9 @@
  *     und werden beim Zusammenfügen mit einem Leerzeichen verbunden. Wo der
  *     Name aufhört, liesse sich danach nur raten („… männlich Bad Schandau").
  *   - **Name und Verein**: Drei Teilnehmer in diesem Protokoll haben keinen
- *     Jahrgang. Im Fliesstext steht dann „Nachname, Vorname SV Beispielstadt" ohne
- *     Trennung. Als Textstücke sind es zwei Blöcke in zwei Spalten.
+ *     Jahrgang. Im Fliesstext steht dann „Nachname, Vorname SV Beispielstadt"
+ *     ohne Trennung – wo der Name aufhört, wäre geraten. Als Textstücke sind
+ *     es zwei Blöcke in zwei Spalten.
  *
  * Eine Teilnehmerzeile besteht aus genau 16 Spaltenbündeln, von links:
  *
