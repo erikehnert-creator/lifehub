@@ -1487,12 +1487,24 @@ Eriks eigene Zeile steht im Klartext – es sind seine Daten.
 Überlegung wie bei `_Projektablage/`: Eine Liste vergisst man, ein Muster
 nicht.
 
-**Was in der Geschichte steht, ändert das nicht.** Der erste Testbestand
-(Commit `bfb3fda`) trug bereits ersetzte Namen, aber noch die echten Vereine
-und Jahrgänge; in `acdb6ab` standen drei echte Nachnamen als Beispiele in
-diesem Dokument. Beides ist gepusht. Wer das bereinigen will, muss die
-Geschichte umschreiben und erzwungen pushen – das ist eine Entscheidung für
-den Eigentümer des Repositories, nicht für ein Werkzeug.
+**Die Historie ist nachgezogen.** Am 25.09.2026 wurde die Geschichte von
+`main` gezielt bereinigt. Ältere Commits trugen den Testbestand noch mit echten
+Vereins- und Jahrgangsangaben, und in einem älteren Stand dieses Dokuments
+standen echte Nachnamen als Beispiele. Umgeschrieben wurden dabei nur die
+**zehn betroffenen Commits**; alles davor behielt seinen Hash – und damit
+behielten die von GitHub signierten Commits ihre Signatur. Der aktuelle
+anonymisierte Stand blieb **byte-identisch**: derselbe Baum, dieselben Dateien,
+kein Verlust.
+
+Für `main` gilt seither: keine fremden echten Teilnehmernamen und keine der
+früheren Vereins- und Jahrgangskombinationen. Die PDF selbst war **zu keinem
+Zeitpunkt** committed.
+
+**Ein Rest liegt außerhalb von Git.** Wer eine der alten Commit-Kennungen
+kennt, kann die zugehörigen Objekte bei GitHub technisch weiterhin abrufen –
+unerreichbare Objekte verschwinden dort nicht sofort. Von hier aus ist das
+nicht zu lösen: Offen bleibt als **externer Schritt ein Purge durch den
+GitHub-Support**.
 
 Neu erzeugen:
 
