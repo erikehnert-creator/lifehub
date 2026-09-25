@@ -1323,6 +1323,65 @@ table.data tbody tr:hover { background: var(--surface-2); }
   display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
 }
 
+/* Turnen: Analyse
+   ------------------------------------------------------------------
+   Baut auf .wk-karte und .wk-noten auf - dieselben Kacheln wie im
+   Wettkampf, nur mit Plaetzen darunter. Keine eigene Farbwelt: Die
+   Statusfarben bleiben den .pill-Klassen, und ein Ansatzpunkt ist kein
+   Fehler und bekommt deshalb keine Warnfarbe.                        */
+.an-kopf { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+/* Der Platz unter einer Note. Kleiner als die Note, aber nicht
+   verschwindend: Er ist die eigentliche Auskunft.                    */
+.an-platz {
+  font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.an-abstand {
+  margin-top: 8px; font-size: 12px; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fuenf Spalten, auch bei 390 px. Die Zahlen sind kurz; was nicht
+   passt, darf die Kopfzeile umbrechen, nicht die Werte.              */
+.an-tabelle { margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+.an-zeile {
+  display: grid; grid-template-columns: 1.3fr repeat(3, minmax(0, .8fr)) 1.4fr;
+  gap: 4px; align-items: baseline;
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.an-zeile > span:not(.an-zeile-name) { text-align: right; }
+.an-zeile-name { font-weight: 600; }
+.an-kopfzeile {
+  font-size: 10.5px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .03em; font-weight: 600;
+}
+.an-kopfzeile > span { text-align: right; }
+
+.an-begruendung {
+  font-size: 12.5px; color: var(--text); line-height: 1.5;
+  padding: 8px 10px; border-radius: 8px; background: var(--surface-2);
+}
+
+.an-hebel { display: flex; flex-direction: column; gap: 10px; }
+.an-hebel-zeile {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; background: var(--surface-1);
+}
+.an-hebel-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.an-hebel-text { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+
+.an-punkte { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+.an-punkt {
+  display: flex; flex-direction: column; gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Protokollimport: die Liste der unsicheren Angaben
    ------------------------------------------------------------------
    Eine schlichte Aufzaehlung im Hinweiskasten. Keine eigene Farbwelt -

@@ -27,7 +27,7 @@ import type { SyncedTable } from '../db/schema'
 import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession, GymElement, GymAttempt,
   GymRoutine, GymRoutineElement, GymRoutineVersion, GymRoutineVersionElement,
-  GymCompetition, GymResult,
+  GymCompetition, GymResult, GymBenchmark,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
   ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
@@ -123,6 +123,7 @@ export interface AppData {
   gymRoutineVersionElements: GymRoutineVersionElement[]
   gymCompetitions: GymCompetition[]
   gymResults: GymResult[]
+  gymBenchmarks: GymBenchmark[]
   importTokens: any[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
@@ -161,7 +162,7 @@ const EMPTY: AppData = {
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
   tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [], gymElements: [], gymAttempts: [],
   gymRoutines: [], gymRoutineElements: [],
-  gymRoutineVersions: [], gymRoutineVersionElements: [], gymCompetitions: [], gymResults: [],
+  gymRoutineVersions: [], gymRoutineVersionElements: [], gymCompetitions: [], gymResults: [], gymBenchmarks: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -218,6 +219,7 @@ const LADER: Record<string, Lader> = {
   gym_routine_version_elements: { schluessel: 'gymRoutineVersionElements', laden: () => list<GymRoutineVersionElement>('gym_routine_version_elements', { orderBy: 'position' }) },
   gym_competitions: { schluessel: 'gymCompetitions', laden: () => list<GymCompetition>('gym_competitions', { orderBy: 'day DESC' }) },
   gym_results: { schluessel: 'gymResults', laden: () => list<GymResult>('gym_results') },
+  gym_benchmarks: { schluessel: 'gymBenchmarks', laden: () => list<GymBenchmark>('gym_benchmarks') },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },

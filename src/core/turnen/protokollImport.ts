@@ -20,6 +20,7 @@
 import type { GymCompetition } from '../types'
 import { formatNote, leereEingabe, type ErgebnisEingabe } from './wettkampf'
 import { GERAETE, geraetName } from './geraete'
+import { vergleiche, type VergleichsTeilnehmer } from './vergleich'
 import type {
   ProtokollErgebnis, Teilnehmer, Sicherheit,
 } from '../../../supabase/functions/wettkampf-import/protokoll'
@@ -181,6 +182,51 @@ export function unsichereFelder(
     pruefe(`${name} · Endnote`, g.final)
   }
   return out
+}
+
+/* ==================================================== Vergleichsfeld */
+
+/**
+ * Ein gelesener Teilnehmer, auf das Nötige eingekocht.
+ *
+ * **Hier wird ausgesiebt.** `VergleichsTeilnehmer` hat kein Feld für Name,
+ * Jahrgang oder Verein; was diese Funktion nicht überträgt, sieht die
+ * Vergleichsrechnung nie – und kann deshalb auch nicht versehentlich
+ * gespeichert werden. Das ist die eine Stelle, an der nachzulesen ist, was von
+ * fremden Teilnehmern weitergeht: die Klasse, der Mehrkampfplatz, die
+ * Gesamtpunktzahl und die Zahlen an den Geräten.
+ *
+ * Der Mehrkampfplatz geht mit, weil `gruppeVon()` an ihm prüft, ob die Gruppe
+ * überhaupt EINE Wertung ist.
+ */
+export function ausProtokoll(t: Teilnehmer): VergleichsTeilnehmer {
+  return {
+    klasse: t.klasse,
+    rang: t.rang.wert,
+    gesamt: t.gesamt.wert,
+    geraete: t.geraete.map((g) => ({
+      apparatus: g.apparatus,
+      d: g.d.wert,
+      e: g.e.wert,
+      final: g.final.wert,
+    })),
+  }
+}
+
+/**
+ * Das Vergleichsfeld des gewählten Teilnehmers.
+ *
+ * Alle Teilnehmer gehen durch `ausProtokoll()`, bevor gerechnet wird – auch
+ * die, die gar nicht in der Klasse stehen. Damit gibt es keinen Weg, auf dem
+ * ein Name in die Rechnung gelangt.
+ *
+ * Gerechnet wird beim **Vorschauen**, gespeichert erst beim Bestätigen.
+ */
+export function vergleichFuer(
+  protokoll: ProtokollErgebnis,
+  t: Teilnehmer,
+): ReturnType<typeof vergleiche> {
+  return vergleiche(protokoll.teilnehmer.map(ausProtokoll), ausProtokoll(t))
 }
 
 /** Die Kennzeichnungen, die im Protokoll standen – unverändert und ungedeutet. */

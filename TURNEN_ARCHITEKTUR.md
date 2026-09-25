@@ -578,6 +578,16 @@ ausdrücklich kein universeller Wettkampf-PDF-Importer.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 15.
 
+### Phase 2C — Leistungsanalyse und Konkurrenzvergleich *(umgesetzt am 25.09.2026, Migration 17)*
+
+`gym_benchmarks` · `core/turnen/vergleich.ts` (Gruppe, Platz, Gleichstand,
+relative Position), `core/turnen/analyse.ts` (Messwerte, Fokusregel, Verlauf) ·
+`screens/turnen/Analyse.tsx` (sechster Reiter) · Plätze im eigenen
+Teilnehmerfeld statt roher Punktzahlen · Fokus je Gerät aus nachvollziehbaren
+Kennzahlen · von fremden Teilnehmern bleibt **nichts** gespeichert.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 16.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -1159,8 +1169,14 @@ einzelnen Werte da. Zwei Punkte ergeben immer eine Gerade, und eine Gerade
 sieht nach Entwicklung aus, wo nur zwei Zahlen sind (`MINDESTPUNKTE_LINIE`).
 
 **Keine Korrelation gegen Training** (6.2), **keine Rangfolge zwischen den
-Geräten** und keine Gesamtkennzahl über Geräte hinweg: Eine Boden- und eine
-Pauschenpferdnote sind nicht dieselbe Währung.
+Geräten über rohe Noten** und keine Gesamtkennzahl über Geräte hinweg: Eine
+Boden- und eine Pauschenpferdnote sind nicht dieselbe Währung.
+
+> **Nachtrag Phase 2C (25.09.2026):** Eine Rangfolge zwischen den Geräten gibt es
+> inzwischen – aber ausdrücklich **nicht über die Noten**, sondern über den Platz
+> im jeweils eigenen Teilnehmerfeld. Damit bleibt der Satz oben gültig: Verglichen
+> werden Positionen innerhalb derselben Währung, nie die Währungen selbst. Siehe
+> Abschnitt 16.1.
 
 Innerhalb *eines* Wettkampfs werden die beste und die niedrigste Endnote
 markiert – aber erst ab drei Geräten mit Endnote
@@ -1535,3 +1551,439 @@ veröffentlicht"; alles andere am Turnen-Modul läuft davon unberührt weiter.
 
 Eine Datenbankänderung gibt es in dieser Phase nicht: `0001_init.sql` ist
 unverändert.
+
+---
+
+## 16. Phase 2C: Leistungsanalyse und Konkurrenzvergleich
+
+Umgesetzt am 25.09.2026. Diese Phase bringt **eine** neue Tabelle
+(`gym_benchmarks`, Migration 17) und ändert die Edge Function nicht.
+
+### 16.1 Der Grundsatz: Geräte nicht über rohe Punktzahlen vergleichen
+
+Dies ist der Kern der ganzen Phase. Aus Eriks Wettkampf, Klasse `LK 2 AK 18-29`,
+sechs Turner:
+
+| Gerät | Endnote | Platz im Feld |
+|---|---|---|
+| Ringe | 11,666 | 2. von 6 |
+| **Barren** | **11,633** | **4. von 6** |
+| Boden | 11,566 | 4. von 6 |
+| Pauschenpferd | 11,366 | 1. von 6 |
+| **Sprung** | **11,000** | **1. von 6** |
+| Reck | 9,950 | 4. von 6 |
+
+Am Sprung reichten 11,000 für den **ersten** Platz, am Barren reichten 11,633 für
+den **vierten**. Wer die beiden Zahlen nebeneinanderlegt und daraus „Barren ist
+stärker als Sprung" liest, liest das Gegenteil dessen, was im Protokoll steht.
+Der Sprung hat in dieser Klasse die kleinsten D-Werte des ganzen Protokolls –
+verglichen wird er mit Turnern, die dieselbe Lage haben.
+
+Deshalb gilt: **Verglichen wird ausschliesslich innerhalb der Verteilung
+desselben Geräts.** Mein D-Wert gegen die D-Werte derselben Gruppe an demselben
+Gerät, mein E-Wert gegen deren E-Werte, meine Endnote gegen deren Endnoten. Nie
+eine Bodennote gegen eine Pferdnote, nie D gegen E verrechnet, nie eine
+Gesamtkennzahl aus Teilwerten.
+
+Die Rohwerte stehen weiterhin da – man will sie sehen. Gedeutet werden sie
+geräteübergreifend nie. Wo die höchste Rohnote nicht das relativ stärkste Gerät
+ist, sagt die Oberfläche das ausdrücklich (`rohnoteTaeuscht`).
+
+### 16.2 Was von fremden Teilnehmern bleibt – nämlich nichts
+
+Das Protokoll nennt 95 Teilnehmer, überwiegend Minderjährige. Für einen Platz
+braucht die Rechnung sie; danach dürfen sie nicht übrig bleiben.
+
+Der Ablauf:
+
+```
+PDF → Edge Function → alle Teilnehmer im Arbeitsspeicher
+   → ausProtokoll() kocht jeden auf Klasse, Rang, Gesamt und Gerätezahlen ein
+   → Vergleich rechnen, Vorschau zeigen
+   → Erik bestätigt
+   → gespeichert werden NUR die Kennzahlen des Feldes und mein Platz darin
+```
+
+Das hängt nicht an einer Absicht, sondern an zwei baulichen Tatsachen:
+
+- **`VergleichsTeilnehmer` hat kein Feld für Name, Jahrgang oder Verein.** Die
+  Vergleichsrechnung in `core/turnen/vergleich.ts` kann fremde Personendaten
+  nicht weitergeben, weil sie sie nie bekommt. Diese Datei kennt die
+  Protokolltypen nicht einmal; sie hat genau zwei Importe.
+- **`gym_benchmarks` hat keine Spalte dafür.** Gespeichert werden Feldgrösse,
+  Median, Bestwert, mein Platz, die Zahl der Gleichplatzierten und die Klasse –
+  je Messgrösse. Aus diesen Zahlen lässt sich keine Person zurückgewinnen.
+
+`tests/protokoll-datenschutz.test.ts` rechnet beides nach: Es liest die Spalten
+aus `schema.ts` **und** aus `0001_init.sql` und schlägt fehl, sobald eine davon
+ein Personenwort enthält; und es hält die Importliste von `vergleich.ts` fest.
+Dazu prüfen `turnen-vergleich.test.ts`, `turnen-vergleich-echt.test.ts` und
+`turnen-analyse-e2e.mjs` am wirklichen Bestand, dass kein fremder Nachname, kein
+fremder Verein und kein fremder Jahrgang in den gespeicherten Zeilen auftaucht –
+der E2E sogar am Serverbestand nach dem Abgleich.
+
+Eriks eigene Angaben bleiben im Klartext. Es sind seine Daten, und sie sind der
+Prüfstein des ganzen Moduls.
+
+### 16.3 Warum eine eigene Tabelle und keine Spalten an `gym_results`
+
+`gym_results` trägt ausschliesslich **abgeschriebene** Werte: D, E, Abzug,
+Endnote und den offiziellen Geräteplatz, so wie sie auf dem Protokoll stehen
+(4.2). Was in `gym_benchmarks` steht, ist **gerechnet**. Beides in eine Tabelle
+zu legen verwischt genau die Grenze, an der das ganze Modul hängt.
+
+Konkret wichtig: `gym_results.rank_apparatus` ist der Geräteplatz **aus dem
+Protokoll**, `gym_benchmarks.final_rank` der Platz, den **LifeHub** aus dem Feld
+errechnet hat. Die beiden können auseinandergehen – und dann will man wissen,
+welcher welcher ist. Den einen für den anderen zu benutzen wäre der Fehler, den
+diese Trennung verhindert.
+
+Dazu kommt: Vergleichswerte gibt es nur für importierte Wettkämpfe. An
+`gym_results` wären es rund zwanzig Spalten, die bei jedem von Hand eingetragenen
+Wettkampf leer bleiben.
+
+**Der Schlüssel ist Wettkampf plus Messgrösse.** `scope` ist ein Gerätschlüssel
+(`boden` … `reck`) oder `mehrkampf`; damit deckt eine Tabelle die sechs Geräte
+und die Mehrkampfwertung ab. Die ID rechnet sich aus beiden – genau wie bei
+`gym_results` –, deshalb trifft ein zweiter Import dieselbe Zeile.
+
+`cohort_label` hält fest, **gegen wen** gerechnet wurde. Es steht nicht schon in
+`gym_competitions.class_name`: Das Klassenfeld ist frei änderbar, und ein
+Vergleichswert darf seine Bedeutung nicht stillschweigend wechseln, weil jemand
+den Text daneben korrigiert.
+
+**Drei Zähler statt einem:** `cohort_size` ist das ganze Feld, `d_count`,
+`e_count` und `final_count` sind die, die an diesem Gerät überhaupt einen solchen
+Wert haben – denn nur unter ihnen wird gerangt. Fehlt einem Turner der E-Wert,
+ist „1. von 6" falsch und „1. von 5" richtig.
+
+**Kein Mittelwert.** Bei sechs Turnern zieht ein Ausrutscher ihn weit vom Feld
+weg; der Median sagt dasselbe ehrlicher. Eine Spalte, die niemand liest, bleibt
+draussen.
+
+### 16.4 Die Vergleichsgruppe
+
+Verglichen wird **nur gegen dieselbe Klasse desselben Protokolls**. Niemals gegen
+alle 95: In einem Protokoll stehen Zwölfjährige neben Erwachsenen,
+Leistungsklasse 1 neben 4. Ein Platz „14. von 95" wäre keine Auskunft, sondern
+eine falsche.
+
+Gruppiert wird über den **Klassentext**, nicht über die Seite – eine Klasse darf
+sich über mehrere Seiten ziehen. In diesem Protokoll steht je Seite genau eine
+Klasse; ein anderes darf es anders halten.
+
+Kein Vergleich entsteht in drei Fällen, und jeder wird benannt statt verschwiegen:
+
+| Grund | Wann |
+|---|---|
+| `keine_klasse` | Im Protokoll steht keine Klasse |
+| `allein` | Nur ein Turner in der Klasse – ein Platz unter sich allein ist kein Platz |
+| `raenge_widerspruechlich` | Zwei Wertungen unter derselben Beschriftung |
+
+Der letzte Fall ist eine **Stimmigkeitsprüfung**: Innerhalb einer Wertung folgt
+aus gleichem Platz derselbe Gesamtwert. Steht unter derselben Klasse zweimal
+Platz 1 mit verschiedenen Gesamtwerten, sind es zwei getrennte Wertungen, die das
+Protokoll nur gleich beschriftet – etwa Vorkampf und Finale. Dann wird nicht
+verglichen, statt zwei Felder zu vermischen. Echte Gleichplatzierungen bleiben
+davon unberührt: Bei ihnen stimmt der Gesamtwert überein.
+
+### 16.5 Platz, Gleichstand, fehlende Werte
+
+```
+rang = 1 + Anzahl der echt höheren Werte
+```
+
+Bei Gleichstand bekommen alle denselben Platz, und `*_tie_count` sagt, wie viele
+es sind: Zwei Turner mit demselben D-Wert, einer darüber, ergibt für beide
+**Platz 2 geteilt** – und nicht Platz 2 und Platz 3.
+
+**Fehlende Werte zählen nicht mit.** Wer an diesem Gerät keinen E-Wert hat, ist
+keine 0, sondern steht nicht in dieser Reihe. Eine ausgewiesene 0 ist dagegen ein
+Wert und bleibt drin – fehlend und null sind nicht dasselbe (4.1).
+
+**Verglichen wird auf Tausendsteln, nicht auf Gleitkommazahlen.** Ein
+Gleichstand, der an der siebzehnten Stelle auseinandergeht, wäre keiner mehr.
+Drei Nachkommastellen sind das Maximum jeder Wertungsvorschrift und genau das,
+was `formatNote()` anzeigt.
+
+Der Abzug verschiebt D und E nicht: Er steht im Protokoll und wird abgeschrieben,
+gerangt wird über die ausgewiesenen Werte.
+
+### 16.6 Die relative Position – die eine normierte Zahl
+
+Sie ist der **normierte Mittelrang**:
+
+```
+Mittelrang = Platz + (Gleichstand − 1) / 2
+Position   = (Anzahl − Mittelrang) / (Anzahl − 1)
+```
+
+Gleichwertig, und manchmal anschaulicher, als Anteil des Feldes hinter mir:
+
+```
+Position = (Anzahl echt schlechterer + 0,5 · (Gleichstand − 1)) / (Anzahl − 1)
+```
+
+| Fall | Position |
+|---|---|
+| Erster allein | 1,0 |
+| Letzter allein | 0,0 |
+| **alle gleich** | **0,5** |
+| zwei geteilte Erste von 6 | 0,9 |
+| zwei geteilte Letzte von 6 | 0,1 |
+| Plätze 3 und 4 von 6 geteilt | 0,5 |
+| Platz 4 geteilt von 6 (Ränge 4 und 5) | 0,3 |
+| Dritter von fünf | 0,5 |
+
+#### Warum der Mittelrang – und was vorher falsch war
+
+Der erste Anlauf zählte nur die **echt schlechteren** Werte:
+`Position = schlechter / (Anzahl − 1)`. Das ist bei Gleichständen falsch, und
+zwar nicht ein wenig:
+
+> Sechs Turner haben denselben D-Wert. Alle sind geteilt Erste. Niemand ist
+> schlechter als ich – also `0 / 5 = 0`. Ein Gerät, an dem **alle dasselbe**
+> geturnt haben, stünde als „ganz unten" da, und weil dasselbe für den E-Wert
+> gilt, hätte die Fokusregel dort `beides` empfohlen.
+
+Der Grund: Gleichplatzierte belegen einen **Bereich** von Rängen, nicht einen
+Rang. Zwei geteilte Erste belegen die Plätze 1 und 2; drei gleiche in der Mitte
+eines Feldes von fünf belegen 2, 3 und 4. Der Mittelrang gibt jedem die Mitte
+seines Bereichs. Das ist die übliche Behandlung von Bindungen und die einzige,
+die nach beiden Seiten gleich verfährt.
+
+Die **Probe** dafür ist die Spiegelsymmetrie: Position im Feld plus Position im
+umgekehrten Feld ergibt immer genau 1. Die alte Formel erfüllte das nicht (bei
+zwei geteilten Ersten kam 0,8 + 0,2 heraus, nicht 1,0), die neue erfüllt es für
+jeden Wert jedes Feldes. `turnen-vergleich.test.ts` rechnet sie für mehrere
+Felder durch, dazu die Randfälle einzeln: alle gleich (Feldgrössen 2 bis 20),
+geteilt an der Spitze, in der Mitte, am Ende, drei gleiche Werte, `n = 3` und ein
+grosses Feld mit Gleichständen.
+
+Ein Gleichstand ist damit **kein Schwächezeichen**, senkt aber auch nicht die
+Auskunft: Geteilt Erster (0,9) steht unter dem Alleinersten (1,0), geteilt
+Letzter (0,1) über dem Alleinletzten (0,0). Beides ist richtig.
+
+#### Was das an Eriks Wettkampf geändert hat
+
+An vier Geräten steht ein geteilter D-Platz, deshalb verschieben sich vier
+Zahlen – **keine einzige Fokusempfehlung**:
+
+| Gerät | D-Position alt | neu | unter der Mitte? |
+|---|---|---|---|
+| Boden | 0,2 | **0,3** | ja – bleibt Schwierigkeit |
+| Barren | 0,2 | **0,3** | ja – bleibt Schwierigkeit |
+| Pauschenpferd | 0,6 | **0,7** | nein – bleibt halten |
+| Sprung | 0,6 | **0,7** | nein – bleibt halten |
+
+Ringe (0,6 / 0,8) und Reck (0,4 / 0,4) haben keine Gleichstände und ändern sich
+nicht. Die Positionen stehen als Tabelle in `turnen-analyse.test.ts`: Wer die
+Formel wieder anfasst, sieht dort, was sich verschiebt, und nicht erst an einem
+umgeschlagenen Fokus.
+
+Gerechnet wird beim **Lesen**; gespeichert ist die Position nirgends. Die Formel
+liess sich deshalb ändern, ohne einen Bestand nachzuziehen und ohne Migration.
+
+**Warum überhaupt normiert:** „1. von 6" und „4. von 6" sind vergleichbar, „2.
+von 3" und „2. von 20" sind es nicht. Ohne die Feldgrösse im Nenner wäre jeder
+Vergleich zwischen zwei Geräten oder zwei Wettkämpfen schief.
+
+**Was sie nicht ist:** kein Leistungsindex, keine Note, keine Wahrscheinlichkeit.
+Sie erscheint **nirgends** in der Oberfläche – dort stehen Platz und Feldgrösse,
+weil nur die beiden zusammen etwas bedeuten. Sie ordnet intern die Geräte und
+trägt die Fokusregel, nichts weiter.
+
+### 16.7 Die Fokusregel – vollständig
+
+Zwei Begriffe, dann vier Zeilen:
+
+- **Unten** heisst: relative Position **unter 0,5**, also unter der Mitte des
+  eigenen Feldes an diesem Gerät. Das ist kein gewählter Schwellenwert, sondern
+  die Mitte selbst. Wer genau in der Mitte steht, gilt nicht als unten – Mitte
+  ist nicht Schwäche. Das schliesst den Fall ein, dass **alle gleich** geturnt
+  haben: Er ergibt genau 0,5 (16.6) und führt damit zu `halten`, nicht zu einem
+  erfundenen Ansatzpunkt. Ein Gleichstand allein ist kein Schwächezeichen.
+- **Benannt wird nur, wo etwas unten liegt.** Wo nichts unten liegt, wird kein
+  Schwachpunkt erfunden.
+
+```
+D unten und E unten  →  beides
+nur D unten          →  Schwierigkeit
+nur E unten          →  Ausführung
+keines unten         →  halten
+```
+
+`zu_wenig_daten` in drei Fällen: kein Vergleichsfeld, Feld kleiner als
+`MINDESTFELD_FUER_FOKUS` (drei), oder eine der beiden Positionen nicht
+bestimmbar. Der letzte Fall ist der wichtigste: **Aus einer Seite allein ist
+nicht zu sagen, welche die begrenzende ist.**
+
+Die Feldgrenze von drei ist eine benannte **Produktheuristik**, keine
+sportwissenschaftliche Grösse: Bei zwei Turnern kann eine Position nur 0 oder 1
+sein, und daraus einen Trainingshinweis zu machen hiesse, einen Münzwurf als
+Auskunft auszugeben. Der Platz selbst wird trotzdem angezeigt; er ist ja richtig.
+
+**Es wird kein Punktgewinn versprochen.** „Hier liegt der Ansatzpunkt" sagt, wo
+im Feld etwas fehlt. Was eine höhere Schwierigkeit an Endnote bringt, hängt an
+der Ausführung, die dann noch möglich ist – und das weiss diese Rechnung nicht.
+`turnen-analyse.test.ts` hält das am Wortlaut der Begründung fest.
+
+### 16.8 Was aus Eriks Wettkampf herauskommt
+
+Grundwahrheit, gerechnet und nicht eingetragen – `LK 2 AK 18-29`, sechs Turner:
+
+| Gerät | D | E | Endnote | Fokus |
+|---|---|---|---|---|
+| Boden | 4. geteilt | 1. | 4. | Schwierigkeit |
+| Pauschenpferd | 2. geteilt | 1. | 1. | halten |
+| Ringe | 3. | 2. | 2. | halten |
+| Sprung | 2. geteilt | 1. | 1. | halten |
+| Barren | 4. geteilt | 1. | 4. | Schwierigkeit |
+| Reck | 4. | 4. | 4. | beides |
+
+Mehrkampf: 2. von 6.
+
+Am Boden und am Barren steht die **beste Ausführung des Feldes** neben einer
+Schwierigkeit im unteren Teil – und der Endnotenplatz fällt entsprechend ab.
+Der Zahlenbeleg steht in der Detailansicht: Am Boden turnte der Sieger D 4,8 bei
+E 7,666, Erik D 2,9 bei E 8,666. Genau umgekehrt.
+
+Am Reck liegen beide Seiten unten; dort wird nicht künstlich nur eine benannt.
+Am Sprung liegt die niedrigste Rohnote dieser vier Geräte und trotzdem der erste
+Platz – das ist der wichtigste Einzelfall des ganzen Modells und in vier
+Prüfungen festgehalten.
+
+### 16.9 Verlauf über mehrere Wettkämpfe
+
+Je Gerät chronologisch: D, E, Endnote, dazu – wo ein Protokoll importiert wurde –
+Platz, Feldgrösse und Abstand zum Median des jeweiligen Feldes.
+
+**Plätze werden nicht gemittelt.** „2. von 3" und „2. von 20" sind nicht
+dasselbe, und ihr Mittel wäre keine Zahl, die etwas bedeutet. Vergleichbar
+gemacht wird über die relative Position, in die die Feldgrösse eingeht; angezeigt
+werden weiterhin Platz und Feldgrösse.
+
+Eine Richtung wird nur bei **durchgehend** steigenden oder fallenden Werten
+genannt, und erst ab drei (`MINDESTWETTKAEMPFE_FUER_TREND`, dieselbe Überlegung
+wie `MINDESTPUNKTE_LINIE`). Alles andere ist `gemischt`: Aus drei Zahlen, die auf
+und ab gehen, eine Tendenz zu lesen wäre Rauschen mit Überschrift.
+
+Die Formulierung bleibt beschreibend. „Die Werte lagen durchgehend höher" ist
+eine Beobachtung; „dein Training hat die E-Note verbessert" wäre eine Behauptung
+über eine Ursache, für die es hier keine Grundlage gibt (6.2). Bei einem
+Wettkampf wird kein Verlauf vorgetäuscht.
+
+### 16.10 Wettkämpfe ohne Protokoll
+
+Ein von Hand erfasster Wettkampf hat keine Vergleichswerte. Dann stehen die
+Rohwerte da und sonst nichts: **kein erfundener Geräteplatz, kein erfundener
+Median, kein Bestwert, kein Fokus.** Die Oberfläche sagt ausdrücklich, dass kein
+Vergleichsfeld vorliegt, und nennt den Weg dorthin.
+
+Keine Migration erzeugt aus Altbestand erfundene Konkurrenzdaten. Wird das
+Original-PDF später importiert, kommen die Vergleichswerte dazu.
+
+### 16.11 Reimport und Löschen
+
+Weil die ID sich aus Wettkampf und Messgrösse rechnet, trifft ein zweiter Import
+derselben Datei dieselben Zeilen. Geschrieben wird nur, was sich unterscheidet;
+`computed_at` wandert nur mit, wenn sich auch eine Zahl geändert hat – sonst
+schöbe jeder Reimport eine Änderung über den Abgleich, obwohl das Ergebnis
+dasselbe ist.
+
+`planeBenchmarks()` unterscheidet zwei Fälle:
+
+- **Mit frischen Werten** (ein Import): anlegen, abweichende aktualisieren,
+  verwaiste entfernen.
+- **Ohne** (gewöhnliches Speichern): die vorhandenen bleiben stehen. Eine Notiz
+  zu ändern darf einem importierten Wettkampf nicht seine Plätze nehmen.
+
+Verliert ein Gerät sein Ergebnis, geht sein Vergleichswert mit. Der Mehrkampf
+hängt am Wettkampf und nicht an einem Gerät und bleibt.
+
+**Beim Löschen eines Wettkampfs gehen seine Vergleichswerte mit.** Es gibt zwei
+Löschwege – aus der Ansicht und aus dem Editor –, und beide gehen deshalb durch
+`loescheWettkampf()`. Stand die Aufräumung zweimal da, fehlte sie an einer der
+beiden Stellen: Genau so blieben die Vergleichswerte beim ersten Versuch verwaist
+liegen, und `turnen-analyse-e2e` hat es gefunden. Die Kürfassungen bleiben
+erhalten – sie gehören zur Geschichte.
+
+### 16.12 Oberfläche
+
+Ein sechster Reiter, `#/turnen/analyse`. Er beantwortet eine andere Frage als die
+Wettkämpfe: Dort steht, **was** geturnt wurde, hier, **wo das im Feld stand**.
+Unter „Wettkämpfe" wäre es ein zweiter langer Abschnitt in einem Reiter, der
+schon Liste, Editor, Import und Verlauf trägt.
+
+Sechs Reiter passen nicht mehr nebeneinander auf ein Handy. Die Leiste scrollt
+waagerecht und zeigt den Überlauf an – das konnte `Tabs` schon vorher, und
+`turnen-analyse-e2e` misst bei 390 px nach, dass der Reiter erreichbar ist und
+die Seite nicht seitlich wegläuft.
+
+Der Aufbau, mobil zuerst:
+
+- **Aktueller Stand** – Klasse, Feldgrösse, Mehrkampfplatz; darunter je Gerät
+  eine Kachel mit **Platz gross** und Rohnote daneben, D- und E-Platz darunter,
+  Abstand zu Median und Bestwert, und die Fokusmarke. Aufklappbar: eine Tabelle
+  aus eigenem Wert, Median, Bestwert und Platz je Messgrösse plus die aus den
+  Zahlen erzeugte Begründung.
+- **Stärken** – die Geräte mit `halten`, datengetrieben und ohne Allgemeinplätze.
+- **Grösste Hebel** – die Geräte mit benanntem Ansatzpunkt, das relativ
+  schwächste zuerst.
+- **Verlauf** – ab dem zweiten Wettkampf, umschaltbar zwischen Endnote, D und E.
+
+Farben bleiben sparsam und semantisch: Grün nur für „Stärke halten" und den Platz
+im Feld. Ein Ansatzpunkt ist **kein Fehler** und bekommt deshalb keine Warnfarbe.
+Keine Emojis. Die Kacheln bauen auf `.wk-karte` auf – dieselben Kacheln wie im
+Wettkampf, nur mit Plätzen darunter.
+
+### 16.13 Gemessen
+
+Die Analyse rechnet in **einem** Durchgang und wird gemerkt (`useMemo`), nicht je
+Zeichnen neu.
+
+| | |
+|---|---|
+| `analyseBild()` bei 100 Wettkämpfen, 600 Ergebnissen, 700 Vergleichswerten | **1,0 ms** |
+| Navigation → Analyse (mit Vergleichswerten, im Browser) | **16 ms** |
+| Wettkämpfe → Analyse → zurück | **28 ms** |
+| Teilnehmer wählen und Vorschau aufbauen (jetzt mit Vergleich) | 239 ms (vorher 250 ms) |
+| Import bestätigen (jetzt mit sieben Vergleichszeilen) | 248 ms (vorher 277 ms) |
+| `loadAll()` bei 44.002 Zeilen | 327 ms (unverändert) |
+
+Der Import ist durch die zusätzliche Rechnung nicht langsamer geworden; die
+Schwankung liegt im Rauschen. Die gezielten Lader bleiben, wie sie waren – die
+neue Tabelle hat ihren eigenen Eintrag in `LADER`.
+
+### 16.14 Was diese Phase ausdrücklich NICHT tut
+
+- keine Trainingspläne ändern, keine Trainingsaufgaben erzeugen
+- kein KI-Coach, kein undurchsichtiger Gesamtwert
+- keine Korrelation zwischen Training und Wettkampfnote (6.2)
+- keine Vorhersage eines Ergebnisses
+- keine fremden Turnerprofile speichern
+- kein OCR, keine weiteren PDF-Formate (15.9 gilt unverändert)
+
+### 16.15 Grenzen
+
+- **Ein Protokolltyp.** Gelesen wird SCORE, wie in 15.9 beschrieben.
+- **Keine Runden.** Unterscheidet ein Protokoll Vorkampf und Finale, erkennt
+  LifeHub das nicht am Aufbau – nur an widersprüchlichen Plätzen innerhalb einer
+  Klasse, und dann verweigert es den Vergleich. Ein Gerätefinale wird weiterhin
+  als eigener Wettkampf erfasst (14.6).
+- **Ein Feld ist eine Momentaufnahme.** „1. von 6" sagt etwas über diese sechs
+  Turner an diesem Tag, nicht über das Turnen allgemein. Deshalb steht die
+  Feldgrösse überall dabei.
+- **Kampfrichter sind nicht vergleichbar.** Zwei Wettkämpfe sind zwei
+  Wertungsgerichte; auch der Abstand zum Median trägt das nicht weg. Der Verlauf
+  bleibt beschreibend.
+
+### 16.16 Einspielen
+
+**Migration 17 ist eine Schemaänderung.** Die neu erzeugte
+`supabase/migrations/0001_init.sql` muss einmal im SQL-Editor des
+Supabase-Projekts laufen – sonst scheitert der Abgleich für `gym_benchmarks` bei
+jedem Versuch, während in der Oberfläche nichts kaputt aussieht.
+
+Die Edge Function ist **unverändert**: Sie liefert schon immer alle Teilnehmer.
+Es ist kein `supabase functions deploy` nötig.

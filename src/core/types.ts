@@ -601,3 +601,48 @@ export interface GymResult extends BaseEntity {
   note: string | null
 }
 
+/** Gerät oder Mehrkampf – worauf sich ein Vergleichswert bezieht. */
+export type GymBenchmarkScope = string
+
+/**
+ * Wo ich in meinem Teilnehmerfeld stand – als anonymes Aggregat.
+ *
+ * **Gerechnet, nicht abgeschrieben.** `gym_results.rank_apparatus` ist der
+ * Geräteplatz, wie er im Protokoll steht; `final_rank` hier ist der Platz, den
+ * LifeHub aus dem Teilnehmerfeld errechnet hat. Die beiden können
+ * auseinandergehen, und dann will man wissen, welcher welcher ist.
+ *
+ * Über die anderen Teilnehmer bleibt **nichts** stehen: kein Name, kein
+ * Jahrgang, kein Verein, keine Einzelzeile. Nur Kennzahlen über das Feld und
+ * mein Platz darin.
+ *
+ * `*_count` ist jeweils die Zahl der Turner, die diesen Wert überhaupt haben –
+ * nur unter ihnen wird gerangt. `cohort_size` ist das ganze Feld.
+ */
+export interface GymBenchmark extends BaseEntity {
+  competition_id: string
+  /** Gerätschlüssel aus `core/turnen/geraete.ts` oder `'mehrkampf'`. */
+  scope: GymBenchmarkScope
+  /** Gegen wen gerechnet wurde, z. B. „LK 2 AK 18-29". */
+  cohort_label: string | null
+  cohort_size: number
+  final_rank: number | null
+  final_tie_count: number | null
+  final_count: number | null
+  final_median: number | null
+  final_best: number | null
+  d_rank: number | null
+  d_tie_count: number | null
+  d_count: number | null
+  d_median: number | null
+  d_best: number | null
+  e_rank: number | null
+  e_tie_count: number | null
+  e_count: number | null
+  e_median: number | null
+  e_best: number | null
+  /** Woher die Vergleichswerte stammen, z. B. `'score-pdf'`. */
+  source: string
+  computed_at: Instant
+}
+

@@ -35,8 +35,13 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 862 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.521 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
+
+Auf Eriks Rechner sind es **1.540**: `tests/turnen-vergleich-echt.test.ts` rechnet
+den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
+selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
+Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
 
 Bei Änderungen an der Automatik (core/automation.ts, state/automatik.ts) oder an der
 Heute-Seite zusätzlich die beiden Browser-Prüfungen laufen lassen – sie arbeiten gegen
@@ -229,6 +234,67 @@ Funktion muss eigens veroeffentlicht werden:
 ```
 npx supabase functions deploy fatsecret --no-verify-jwt
 ```
+
+## Der Protokollimport laeuft MIT JWT-Pruefung
+
+`supabase/functions/wettkampf-import/` liest Wettkampfprotokolle als PDF. Im
+Gegensatz zu `schlaf` wird sie OHNE `--no-verify-jwt` veroeffentlicht:
+
+```
+npx supabase functions deploy wettkampf-import
+```
+
+Der Grund ist der Absender. Der Schlafimport kommt von einem iOS-Kurzbefehl,
+der kein Supabase-Anmeldetoken hat und deshalb ein eigenes Importtoken traegt.
+Der Protokollimport kommt aus LifeHub selbst, wo Erik ohnehin angemeldet ist -
+also prueft Supabase das Token, bevor die Anfrage ankommt.
+
+Die Funktion **schreibt nichts in die Datenbank** und braucht den
+Dienstschluessel nicht. Sie gibt Vorschlaege zurueck; gespeichert wird in
+LifeHub nach ausdruecklicher Bestaetigung. Die PDF wird nicht abgelegt und
+nicht protokolliert.
+
+Die fachliche Logik liegt in `protokoll.ts` daneben und ist frei von Deno- und
+PDF-Aufrufen - dasselbe Muster wie `aggregat.ts` beim Schlaf. Nur so laesst
+sie sich aus `npm test` laden.
+
+```
+node tests/protokoll-integration.mjs   # PDF -> Werte, gegen das echte
+                                       # Protokoll; braucht `npm install
+                                       # --no-save unpdf`
+node tests/turnen-import-e2e.mjs       # der Weg durch die Oberflaeche
+node tests/turnen-analyse-e2e.mjs      # Vergleichswerte, Analysereiter,
+                                       # 390 px, dunkler Modus, Loeschen
+```
+
+### Der Konkurrenzvergleich speichert KEINE fremden Personendaten
+
+Seit dem 25.09.2026 (Phase 2C, Migration 17) rechnet LifeHub beim Import aus,
+wo Erik in seinem Teilnehmerfeld stand. Dafuer braucht die Rechnung die anderen
+Turner - danach duerfen sie nicht uebrig bleiben. Das haengt an zwei baulichen
+Tatsachen, nicht an einer Absicht:
+
+- `VergleichsTeilnehmer` (`core/turnen/vergleich.ts`) hat **kein Feld** fuer
+  Name, Jahrgang oder Verein. Eingekocht wird in `ausProtokoll()`
+  (`core/turnen/protokollImport.ts`) - das ist die eine Stelle, an der steht,
+  was weitergeht.
+- `gym_benchmarks` hat **keine Spalte** dafuer. Gespeichert werden Feldgroesse,
+  Median, Bestwert, mein Platz und die Zahl der Gleichplatzierten.
+
+Wer dort etwas ergaenzt, aendert beides zugleich. `tests/protokoll-datenschutz.test.ts`
+liest die Spalten aus `schema.ts` UND aus `0001_init.sql` und schlaegt fehl,
+sobald eine davon ein Personenwort traegt; `turnen-analyse-e2e.mjs` prueft es am
+Serverbestand nach dem Abgleich.
+
+**Geraete werden nie ueber rohe Punktzahlen verglichen.** Am Sprung reichten
+11,000 fuer den ersten Platz, am Barren reichten 11,633 fuer den vierten.
+Gerangt wird ausschliesslich innerhalb derselben Messgroesse an demselben Geraet
+(TURNEN_ARCHITEKTUR.md, 16.1).
+
+**`gym_results.rank_apparatus` und `gym_benchmarks.final_rank` sind nicht
+dasselbe:** der eine steht im Protokoll, der andere ist eine Rechnung von
+LifeHub. Den einen fuer den anderen zu benutzen ist der Fehler, den die getrennte
+Tabelle verhindert.
 
 ## FatSecret laeuft von selbst
 

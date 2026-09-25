@@ -26,6 +26,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const WURZEL = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+/* Schemastand und Tabellenzahl kommen aus dem Schema selbst. Eingetragene
+   Zahlen stimmen nur bis zur naechsten Migration und sind danach still
+   falsch - `schema.ts` hat keine Importe und laesst sich hier deshalb
+   unmittelbar laden. */
+const { MIGRATIONS, SYNCED_TABLES } = await import('../src/db/schema.ts')
+const HOECHSTE_MIGRATION = Math.max(...MIGRATIONS.map((m) => m.id))
+const ZAHL_TABELLEN = SYNCED_TABLES.length
+
 const { pruefe, fehlend } = pruefer()
 
 if (!brauche(path.join(WURZEL, 'LifeHub.html'), 'Erst `npm run build:single` ausführen.')) process.exit(0)
@@ -85,9 +93,13 @@ try {
   await geh(pc, '/einstellungen/sync', 2000)
   const diagnose = await text(pc)
   pruefe('Die Diagnose ist da', /Diagnose/.test(diagnose))
-  pruefe('Sie nennt den Schemastand des Geräts', /Migration 16/.test(diagnose),
+  // Beide Zahlen werden ABGELEITET und nicht eingetragen: Eine feste 16 war
+  // nur bis zur naechsten Migration richtig und danach still falsch.
+  pruefe(`Sie nennt den Schemastand des Geräts (Migration ${HOECHSTE_MIGRATION})`,
+    new RegExp(`Migration ${HOECHSTE_MIGRATION}`).test(diagnose),
     diagnose.split(/\r?\n/).find((z) => /Migration \d/.test(z)))
-  pruefe('Sie nennt die Zahl der Tabellen im Abgleich', /55/.test(diagnose))
+  pruefe(`Sie nennt die Zahl der Tabellen im Abgleich (${ZAHL_TABELLEN})`,
+    new RegExp(String(ZAHL_TABELLEN)).test(diagnose))
   pruefe('Sie sagt, wie viele dem Server fehlen', /8 Tabellen/.test(diagnose))
   pruefe('Und nennt die Datei, die auszuführen ist',
     /0001_init\.sql/.test(diagnose))

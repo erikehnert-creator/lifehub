@@ -1037,6 +1037,98 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_gym_results_version ON gym_results(routine_version_id);
     `,
   },
+  {
+    id: 17,
+    name: 'turnen_vergleichswerte',
+    sql: `
+    -------------------------------------------------- Turnen: Vergleichswerte
+    -- Wo ich in meinem Teilnehmerfeld stand - als ANONYMES Aggregat.
+    --
+    -- ==================================================================
+    -- Warum eine eigene Tabelle und keine Spalten an gym_results
+    -- ==================================================================
+    --
+    -- gym_results traegt ausschliesslich ABGESCHRIEBENE Werte: D, E, Abzug,
+    -- Endnote und den offiziellen Geraeteplatz, so wie sie auf dem Protokoll
+    -- stehen. Was hier steht, ist dagegen GERECHNET. Beides in eine Tabelle
+    -- zu legen verwischt genau die Grenze, an der das ganze Turnen-Modul
+    -- haengt (TURNEN_ARCHITEKTUR.md, 4.2) - und rank_apparatus und ein
+    -- berechneter Vergleichsrang muessen unterscheidbar bleiben: Der eine
+    -- steht im Protokoll, der andere ist eine Rechnung von LifeHub.
+    --
+    -- Dazu kommt: Vergleichswerte gibt es nur fuer importierte Wettkaempfe.
+    -- An gym_results waeren es rund zwanzig Spalten, die bei jedem von Hand
+    -- eingetragenen Wettkampf leer bleiben.
+    --
+    -- ==================================================================
+    -- Was hier NICHT steht
+    -- ==================================================================
+    --
+    -- Keine Namen, keine Jahrgaenge, keine Vereine, keine einzelnen Zeilen
+    -- fremder Turner. Die anderen Teilnehmer werden beim Import nur
+    -- durchgerechnet und danach verworfen. Was bleibt, sind Kennzahlen ueber
+    -- das Feld - Groesse, Median, Bestwert - und mein Platz darin. Daraus
+    -- laesst sich keine Person zurueckgewinnen.
+    --
+    -- Dieses Repository ist oeffentlich und das Protokoll nennt
+    -- ueberwiegend Minderjaehrige; die Abwaegung steht in 15.11.
+    --
+    -- ==================================================================
+    -- Der Schluessel: Wettkampf plus Messgroesse
+    -- ==================================================================
+    --
+    -- scope ist ein Geraetschluessel ('boden' ... 'reck') oder 'mehrkampf'.
+    -- Damit deckt EINE Tabelle die sechs Geraete und die Mehrkampfwertung ab,
+    -- und die ID rechnet sich aus Wettkampf und scope - genau wie bei
+    -- gym_results. Ein zweiter Import desselben Protokolls trifft deshalb
+    -- dieselbe Zeile, statt eine zweite anzulegen.
+    --
+    -- cohort_label haelt fest, GEGEN WEN gerechnet wurde ("LK 2 AK 18-29").
+    -- Es steht nicht schon in gym_competitions.class_name: Das Klassenfeld
+    -- ist frei aenderbar, und ein Vergleichswert darf seine Bedeutung nicht
+    -- stillschweigend wechseln, weil jemand den Text daneben korrigiert.
+    --
+    -- ==================================================================
+    -- Drei Zaehler statt einem
+    -- ==================================================================
+    --
+    -- cohort_size ist das ganze Feld. d_count, e_count und final_count sind
+    -- die, die an DIESEM Geraet ueberhaupt einen solchen Wert haben - denn
+    -- gerangt wird nur unter ihnen. Fehlt einem Turner der E-Wert, ist "1.
+    -- von 6" falsch und "1. von 5" richtig. Ein fehlender Wert wird nirgends
+    -- als 0 behandelt; eine ausgewiesene 0 bleibt eine 0.
+    --
+    -- Kein Mittelwert: Bei sechs Turnern zieht ein Ausrutscher ihn weit weg
+    -- vom Feld, und der Median sagt dasselbe ehrlicher. Eine Spalte, die
+    -- niemand liest, bleibt draussen.
+    CREATE TABLE gym_benchmarks (
+      id TEXT PRIMARY KEY,
+      competition_id TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      cohort_label TEXT,
+      cohort_size INTEGER NOT NULL,
+      final_rank INTEGER,
+      final_tie_count INTEGER,
+      final_count INTEGER,
+      final_median REAL,
+      final_best REAL,
+      d_rank INTEGER,
+      d_tie_count INTEGER,
+      d_count INTEGER,
+      d_median REAL,
+      d_best REAL,
+      e_rank INTEGER,
+      e_tie_count INTEGER,
+      e_count INTEGER,
+      e_median REAL,
+      e_best REAL,
+      source TEXT NOT NULL,
+      computed_at TEXT NOT NULL,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_benchmarks_competition ON gym_benchmarks(competition_id);
+    `,
+  },
 ]
 
 
@@ -1056,7 +1148,7 @@ export const SYNCED_TABLES = [
   'sleep_sessions', 'import_tokens',
   'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements',
   'gym_routine_versions', 'gym_routine_version_elements',
-  'gym_competitions', 'gym_results',
+  'gym_competitions', 'gym_results', 'gym_benchmarks',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

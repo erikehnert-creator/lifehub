@@ -40,10 +40,48 @@ import {
 import type { GymCompetition, GymResult, GymRoutineVersion } from '../../core/types'
 import {
   vorschlagen, suchen, teilnehmerZeile, wettkampfEntwurf, ergebnisEingaben,
-  unsichereFelder, markerListe, schonVorhanden,
+  unsichereFelder, markerListe, schonVorhanden, vergleichFuer,
   type ProtokollErgebnis, type Teilnehmer, type Unsicher, type WettkampfEntwurf,
 } from '../../core/turnen/protokollImport'
+import {
+  MEHRKAMPF, KEIN_VERGLEICH_TEXT, planeBenchmarks, benchmarkPlanIstLeer,
+  type KeinVergleich, type VergleichsZeile,
+} from '../../core/turnen/vergleich'
 import { ladeProtokoll, ImportFehler } from '../../sync/protokoll'
+
+/**
+ * Alles, was zu einem Wettkampf gehört, in den Papierkorb.
+ *
+ * Es gibt ZWEI Wege zum Löschen – aus der Ansicht und aus dem Editor. Beide
+ * müssen dasselbe tun. Stand die Aufräumung zweimal da, fehlte sie irgendwann
+ * an einer der beiden Stellen: Genau so blieben die Vergleichswerte beim ersten
+ * Versuch verwaist liegen, und `turnen-analyse-e2e` hat es gefunden.
+ *
+ * Die Kürfassungen bleiben ausdrücklich stehen. Sie gehören zur Geschichte und
+ * nicht zu diesem einen Eintrag.
+ */
+function loescheWettkampf(
+  m: ReturnType<typeof useMutations>,
+  wettkampfId: string,
+  ergebnisse: GymResult[],
+  benchmarks: { id: string; competition_id: string; deleted_at?: string | null }[],
+) {
+  m.batch(() => {
+    for (const r of ergebnisse) {
+      if (!r.deleted_at && r.competition_id === wettkampfId) {
+        m.removeQuiet('gym_results', r.id)
+      }
+    }
+    // Vergleichswerte haengen an diesem Wettkampf und an keinem anderen -
+    // ohne ihn haetten sie keinen Bezug mehr.
+    for (const b of benchmarks) {
+      if (!b.deleted_at && b.competition_id === wettkampfId) {
+        m.removeQuiet('gym_benchmarks', b.id)
+      }
+    }
+    m.remove('gym_competitions', wettkampfId, 'Wettkampf gelöscht')
+  })
+}
 
 /* ============================================================ Übersicht */
 
@@ -273,14 +311,7 @@ function WettkampfDetail({ wettkampf, onZuKueren, onClose }: {
         message="Der Wettkampf und seine Geräteergebnisse wandern in den Papierkorb. Die festgehaltenen Kürfassungen bleiben erhalten – sie gehören zur Geschichte und nicht zu diesem einen Eintrag."
         danger onCancel={() => setLoeschen(false)}
         onConfirm={() => {
-          m.batch(() => {
-            for (const r of data.gymResults) {
-              if (!r.deleted_at && r.competition_id === wettkampf.id) {
-                m.removeQuiet('gym_results', r.id)
-              }
-            }
-            m.remove('gym_competitions', wettkampf.id, 'Wettkampf gelöscht')
-          })
+          loescheWettkampf(m, wettkampf.id, data.gymResults, data.gymBenchmarks)
           setLoeschen(false)
           onClose()
         }} />
@@ -449,6 +480,16 @@ export interface ImportStand {
   quelle: string
   /** Ein Wettkampf, der an diesem Tag schon so heisst. */
   doppelt: GymCompetition | null
+  /**
+   * Der Konkurrenzvergleich, schon gerechnet – aber noch nicht gespeichert.
+   *
+   * Steht in der Vorschau, damit Erik die Plätze VOR dem Bestätigen sieht.
+   * Über die anderen Teilnehmer ist hier nichts mehr enthalten: Was
+   * `ausProtokoll()` nicht überträgt, kommt hier nicht an.
+   */
+  vergleich: VergleichsZeile[]
+  /** Warum es keinen Vergleich gibt, falls es keinen gibt. */
+  keinVergleich: KeinVergleich | null
 }
 
 function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
@@ -562,6 +603,26 @@ function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
         for (const a of plan.aendern) m.patch('gym_results', a.id, a.patch)
         for (const weg of plan.entfernen) m.removeQuiet('gym_results', weg)
       }
+
+      // Vergleichswerte. `null` heisst: Dieses Speichern bringt keine neuen
+      // mit - dann bleiben die vorhandenen stehen und es wird nur
+      // aufgeraeumt, was kein Ergebnis mehr hat. Sonst verloere ein
+      // importierter Wettkampf seine Plaetze, sobald jemand eine Notiz
+      // daran aendert.
+      const aktiveGeraete = fertig
+        .filter((e) => !eingabeIstLeer(e))
+        .map((e) => e.apparatus)
+      const bPlan = planeBenchmarks(
+        id,
+        importStand ? importStand.vergleich : null,
+        aktiveGeraete,
+        data.gymBenchmarks.filter((b) => b.competition_id === id),
+        jetzt)
+      if (!benchmarkPlanIstLeer(bPlan)) {
+        for (const a of bPlan.anlegen) m.create('gym_benchmarks', { id: a.id, ...a.values })
+        for (const a of bPlan.aendern) m.patch('gym_benchmarks', a.id, a.patch)
+        for (const weg of bPlan.entfernen) m.removeQuiet('gym_benchmarks', weg)
+      }
     })
     m.toast(wettkampf ? 'Wettkampf gespeichert' : 'Wettkampf angelegt')
     onClose()
@@ -671,10 +732,7 @@ function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
         message="Der Wettkampf und seine Geräteergebnisse wandern in den Papierkorb. Die festgehaltenen Kürfassungen bleiben erhalten."
         danger onCancel={() => setLoeschen(false)}
         onConfirm={() => {
-          m.batch(() => {
-            for (const r of vorhandene) m.removeQuiet('gym_results', r.id)
-            m.remove('gym_competitions', wettkampf!.id, 'Wettkampf gelöscht')
-          })
+          loescheWettkampf(m, wettkampf!.id, data.gymResults, data.gymBenchmarks)
           setLoeschen(false)
           onClose()
         }} />
@@ -968,6 +1026,53 @@ function ImportBanner({ stand }: { stand: ImportStand }) {
           übernimmt sie deshalb nicht, sondern nennt sie nur.
         </div>
       )}
+
+      <VergleichsVorschau stand={stand} />
+    </div>
+  )
+}
+
+/**
+ * Die Plätze im Teilnehmerfeld, bevor irgendetwas gespeichert ist.
+ *
+ * Erik soll den Vergleich nachvollziehen können, während er noch abbrechen
+ * kann. Gerechnet ist er schon (beim Auswählen des Teilnehmers), gespeichert
+ * wird er erst mit dem Bestätigen – und dann nur als Kennzahl über das Feld.
+ */
+function VergleichsVorschau({ stand }: { stand: ImportStand }) {
+  if (stand.keinVergleich) {
+    return (
+      <div className="hint-box small">
+        <strong>Kein Vergleichsfeld.</strong> {KEIN_VERGLEICH_TEXT[stand.keinVergleich]}
+        {' '}Deine eigenen Werte werden normal übernommen.
+      </div>
+    )
+  }
+  if (!stand.vergleich.length) return null
+
+  const mk = stand.vergleich.find((z) => z.scope === MEHRKAMPF)
+  const geraete = stand.vergleich.filter((z) => z.scope !== MEHRKAMPF)
+  const platz = (r: { rang: number; gleich: number; anzahl: number } | null) =>
+    r ? `${r.rang}.${r.gleich > 1 ? ' geteilt' : ''} von ${r.anzahl}` : '—'
+
+  return (
+    <div className="hint-box small">
+      <strong>
+        Vergleich in {stand.vergleich[0].klasse} · {stand.vergleich[0].feldgroesse} Turner
+      </strong>
+      <ul className="import-liste">
+        {geraete.map((z) => (
+          <li key={z.scope}>
+            {geraetName(z.scope)}: voraussichtlich <strong>{platz(z.final)}</strong>
+            {z.d && ` · D ${platz(z.d)}`}
+            {z.e && ` · E ${platz(z.e)}`}
+          </li>
+        ))}
+        {mk && <li>Mehrkampf: voraussichtlich <strong>{platz(mk.final)}</strong></li>}
+      </ul>
+      Gespeichert werden davon nur die Kennzahlen des Feldes – Grösse, Median,
+      Bestwert – und dein Platz darin. Namen, Jahrgänge und Vereine der anderen
+      Teilnehmer speichert LifeHub <strong>nicht</strong>.
     </div>
   )
 }
@@ -1025,6 +1130,10 @@ function ProtokollImport({ onFertig, onClose }: {
   const nimm = (t: Teilnehmer) => {
     if (!gelesen) return
     const entwurf = wettkampfEntwurf(gelesen.protokoll, t, heute)
+    // Gerechnet wird HIER, aus der noch im Arbeitsspeicher liegenden Liste
+    // aller Teilnehmer. Danach ist sie weg: Gespeichert werden nur die
+    // Kennzahlen des Feldes, nie fremde Zeilen.
+    const v = vergleichFuer(gelesen.protokoll, t)
     onFertig({
       entwurf,
       eingaben: ergebnisEingaben(t),
@@ -1032,6 +1141,8 @@ function ProtokollImport({ onFertig, onClose }: {
       marker: markerListe(t),
       quelle: gelesen.quelle,
       doppelt: schonVorhanden(data.gymCompetitions, entwurf),
+      vergleich: v.zeilen,
+      keinVergleich: v.grund,
     })
   }
 

@@ -139,3 +139,105 @@ describe('Was vor dem Deuten geprüft wird', () => {
     expect(index).toMatch(/zu_viele_seiten/)
   })
 })
+
+/* ==================================================== Vergleichswerte */
+
+/**
+ * Was von fremden Teilnehmern dauerhaft gespeichert wird – nämlich nichts.
+ *
+ * Der Konkurrenzvergleich braucht die anderen Turner, um einen Platz zu
+ * rechnen. Danach dürfen sie nicht übrig bleiben. Dass das so ist, hängt hier
+ * nicht an einer Absicht, sondern am Typ: `VergleichsTeilnehmer` hat kein Feld
+ * für Name, Jahrgang oder Verein, und `gym_benchmarks` hat keine Spalte dafür.
+ */
+describe('Über fremde Teilnehmer bleibt nichts gespeichert', () => {
+  const vergleichTs = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'core', 'turnen', 'vergleich.ts'), 'utf8')
+  const schema = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'db', 'schema.ts'), 'utf8')
+  const serverSql = fs.readFileSync(
+    path.join(__dirname, '..', 'supabase', 'migrations', '0001_init.sql'), 'utf8')
+
+  /** Die Spalten der Vergleichstabelle, aus dem Schema gelesen. */
+  const spalten = (text: string): string[] => {
+    const treffer = text.match(/CREATE TABLE (?:IF NOT EXISTS )?gym_benchmarks \(([^;]*?)\)\s*;/s)
+    expect(treffer, 'gym_benchmarks im Schema').toBeTruthy()
+    return (treffer as RegExpMatchArray)[1]
+      .split(',')
+      .map((z) => z.trim().split(/\s+/)[0])
+      .filter((n) => /^[a-z_]+$/.test(n))
+  }
+
+  const VERBOTEN = [
+    'name', 'first_name', 'last_name', 'surname', 'vorname', 'nachname',
+    'birth_year', 'year_of_birth', 'jahrgang', 'club', 'verein', 'team',
+    'participant', 'teilnehmer', 'gymnast',
+  ]
+
+  it('hat in der Tabelle keine Spalte für Name, Jahrgang oder Verein', () => {
+    for (const quelle of [schema, serverSql]) {
+      for (const spalte of spalten(quelle)) {
+        for (const wort of VERBOTEN) {
+          expect(spalte.includes(wort),
+            `Spalte „${spalte}" enthält „${wort}"`).toBe(false)
+        }
+      }
+    }
+  })
+
+  /**
+   * Die Basisfelder heraus.
+   *
+   * In `schema.ts` steht die Basis als Einsetzung – die Basisspalten sind dort
+   * nicht ausgeschrieben, in `0001_init.sql` schon. Verglichen werden deshalb
+   * die eigenen Spalten; die Basisfelder prüft `schema-parity.test.ts`, und
+   * zwar am wirklich aufgebauten Schema statt am Text.
+   */
+  const BASIS = [
+    'id', 'user_id', 'created_at', 'updated_at', 'deleted_at', 'version',
+    'last_device_id', 'server_rev', '_dirty', '_conflict',
+  ]
+  const eigeneSpalten = (text: string) => spalten(text).filter((s) => !BASIS.includes(s))
+
+  it('führt lokal und auf dem Server dieselben eigenen Spalten', () => {
+    expect(eigeneSpalten(schema).sort()).toEqual(eigeneSpalten(serverSql).sort())
+  })
+
+  it('kennt der Vergleichstyp kein Personenfeld', () => {
+    const typ = vergleichTs.match(
+      /export interface VergleichsTeilnehmer \{([\s\S]*?)\n\}/)
+    expect(typ, 'VergleichsTeilnehmer').toBeTruthy()
+    const rumpf = (typ as RegExpMatchArray)[1]
+    // Kommentare heraus - dort steht erklaerend, was NICHT mitgeht.
+    const felder = rumpf.split(/\r?\n/).filter((z) => !/^\s*(\/\/|\*|\/\*)/.test(z)).join('\n')
+    for (const wort of ['name', 'verein', 'jahrgang', 'club']) {
+      expect(felder.toLowerCase().includes(wort), `Feld ${wort}`).toBe(false)
+    }
+  })
+
+  it('speichert die Vergleichswerte nur als Kennzahl über das Feld', () => {
+    // Genau diese Spalten und keine weiteren: Groesse, Platz, Gleichstand,
+    // Anzahl, Median, Bestwert - je Messgroesse.
+    expect(eigeneSpalten(schema).sort()).toEqual([
+      'cohort_label', 'cohort_size', 'competition_id', 'computed_at',
+      'd_best', 'd_count', 'd_median', 'd_rank', 'd_tie_count',
+      'e_best', 'e_count', 'e_median', 'e_rank', 'e_tie_count',
+      'final_best', 'final_count', 'final_median', 'final_rank', 'final_tie_count',
+      'scope', 'source',
+    ])
+  })
+
+  it('reicht die Vergleichsrechnung nie ganze Protokollteilnehmer durch', () => {
+    // `vergleich.ts` kennt die Protokolltypen NICHT - dort gibt es kein
+    // Objekt, das einen Namen tragen koennte. Eingekocht wird eine Ebene
+    // darueber, in `protokollImport.ts` (ausProtokoll).
+    expect(code(vergleichTs)).not.toMatch(/wettkampf-import/)
+    expect(code(vergleichTs)).not.toMatch(/protokollImport/)
+    // Nur diese beiden Importe, und keiner davon bringt Personendaten mit.
+    const importe = code(vergleichTs).match(/^import .*$/gm) ?? []
+    expect(importe).toEqual([
+      "import { stableId } from '../ids'",
+      "import { GERAETE, istGeraet } from './geraete'",
+    ])
+  })
+})

@@ -429,6 +429,36 @@ try {
     })
 
     fs.rmSync(tmp, { recursive: true, force: true })
+
+    /* ------------------------------------------------------- Analyse */
+
+    // Die Analyse wertet in EINEM Durchgang aus und merkt sich das Ergebnis
+    // (`useMemo`). Gemessen wird deshalb der Wechsel auf den Reiter und danach
+    // das Aufklappen eines Geraets - wuerde je Zeichnen neu gerechnet, faellt
+    // das hier auf.
+    await miss('Navigation → Analyse (mit Vergleichswerten)', async () => {
+      await geh(pc, '/turnen/analyse', 0)
+      await pc.page.waitForSelector('.wk-karte', { timeout: 30000 })
+    })
+
+    // Aufklappen laesst sich nur, wo es Vergleichswerte gibt. Die Analyse
+    // zeigt den JUENGSTEN Wettkampf - im Messlauf ist das der eingesaete ohne
+    // Protokoll, und dort steht bewusst kein Aufklapper.
+    const aufklapper = pc.page.locator('.wk-karte button')
+      .filter({ hasText: /Zahlen und Begründung/ })
+    if (await aufklapper.count()) {
+      await miss('Ein Geraet aufklappen', async () => {
+        await aufklapper.first().click()
+        await pc.page.waitForSelector('.an-tabelle', { timeout: 30000 })
+      })
+    }
+
+    await miss('Zurueck zu den Wettkaempfen und wieder zur Analyse', async () => {
+      await geh(pc, '/turnen/wettkaempfe', 0)
+      await pc.page.waitForSelector('.list-row', { timeout: 30000 })
+      await geh(pc, '/turnen/analyse', 0)
+      await pc.page.waitForSelector('.wk-karte', { timeout: 30000 })
+    })
   }
 
   const fehler = pc.fehler.filter((f) => !/favicon|manifest|Failed to load resource/i.test(f))
