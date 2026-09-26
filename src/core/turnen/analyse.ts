@@ -429,7 +429,12 @@ export interface VerlaufsPunkt {
   rang: number | null
   gleich: number | null
   anzahl: number | null
+  /** Relative Position der ENDNOTE in ihrem Feld. */
   position: number | null
+  /** Relative Position des D-Werts – für „wo hat sich was bewegt". */
+  dPosition: number | null
+  /** Relative Position des E-Werts. */
+  ePosition: number | null
   abstandMedian: number | null
 }
 
@@ -497,6 +502,8 @@ export function geraetVerlauf(
       gleich: b?.final_tie_count ?? null,
       anzahl: b?.final_count ?? null,
       position: positionAus(b?.final_rank, b?.final_tie_count, b?.final_count),
+      dPosition: positionAus(b?.d_rank, b?.d_tie_count, b?.d_count),
+      ePosition: positionAus(b?.e_rank, b?.e_tie_count, b?.e_count),
       abstandMedian: final !== null && b?.final_median !== null && b?.final_median !== undefined
         ? rund(final - b.final_median) : null,
     })

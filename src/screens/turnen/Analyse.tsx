@@ -18,20 +18,38 @@
  * Platz steht die Feldgrösse dabei – „1. von 2" ist eine andere Auskunft als
  * „1. von 20".
  *
- * Die Rechnung liegt vollständig in `core/turnen/analyse.ts` und
- * `core/turnen/vergleich.ts`. Hier wird nur angezeigt.
+ * ---------------------------------------------------------------------------
+ * Trainingsfokus
+ *
+ * Unter der Leistungsanalyse steht, was daraus für das Training folgt
+ * (`core/turnen/trainingsfokus.ts`). Zwei Ebenen, getrennt gehalten: Die
+ * Gerätepriorität kommt aus dem Wettkampf, die inhaltliche Lage aus Kür und
+ * Training. Elemente werden als **Kandidaten** benannt, nie als Punktgewinn,
+ * und ein auffälliges Element ist eine Beobachtung aus dem Training – keine
+ * Ursache der Wettkampfnote.
+ *
+ * Die Rechnung liegt vollständig in `core/turnen/analyse.ts`,
+ * `core/turnen/vergleich.ts` und `core/turnen/trainingsfokus.ts`. Hier wird nur
+ * angezeigt.
  */
 import React, { useMemo, useState } from 'react'
 import { Card, Empty, Collapsible, Segment } from '../../ui/components'
 import { LineChart, ChartFrame } from '../../charts'
 import { useData } from '../../state/store'
-import { formatDay } from '../../core/dates'
+import { formatDay, diffDays, todayString } from '../../core/dates'
 import { GERAETE, geraetName } from '../../core/turnen/geraete'
 import { formatNote, MINDESTPUNKTE_LINIE } from '../../core/turnen/wettkampf'
+import { statusLabel } from '../../core/turnen/status'
+import { schwierigkeitText, schwierigkeitAus } from '../../core/turnen/kueren'
 import {
   FOKUS_LABEL, analyseBild, richtung,
   type Fokus, type GeraetAnalyse, type Messwert, type VerlaufsPunkt,
 } from '../../core/turnen/analyse'
+import {
+  EMPFEHLUNG_LABEL, KEIN_KANDIDAT_TEXT, KUER_AM_STUECK_TEXT, LAGE_LABEL,
+  PRIORITAET_LABEL, STABILITAET_LABEL, trainingsfokus,
+  type ElementLage, type GeraetFokus, type Prioritaet,
+} from '../../core/turnen/trainingsfokus'
 
 /** Ein Platz mit seiner Feldgrösse – nie das eine ohne das andere. */
 function platzText(m: Messwert): string | null {
@@ -131,6 +149,8 @@ export function AnalyseView({ onZuWettkaempfen }: { onZuWettkaempfen: () => void
       {a.hatVergleich && a.hebel.length > 0 && <HebelCard hebel={a.hebel} />}
 
       <VerlaufCard verlauf={bild.verlauf} wettkaempfe={bild.wettkaempfe.length} />
+
+      <TrainingsfokusCard />
     </>
   )
 }
@@ -377,5 +397,242 @@ function VerlaufCard({ verlauf, wettkaempfe }: {
         nichts.
       </div>
     </Card>
+  )
+}
+
+/* ====================================================== Trainingsfokus */
+
+/**
+ * Die Prioritätsmarke.
+ *
+ * Nur „halten" ist grün. „Hoch" bekommt **keine** Warnfarbe: Es ist kein Fehler,
+ * an einem Gerät zu arbeiten, und eine rote Kachel an drei von sechs Geräten
+ * wäre eine Mängelliste statt einer Reihenfolge.
+ */
+function PrioPill({ p }: { p: Prioritaet }) {
+  return (
+    <span className={p === 'halten' ? 'pill good' : 'pill'}>
+      Priorität: {PRIORITAET_LABEL[p]}
+    </span>
+  )
+}
+
+/** Wann zuletzt – und wenn nie, dann das. */
+function zuletztText(l: ElementLage): string {
+  if (l.tageHer === null) return 'nie trainiert'
+  if (l.tageHer === 0) return 'heute trainiert'
+  if (l.tageHer === 1) return 'gestern trainiert'
+  return `vor ${l.tageHer} Tagen`
+}
+
+/** Die Zählerstände eines Elements im Beobachtungsfenster. */
+function zaehlerText(l: ElementLage): string {
+  const f = l.fenster
+  if (!f.versuche) return 'keine Versuche im Fenster'
+  const teile = [`${f.clean} gelungen`]
+  if (f.shaky) teile.push(`${f.shaky} wacklig`)
+  if (f.failed) teile.push(`${f.failed} gestürzt`)
+  if (f.mitHilfe) teile.push(`${f.mitHilfe}× mit Hilfe`)
+  return `${teile.join(' · ')} (${f.versuche} Versuche)`
+}
+
+function TrainingsfokusCard() {
+  const data = useData()
+  const heute = todayString()
+
+  // EIN Durchgang, gemerkt - wie bei der Leistungsanalyse. Gespeichert wird
+  // nichts davon: Der Fokus aendert sich mit jedem Zaehler.
+  const bild = useMemo(() => {
+    const analyse = analyseBild(data.gymCompetitions, data.gymResults, data.gymBenchmarks)
+    return trainingsfokus({
+      analyse: analyse.aktuell,
+      verlauf: analyse.verlauf,
+      elemente: data.gymElements,
+      versuche: data.gymAttempts,
+      einheiten: data.workoutSessions,
+      kueren: data.gymRoutines,
+      kuerVerknuepfungen: data.gymRoutineElements,
+      heute,
+      tagDifferenz: diffDays,
+    })
+  }, [
+    data.gymCompetitions, data.gymResults, data.gymBenchmarks,
+    data.gymElements, data.gymAttempts, data.workoutSessions,
+    data.gymRoutines, data.gymRoutineElements, heute,
+  ])
+
+  const mitAussage = bild.geraete.filter((g) => g.prioritaet !== 'zu_wenig_daten')
+
+  return (
+    <Card title="Trainingsfokus"
+      sub="Was Aufmerksamkeit verdient – und welche erfassten Elemente dafür in Frage kommen">
+
+      <div className="hint-box small">{KUER_AM_STUECK_TEXT}</div>
+
+      {mitAussage.length === 0 ? (
+        <div className="muted small">
+          Für eine Priorität fehlen die Vergleichswerte. Importiere ein
+          Wettkampfprotokoll – dann steht hier je Gerät, wo der Ansatzpunkt liegt.
+        </div>
+      ) : (
+        <div className="wk-liste">
+          {mitAussage.map((g) => <FokusKarte key={g.apparatus} g={g} />)}
+        </div>
+      )}
+
+      <div className="muted small mt8">
+        Die Reihenfolge kommt aus Wettkampffokus, relativer Position und
+        Trainingslage – es gibt <strong>keine</strong> Gesamtnote. Ein auffälliges
+        Element ist eine Beobachtung aus dem Training und keine Ursache deiner
+        Wettkampfnote: Welcher Abzug auf welches Element ging, steht in keinem
+        Protokoll.
+      </div>
+    </Card>
+  )
+}
+
+function FokusKarte({ g }: { g: GeraetFokus }) {
+  const schwierigkeit = useMemo(
+    () => schwierigkeitAus(g.kuerElemente.map((x) => x.element)),
+    [g.kuerElemente],
+  )
+
+  return (
+    <div className="wk-karte">
+      <div className="wk-karte-kopf">
+        <span className="wk-geraet">{g.name}</span>
+        <span style={{ flex: 1 }} />
+        <PrioPill p={g.prioritaet} />
+      </div>
+
+      <div className="tf-zeilen">
+        <div className="tf-zeile">
+          <span className="tf-name">Wettkampf</span>
+          <span className="tf-wert">{FOKUS_LABEL[g.wettkampfFokus]}</span>
+        </div>
+        <div className="tf-zeile">
+          <span className="tf-name">Training</span>
+          <span className="tf-wert">{LAGE_LABEL[g.lage]}</span>
+        </div>
+        <div className="tf-zeile">
+          <span className="tf-name">Empfehlung</span>
+          <span className="tf-wert stark">{EMPFEHLUNG_LABEL[g.empfehlung]}</span>
+        </div>
+      </div>
+
+      {g.kandidaten.length > 0 && (
+        <div className="tf-hinweis">
+          {g.kandidaten.length === 1
+            ? '1 mögliches Element als Kandidat'
+            : `${g.kandidaten.length} mögliche Elemente als Kandidaten`}
+        </div>
+      )}
+
+      <Collapsible label="Einzelheiten">
+        <div className="tf-begruendung">
+          {g.begruendung.map((satz, i) => <p key={i}>{satz}</p>)}
+          {g.verlaufshinweis && <p className="muted">{g.verlaufshinweis}</p>}
+        </div>
+
+        <div className="tf-block">
+          <div className="tf-block-kopf">
+            Aktuelle Kür
+            {g.kuer && <span className="muted small"> · {g.kuer.name}</span>}
+          </div>
+          {!g.kuer ? (
+            <div className="muted small">
+              Keine Wettkampfkür hinterlegt. Ohne sie gibt es keine Elementebene –
+              markiere eine Kür als Wettkampfkür, dann steht hier mehr.
+            </div>
+          ) : g.kuerElemente.length === 0 ? (
+            <div className="muted small">In dieser Kür steht noch kein Element.</div>
+          ) : (
+            <>
+              <div className="muted small mb8">{schwierigkeitText(schwierigkeit)}</div>
+              {g.kuerElemente.map((l) => (
+                <div key={l.element.id} className="tf-element">
+                  <div className="tf-element-kopf">
+                    <span className="tf-platz">{l.platz}.</span>
+                    <span className="tf-element-name">{l.element.name}</span>
+                    <span style={{ flex: 1 }} />
+                    <span className={l.stabilitaet === 'stabil' ? 'pill good' : 'pill'}>
+                      {STABILITAET_LABEL[l.stabilitaet]}
+                    </span>
+                  </div>
+                  <div className="tf-element-zeile">
+                    Status: {statusLabel(l.element.status)} · {zuletztText(l)}
+                  </div>
+                  <div className="tf-element-zeile">{zaehlerText(l)}</div>
+                </div>
+              ))}
+              {g.geloeschtePlaetze.length > 0 && (
+                <div className="tf-element-zeile">
+                  {g.geloeschtePlaetze.length === 1
+                    ? `Platz ${g.geloeschtePlaetze[0]}: Element gelöscht`
+                    : `Plätze ${g.geloeschtePlaetze.join(', ')}: Elemente gelöscht`}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {g.auffaellige.length > 0 && (
+          <div className="tf-block">
+            <div className="tf-block-kopf">Auffällige Elemente</div>
+            {g.auffaellige.map((l) => (
+              <div key={l.element.id} className="tf-element">
+                <div className="tf-element-kopf">
+                  <span className="tf-element-name">{l.element.name}</span>
+                  <span style={{ flex: 1 }} />
+                  <span className="pill">{STABILITAET_LABEL[l.stabilitaet]}</span>
+                </div>
+                <div className="tf-element-zeile">{zaehlerText(l)}</div>
+                <div className="tf-element-zeile">
+                  {l.auffaellig.map((a) => a.text).join(' · ')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="tf-block">
+          <div className="tf-block-kopf">Kandidaten</div>
+          {g.kandidaten.length === 0 ? (
+            <div className="muted small">
+              {g.keineKandidaten ? KEIN_KANDIDAT_TEXT[g.keineKandidaten] : ''}
+            </div>
+          ) : (
+            <>
+              {g.kandidaten.map((l) => (
+                <div key={l.element.id} className="tf-element">
+                  <div className="tf-element-kopf">
+                    <span className="tf-element-name">{l.element.name}</span>
+                    <span style={{ flex: 1 }} />
+                    <span className="pill good">{STABILITAET_LABEL[l.stabilitaet]}</span>
+                  </div>
+                  <div className="tf-element-zeile">
+                    Schwierigkeit {formatNote(l.element.difficulty_value)}
+                    {l.element.difficulty_letter ? ` (${l.element.difficulty_letter})` : ''}
+                    {' · '}Status: {statusLabel(l.element.status)} · {zuletztText(l)}
+                  </div>
+                  <div className="tf-element-zeile">{zaehlerText(l)}</div>
+                  <div className="tf-element-grund">
+                    Steht nicht in der Kür, hat einen höheren Schwierigkeitswert als
+                    das niedrigste Element darin und gelingt im Training zuverlässig.
+                  </div>
+                </div>
+              ))}
+              <div className="muted small mt8">
+                <strong>Als Kandidat prüfen, nicht als Punktgewinn.</strong> Ob ein
+                Element angerechnet wird, hängt an Elementgruppen,
+                Anrechnungsgrenzen und der Wertungsvorschrift – nichts davon steht
+                in LifeHub. Was ein Einbau an D-Wert brächte, sagt LifeHub deshalb
+                nicht.
+              </div>
+            </>
+          )}
+        </div>
+      </Collapsible>
+    </div>
   )
 }

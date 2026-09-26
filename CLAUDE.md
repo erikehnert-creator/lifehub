@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 1.521 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.609 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **1.540**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **1.628**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -295,6 +295,58 @@ Gerangt wird ausschliesslich innerhalb derselben Messgroesse an demselben Geraet
 dasselbe:** der eine steht im Protokoll, der andere ist eine Rechnung von
 LifeHub. Den einen fuer den anderen zu benutzen ist der Fehler, den die getrennte
 Tabelle verhindert.
+
+### Der Trainingsfokus rechnet und speichert NICHTS
+
+Seit dem 26.09.2026 (Phase 2D) leitet LifeHub aus Wettkampf, Kuer und Training
+Trainingsprioritaeten ab (`core/turnen/trainingsfokus.ts`, angezeigt unter der
+Leistungsanalyse im Reiter Analyse). **Es gibt dafuer keine Tabelle und keine
+Migration.** Der Fokus aendert sich mit jedem Zaehler, jeder Statusaenderung,
+jeder Kueraenderung und jedem Wettkampf - eine gespeicherte Empfehlung waere ab
+dem naechsten Training falsch, ohne dass es auffaellt.
+
+**Zwei Ebenen, getrennt gehalten:** Die Geraetepriorität kommt allein aus dem
+Wettkampf (Fokus aus 2C, relative Position, Abstand zum Feld), die inhaltliche
+Lage allein aus Kuer und Training. Zusammengefuehrt werden sie in einer
+ausgeschriebenen Tabelle (`empfehlungAus`), nicht in einem Zahlenwert. Es gibt
+keine Gesamtnote.
+
+**Die Stabilitaetsstufen sind eine ABBILDUNG von `statusVorschlag()`** aus
+`sicherheit.ts` - keine zweite Rechnung:
+
+    kein Vorschlag (< 10 Versuche)  -> zu_wenig_daten
+    sicher                          -> stabil
+    unsicher                        -> gemischt
+    aufbau                          -> instabil
+
+Damit gelten dort automatisch die vorhandenen Schwellen: Fenster 56 Tage,
+mindestens 10 Versuche, 0,9 / 0,6, und Hilfestellung deckelt. Wer eine Schwelle
+aendern will, aendert sie in `sicherheit.ts` - nicht daneben.
+
+**Der gesetzte Status zaehlt nicht gegen die eigenen Zahlen.** Beim Anlegen steht
+jedes Element auf "neu". Hat es danach 24 von 24 Versuchen sauber, ist "neu" ein
+nicht nachgezogener Eintrag und kein Trainingsproblem. Genau das war zuerst
+falsch: Die Kuer galt als instabil, obwohl nichts wackelte, weil dieselbe
+Tatsache zweimal gezaehlt wurde. `turnen-trainingsfokus-e2e` hat es gefunden.
+
+**Was LifeHub NICHT weiss: ob eine Kuer am Stueck geturnt wurde.**
+`gym_attempts` zaehlt Versuche je ELEMENT je Einheit; dass sie eine
+zusammenhaengende Kuer waren, steht nirgends und laesst sich nicht ableiten.
+Deshalb behauptet das Modul nirgends, eine Kuer sei "sicher" oder
+"durchturnfaehig" - beurteilt werden die Elemente einzeln, und die Oberflaeche
+sagt das mit. Wollte man es wissen, braeuchte es eine eigene Erfassung fuer
+Durchgaenge; das ist eine eigene Phase.
+
+**Kein Element verursacht einen Abzug.** Das Protokoll weist Abzuege nicht je
+Element aus. Ein auffaelliges Element ist eine BEOBACHTUNG aus dem Training,
+keine Ursache der Wettkampfnote - und ein Kandidat ist ein Kandidat, kein
+Punktgewinn: Elementgruppen und Anrechnungsgrenzen stehen nicht in LifeHub.
+`turnen-trainingsfokus.test.ts` haelt beides am Wortlaut fest.
+
+```
+node tests/turnen-trainingsfokus-e2e.mjs   # Import -> Kuer -> Training ->
+                                           # der Fokus aendert sich nachvollziehbar
+```
 
 ## FatSecret laeuft von selbst
 

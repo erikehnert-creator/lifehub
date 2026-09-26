@@ -588,6 +588,16 @@ Kennzahlen · von fremden Teilnehmern bleibt **nichts** gespeichert.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 16.
 
+### Phase 2D — Trainingsprioritäten und Turnempfehlungen *(umgesetzt am 26.09.2026, keine Migration)*
+
+`core/turnen/trainingsfokus.ts` · Bereich „Trainingsfokus" unter der
+Leistungsanalyse im Reiter Analyse · Gerätepriorität aus dem Wettkampf,
+inhaltliche Lage aus Kür und Training, beides getrennt gehalten · Elemente als
+**Kandidaten**, nie als Punktgewinn · Stabilität als Abbildung der vorhandenen
+Statuslogik, keine zweite Wahrheit · nichts davon gespeichert.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 17.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -1987,3 +1997,306 @@ jedem Versuch, während in der Oberfläche nichts kaputt aussieht.
 
 Die Edge Function ist **unverändert**: Sie liefert schon immer alle Teilnehmer.
 Es ist kein `supabase functions deploy` nötig.
+
+---
+
+## 17. Phase 2D: Trainingsprioritäten und Turnempfehlungen
+
+Umgesetzt am 26.09.2026. **Keine neue Tabelle, keine Migration, keine Änderung
+an der Edge Function.** Alles wird gerechnet.
+
+### 17.1 Zwei Ebenen, die nicht vermischt werden
+
+| | Frage | Grundlage |
+|---|---|---|
+| **Gerätepriorität** | Welches Gerät verdient mehr Aufmerksamkeit? | allein der Wettkampf: Fokus aus 2C, relative Position, Abstand zum Feld |
+| **Inhaltliche Lage** | Was an diesem Gerät konkret? | allein das Training: Kür, Elementstatus, Versuche |
+
+Die eine sagt **wo**, die andere **was**. Zusammengeführt werden sie erst am
+Schluss, in einer Tabelle, die ausgeschrieben im Code steht (`empfehlungAus`).
+Ein gemeinsamer Zahlenwert über beide wäre genau die Blackbox, die hier nicht
+entstehen soll – es gibt **keine Gesamtnote von 0 bis 100**.
+
+### 17.2 Trainingsstabilität: eine Abbildung, keine zweite Wahrheit
+
+Die vier Stufen kommen **vollständig** aus `statusVorschlag()` in
+`sicherheit.ts`, das seit Phase 1 dieselben Schwellen benutzt:
+
+| `statusVorschlag()` | hier |
+|---|---|
+| kein Vorschlag (< 10 Versuche im Fenster) | `zu_wenig_daten` |
+| `sicher` (≥ 90 % gelungen, kein Sturz, keine Hilfe) | `stabil` |
+| `unsicher` (≥ 60 %, oder Hilfe im Spiel) | `gemischt` |
+| `aufbau` (< 60 %) | `instabil` |
+
+Damit gilt hier automatisch, was dort gilt:
+
+- **Die Stichprobengrösse zählt.** Ein Element mit 1 von 1 gelungen ist
+  `zu_wenig_daten` und damit nie „stabiler" als eines mit 18 von 20.
+- **Hilfestellung deckelt.** Wer im Fenster auch nur einmal mit Hilfe geturnt
+  hat, kommt nicht über `gemischt`.
+
+Kein neuer Schwellenwert, keine zweite Rechnung. Wer die Schwellen ändern will,
+ändert sie an der einen Stelle, an der sie stehen.
+
+### 17.3 Zeitfenster: die vorhandenen
+
+| Grösse | Wert | woher |
+|---|---|---|
+| Beobachtungsfenster für Versuche | **56 Tage (8 Wochen)** | `SCHWELLEN.fensterTage` |
+| „lange nicht trainiert" | **28 Tage** | `KUER_SCHWELLEN.langeHerTage` |
+| Mindestzahl Versuche für eine Aussage | **10** | `SCHWELLEN.mindestVersuche` |
+
+Beide Zeitgrössen gab es schon, und beide bleiben, wie sie waren. Eine zweite,
+abweichende Zeitlogik gibt es ausdrücklich nicht. Angezeigt wird zusätzlich
+immer, wann zuletzt trainiert wurde – „vor 12 Tagen", „nie trainiert".
+
+### 17.4 Auffälligkeit eines Elements
+
+Ein Element der Kür fällt auf, wenn eines davon zutrifft, und die Reihenfolge
+ist die Dringlichkeit:
+
+```
+gelöscht → archiviert (steht aber in der Kür) → instabil → mit Hilfe
+→ gemischt → nie trainiert → seit 28+ Tagen nicht → Status aufbau/unsicher/neu
+```
+
+**Der gesetzte Status zählt nicht gegen die eigenen Zahlen.** Er kommt vom
+Turner und weiss Dinge, die keine Zählung hergibt; wo die Datenlage nichts sagt,
+ist er die einzige Auskunft. Steht ein Element im Fenster aber nachweislich
+`stabil`, dann ist ein Status „neu" oder „unsicher" ein **nicht nachgezogener
+Eintrag** und kein Trainingsproblem.
+
+> Das war beim ersten Versuch anders, und `turnen-trainingsfokus-e2e` hat es
+> gefunden: Beim Anlegen steht jedes Element auf „neu". Nach zwei Einheiten mit
+> 24 von 24 sauberen Versuchen galt die Kür trotzdem als **instabil**, weil
+> beide Elemente noch „neu" hiessen – dieselbe Tatsache wurde zweimal gezählt,
+> und die Empfehlung kippte auf „erst stabilisieren", wo nichts wackelte. Für
+> genau diesen Abgleich gibt es `vorschlagAbweichend()` in `sicherheit.ts`; die
+> Elementliste zeigt dort den abweichenden Vorschlag an.
+
+### 17.5 Die Lage der Kür
+
+| Lage | wann |
+|---|---|
+| `keine_kuer` | keine aktive Wettkampfkür am Gerät |
+| `zu_wenig_daten` | zu keinem Element der Kür gibt es eine Aussage |
+| `stabil` | kein auffälliges Element |
+| `gemischt` | genau **ein** auffälliges Element |
+| `instabil` | **mehrere** auffällige Elemente (`MEHRERE` = 2) |
+
+„Mehrere" heisst zwei – die Schwelle, an der aus einem Einzelfall ein Zustand
+der Kür wird. Eine Verabredung wie alle Schwellen hier, keine Messung.
+
+### 17.6 Die Empfehlung – als Tabelle
+
+| 2C-Fokus | Trainingslage | Empfehlung |
+|---|---|---|
+| `zu_wenig_daten` | – | `zu_wenig_daten` |
+| `schwierigkeit` | `instabil` | **`stabilisieren`** |
+| `schwierigkeit` | sonst | `schwierigkeit_pruefen` |
+| `ausfuehrung` | – | `technik_stabilitaet` |
+| `beides` | `instabil` **oder** `gemischt` | **`stabilisieren`** |
+| `beides` | sonst | `schwierigkeit_pruefen` |
+| `halten` | ein auffälliges Element oder mehr | `wartung` |
+| `halten` | sonst | `halten` |
+
+Die drei Zeilen, auf die es ankommt:
+
+**Schwierigkeit bei instabiler Kür ergibt Stabilisieren, nicht mehr
+Schwierigkeit.** Ein schweres Element, das schon in der Kür steht und dort
+wackelt, ist ein Grund weniger für ein noch schwereres.
+
+**`beides` sucht nicht pauschal Schwierigkeit.** Schon ein einzelnes auffälliges
+Element genügt, um zuerst auf Stabilität zu gehen – bei `beides` ist die
+Ausführung ja ohnehin unter dem Feld. Die Schwelle ist hier absichtlich strenger
+als bei `schwierigkeit`.
+
+**Aus `halten` wird nie ein Problemgerät.** Es wird höchstens `wartung` –
+„halten, einzelne Elemente auffrischen". Aus einem starken Gerät macht LifeHub
+keinen Mängelfall.
+
+### 17.7 Gerätepriorität
+
+| Priorität | wann |
+|---|---|
+| `zu_wenig_daten` | kein Vergleichsfeld |
+| `hoch` | `beides`; oder eine Seite unter dem Feld **und** die Endnote unter der Feldmitte; oder eine Seite unter dem Feld **und** die Kür instabil |
+| `mittel` | eine Seite unter dem Feld, aber die Endnote trägt noch |
+| `halten` | nichts unter dem Feld |
+
+Die **Endnote** entscheidet mit, weil sie sagt, ob die schwächere Seite bereits
+Plätze kostet: Eine niedrige Schwierigkeit neben einer sehr guten Ausführung kann
+im Feld trotzdem vorn landen – dann ist es kein dringender Fall.
+
+Die **Kür** entscheidet mit, weil eine wackelnde Kür den Wettkampfbefund
+bestätigt. Aus einem `halten`-Gerät macht sie dagegen nichts Dringendes.
+
+Sortiert wird nach Priorität, darin nach der relativen Endnotenposition
+(schwächste zuerst), darin nach Wettkampfreihenfolge. Kein Punktwert.
+
+### 17.8 Kandidaten: vorhandene Elemente, nichts Erfundenes
+
+Ein Element kommt in die Kandidatenliste, wenn **alle vier** Bedingungen
+zutreffen:
+
+1. Es gehört zu diesem Gerät, ist erfasst und **nicht archiviert**.
+2. Es steht **nicht** in der aktuellen Wettkampfkür.
+3. Sein Schwierigkeitswert ist **höher als der niedrigste** Wert in der Kür –
+   das ist der Platz, den es überhaupt einnehmen könnte. „Höher als irgendetwas"
+   wäre keine Aussage.
+4. Es steht im Training **`stabil`** – und damit ohne Hilfe und mit genug
+   Versuchen, weil die Abbildung aus 17.2 das mitbringt.
+
+Gibt es keine, steht **warum** da: keine Kür, kein Schwierigkeitswert in der Kür,
+keine schwierigeren erfasst, oder schwierigere erfasst aber nicht stabil.
+
+> **Was LifeHub hier nicht weiss und deshalb nicht sagt:** Elementgruppen,
+> Anrechnungsgrenzen, Verbindungen, die Wertungsvorschrift des Zyklus. Nichts
+> davon steht in LifeHub. Deshalb heisst es **„als Kandidat prüfen"** und
+> nirgends „einbauen bringt 0,3". Der Satz steht auch in der Oberfläche unter der
+> Liste.
+
+### 17.9 Kein Element verursacht einen Abzug
+
+Das Protokoll weist Abzüge **nicht je Element** aus. Welcher Kampfrichterabzug
+auf welches Element ging, weiss LifeHub nicht und kann es nicht wissen.
+
+Deshalb steht nirgends „Element X kostet dich 0,5" oder „wegen Y war deine
+E-Note schlecht". Was dasteht, ist:
+
+> Im Training fällt „Felge vorwärts" auf: erst 40 % gelungen (30 Versuche),
+> 4× gestürzt. Das ist eine Beobachtung aus dem Training, keine Ursache der
+> Wettkampfnote.
+
+Der zweite Satz ist Teil der erzeugten Begründung und wird von
+`turnen-trainingsfokus.test.ts` am Wortlaut festgehalten – zusammen mit der
+Prüfung, dass die Wörter „verursacht", „kostet" und „wegen" darin nicht
+vorkommen.
+
+### 17.10 Begründungen: ein bis drei Datenpunkte
+
+Immer dieselbe Reihenfolge, und nur aus vorhandenen Daten:
+
+1. **Wettkampf** – die Begründung aus Phase 2C, mit den echten Plätzen.
+2. **Training** – die Quote der Kürelemente im Fenster, mit Basis: „In den
+   letzten 8 Wochen waren 100 % der 24 erfassten Versuche an Elementen dieser
+   Kür gelungen." Unter zehn Versuchen steht dort stattdessen, dass die
+   Trainingsbasis fehlt.
+3. **Auffälligstes Element** – mit seinen Zahlen, plus dem Satz aus 17.9.
+
+Fehlt eine Ebene, fehlt ihr Satz. Erfunden wird keiner.
+
+### 17.11 Was LifeHub NICHT erkennen kann: die Kür am Stück
+
+`gym_attempts` zählt Versuche je **Element** je Einheit. Dass diese Versuche eine
+zusammenhängende Kür waren – erst Element 1, dann 2, ohne Absetzen – steht
+nirgends, und es lässt sich auch nicht ableiten: Zehn saubere Einzelversuche an
+acht Elementen sind etwas anderes als eine durchgeturnte Kür, und genau dieser
+Unterschied ist im Turnen der entscheidende.
+
+Deshalb behauptet dieses Modul **nirgends**, eine Kür sei „sicher" oder
+„durchturnfähig". `TrainingsLage` beschreibt ausdrücklich nur die **Elemente**
+der Kür, einzeln betrachtet, und die Oberfläche sagt das mit:
+
+> Beurteilt werden die Elemente der Kür einzeln. Ob du die Kür am Stück
+> durchgeturnt hast, erfasst LifeHub nicht – und leitet es auch nicht aus
+> Einzelversuchen ab.
+
+**Als Folgeschritt denkbar**, ausdrücklich nicht Teil dieser Phase: eine kleine
+eigene Erfassung für Durchgänge – Datum, Kürfassung, Ergebnis, vielleicht Stürze
+und Absetzen. Das wäre eine Tabelle, ein Erfassungsweg und eine eigene Phase.
+Ohne sie bleibt die Aussage auf der Elementebene, und das ist ehrlicher als eine
+geratene.
+
+### 17.12 Mehrere Wettkämpfe
+
+Der **jüngste** Wettkampf ist die Momentaufnahme, aus der die Empfehlung kommt
+(er ist es schon in `analyseBild`). Die älteren geben nur Zusammenhang.
+
+**Nicht gewichtet gemittelt.** Plätze aus verschieden grossen Feldern zu
+verrechnen ergäbe eine Zahl, die nichts bedeutet (16.9). Genannt wird eine
+Richtung nur, wenn `richtung()` sie trägt – bei durchgehend steigenden oder
+fallenden Werten und erst ab drei. Genannt wird dabei die **Seite**, die sich
+bewegt hat, weil das die brauchbarere Auskunft ist:
+
+> Deine Position bei der Ausführung lag über die letzten 3 Wettkämpfe
+> durchgehend niedriger.
+
+Und **keine Ursache**: „weil du weniger trainiert hast" wäre eine Behauptung, für
+die es keine Grundlage gibt (6.2).
+
+### 17.13 Nichts davon wird gespeichert
+
+Der Trainingsfokus ändert sich mit jedem Training, jeder Statusänderung, jeder
+Küränderung und jedem Wettkampf. Eine gespeicherte Empfehlung wäre ab dem
+nächsten Zähler falsch, ohne dass es jemand bemerkt – dieselbe Überlegung wie bei
+„zuletzt trainiert" (2.3).
+
+**Es gibt deshalb keine Tabelle zu dieser Phase und keine Migration.** Der
+E2E prüft das mit: Nach dem Abgleich darf keine Tabelle mit „fokus",
+„empfehlung" oder „prioritaet" im Namen entstanden sein.
+
+### 17.14 Oberfläche
+
+Kein siebter Reiter. Der Trainingsfokus steht **unter** der Leistungsanalyse im
+Reiter Analyse – er beantwortet die Folgefrage zu denselben Daten.
+
+Je Gerät eine Kachel: Priorität als Marke, darunter drei Zeilen (Wettkampf,
+Training, Empfehlung), die Zahl der Kandidaten, und aufklappbar die
+Einzelheiten – Begründung, Verlaufshinweis, aktuelle Kür mit Status und
+Zählerständen je Element, auffällige Elemente, Kandidaten.
+
+Farben bleiben sparsam: Grün nur für „halten" und „stabil". **`hoch` bekommt
+keine Warnfarbe** – es ist kein Fehler, an einem Gerät zu arbeiten, und rote
+Kacheln an drei von sechs Geräten wären eine Mängelliste statt einer
+Reihenfolge. Keine Emojis. Bei 390 px nachgemessen, dunkler Modus geprüft.
+
+### 17.15 Gemessen
+
+| | |
+|---|---|
+| `trainingsfokus()` bei 100 Wettkämpfen, 600 Ergebnissen, 700 Vergleichswerten, 100 Elementen, 4.000 Versuchen | **7,1 ms** |
+| `analyseBild()` allein (aus 16.13) | 1,0 ms |
+| `loadAll()` bei 44.002 Zeilen | unverändert |
+
+Jedes Element wird **einmal** ausgewertet, nicht je Gerät erneut: `elementBild()`
+läuft über alle Versuchsblöcke, und das je Element statt je Gerät und Element zu
+tun wäre der Unterschied zwischen einem Durchgang und sechshundert. Die
+Oberfläche merkt sich das Ergebnis (`useMemo`).
+
+Keine neue Tabelle heisst auch: **kein zusätzlicher Ladevorgang und keine
+`loadAll()`-Regression.** Gelesen wird, was der Reiter Analyse ohnehin hat.
+
+### 17.16 Was diese Phase ausdrücklich NICHT tut
+
+- kein automatischer Wochenplan, keine Trainingstage, keine Trainingsdauer
+- keine Aufgaben erzeugen, keine Trainingspläne ändern
+- keine Schichtplanintegration (das ist Phase 5)
+- kein KI-Chattrainer
+- keine Kausalitätsanalyse, keine Vorhersage
+- keine Elemente erfinden, keine Wertungsregeln nachbauen
+
+Phase 2D endet bei: **„Was verdient Aufmerksamkeit, und welche vorhandenen
+Elemente sind dafür plausible Trainingskandidaten?"**
+
+### 17.17 Grenzen
+
+- **Die Kür am Stück bleibt unbekannt** (17.11). Das ist die wichtigste Grenze.
+- **Keine Wertungsregeln.** Elementgruppen und Anrechnungsgrenzen stehen nicht in
+  LifeHub; Kandidaten sind deshalb Kandidaten (17.8).
+- **Ein Feld ist eine Momentaufnahme.** Die Priorität hängt am jüngsten
+  Wettkampf; ein anderes Teilnehmerfeld ergäbe eine andere.
+- **Elementgruppe ist erfasst, wird aber nicht gerechnet.**
+  `gym_elements.element_group` steht in der Datenbank und wird angezeigt, geht
+  aber in keine Regel ein – ohne die Anrechnungsvorschrift wäre jede Regel
+  darüber geraten.
+- **Kein Abgangsbezug.** `is_dismount` bleibt unberücksichtigt: Ob ein Abgang
+  gegen einen anderen austauschbar ist, entscheidet die Vorschrift, nicht eine
+  Zählung.
+
+### 17.18 Einspielen
+
+**Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
+`supabase functions deploy`. Das Datenmodell ist unverändert; Phase 2D rechnet
+ausschliesslich auf dem, was seit 2A bis 2C schon dasteht.
