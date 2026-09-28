@@ -609,6 +609,16 @@ Kür instabil" von „Elemente instabil" unterscheiden.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 18.
 
+### Phase 3A — Trainingsplanung *(umgesetzt am 28.09.2026, keine Migration)*
+
+`core/turnen/trainingsplanung.ts` · `screens/turnen/NaechstesTraining.tsx` als
+Block auf der Turnübersicht · **keine Tabelle, keine Schemaänderung** · ordnet
+den Trainingsfokus aus 2D in die Frage „was turne ich heute?" um: Geräte nach
+Priorität mit einem Wartungsplatz, je Gerät drei Arten von Inhalt, jede Zeile
+begründet · der Nutzer darf abwählen, umstellen, entfernen und dazunehmen.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 19.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -2607,3 +2617,281 @@ Supabase-Projekts laufen – sonst scheitert der Abgleich für `gym_routine_runs
 bei jedem Versuch, während in der Oberfläche nichts kaputt aussieht.
 
 Die Edge Function ist **unverändert**: kein `supabase functions deploy` nötig.
+
+---
+
+## 19. Phase 3A: Trainingsplanung
+
+Umgesetzt am 28.09.2026. **Keine Tabelle, keine Migration, keine Änderung an der
+Edge Function.** Phase 3A rechnet ausschliesslich auf dem, was seit 1 bis 2E
+schon dasteht.
+
+### 19.1 Die Frage, die diese Phase beantwortet
+
+> „Wenn ich heute turnen gehe: Was sollte ich sinnvollerweise trainieren?"
+
+Alles dafür Nötige lag bereits vor – Gerätepriorität (2D), D-/E-Fokus (2C),
+Elementstabilität (1), Kürstabilität (2E), letzte Trainingszeitpunkte, aktive
+Wettkampfkür, mögliche schwierigere Elemente. Es fehlte nur die Umsortierung:
+Der Trainingsfokus ist nach **Gerät** gebaut, um zu erklären, wo etwas
+liegenbleibt. Ein Trainingsvorschlag ist nach **Einheit** gebaut.
+
+### 19.2 Eine Umsortierung, keine neue Wahrheit
+
+Das Modul rechnet nichts neu. Es hat
+
+- **keine eigene Stabilitätsschwelle** – Elementlage und Kürlage kommen fertig
+  aus 2D und 2E,
+- **keine zweite Zeitlogik** – der Wartungsplatz benutzt dieselben 28 Tage wie
+  `KUER_SCHWELLEN.langeHerTage`, das Fenster dieselben 56 Tage,
+- **keine Punktzahl über Geräte** – die Auswahl ist eine sortierte Liste.
+
+Neu sind ausschliesslich Auswahl- und Reihenfolgeregeln, und die stehen
+ausgeschrieben da (`PLAN_SCHWELLEN`, `waehleGeraete`, `reihenfolgeArtFuer`).
+
+### 19.3 Geräteauswahl
+
+Die folgenden drei Zahlen sind eine **Produktheuristik, keine
+trainingswissenschaftlich optimale Verteilung.** Es gibt keine Untersuchung, die
+sagt, dass drei Geräte je Einheit richtig sind oder dass eine Stärke nach genau
+28 Tagen wieder an die Reihe muss – das hängt am Turner, am Trainingsstand und
+an der Woche. Sie sind bewusst rund gewählt und stehen an einer Stelle
+(`PLAN_SCHWELLEN`), damit sie sich an einer Stelle ändern lassen. Dieselbe
+Zurückhaltung wie bei `SCHWELLEN` (1) und `DURCHGANG_SCHWELLEN` (18.6).
+
+```
+maxGeraete      3     ein Vorschlag über sechs Geräte ist eine Geräteliste
+maxSchwerpunkte 2     drei Schwerpunkte sind keine Schwerpunkte mehr
+wartungTage     28    dieselbe Frist wie bei den Kürelementen
+```
+
+Die Reihe entsteht aus drei Schlüsseln, in dieser Ordnung:
+
+1. **Priorität** aus Phase 2D (`hoch`, `mittel`, `halten`, `zu_wenig_daten`)
+2. **am längsten nicht trainiert** – nie trainiert zuerst
+3. **Wettkampfreihenfolge**
+
+Der zweite Schlüssel ist der Grund, warum kein Gerät wochenlang verschwindet:
+Bei gleicher Priorität kommt das dran, das länger liegt.
+
+**Der Wartungsplatz.** Nur Geräte ohne Wettkampfbefund (`halten`,
+`zu_wenig_daten`) kommen dafür in Frage – ein `hoch`- oder `mittel`-Gerät wird
+ohnehin normal gewählt, und es „Wartung" zu nennen wäre eine Untertreibung.
+Wurde so ein Gerät seit mindestens 28 Tagen nicht angefasst, bekommt es den
+letzten Platz und verdrängt dabei höchstens einen Nebenfokus, **nie** einen
+Schwerpunkt. Ist ein Platz sowieso frei, wird er auch mit einer frisch
+trainierten Stärke gefüllt – ein leerer Platz wäre schlechter als eine kurze
+Wartung.
+
+Ein Gerät ohne jeden Inhalt erscheint nicht. Es stünde als leere Überschrift da.
+
+### 19.4 Drei Arten von Inhalt
+
+| Art | woraus | Formulierung |
+|---|---|---|
+| `element` | auffällige Kürelemente aus 2D, das dringendste zuerst | „stabilisieren", „festigen", „auffrischen" |
+| `entwicklung` | ein Kandidat aus 2D, der schwierigste | **„als Kandidaten prüfen"** |
+| `durchgang` | die Kürstabilität aus 2E | „1–2 vollständige Kürdurchgänge" |
+
+**Elementarbeit nur mit Trainingsdaten.** Ohne einen einzigen erfassten Versuch
+fällt jedes Kürelement automatisch als „nie trainiert" auf. Daraus eine Liste
+konkreter Elementempfehlungen zu bauen sähe nach Auskunft aus, wäre aber nur
+die Feststellung, dass noch nichts erfasst ist. Die steht deshalb als Hinweis
+daneben, nicht als Übung im Plan – ein Kürdurchgang dagegen ist möglich, denn
+er ist keine Elementempfehlung.
+
+**Entwicklungsarbeit nur bei `schwierigkeit_pruefen`.** Die Bedingung ist die
+Empfehlung aus 2D und keine eigene Regel: Dort heisst sie genau, dass Kür und
+Elemente tragen und der Wettkampf die Schwierigkeit als schwächere Seite
+ausweist. Bei `stabilisieren` oder `kuer_unter_belastung` wäre ein schwereres
+Element der falsche Ort.
+
+**Genau ein Kandidat**, nicht drei. „Als Kandidat prüfen" ist eine Sache.
+
+### 19.5 Keine erfundenen Mengen
+
+Der Umfang ist eine von drei Kategorien – `kurz`, `normal`, `schwerpunkt`.
+„Element X exakt siebenmal" wäre eine Genauigkeit, für die es keine Grundlage
+gibt.
+
+Die einzige Zahl steht am Kürdurchgang, und sie ist eine Spanne von höchstens
+zwei (`DURCHGANGS_VORGABE`): 1–2, wenn die Kür der Schwerpunkt ist, sonst 1.
+Mehr vorzuschlagen wäre eine Belastungsaussage, und Belastungssteuerung kann
+LifeHub nicht.
+
+### 19.6 Reihenfolge innerhalb eines Geräts
+
+| Art | wann | Ordnung |
+|---|---|---|
+| `elemente_zuerst` | Normalfall | Element → Entwicklung → Durchgang |
+| `kuer_zuerst` | `kuer_unter_belastung` | Durchgang → Element → Entwicklung |
+| `entwicklung_zuerst` | `schwierigkeit_pruefen` bei stabiler Kür | Entwicklung → Element → Durchgang |
+
+Bewusst **nicht** überall dieselbe: Stehen die Einzelelemente und die Kür nicht,
+ist die ganze Übung der Ort – genau die Unterscheidung, die erst Phase 2E
+möglich gemacht hat.
+
+**Keine physiologische Reihenfolge.** „Ringe immer zuerst" oder „Sprung nie nach
+Barren" wären Erfahrungsregeln, zu denen in LifeHub keine Daten stehen. Die
+Gerätereihenfolge kommt aus Priorität und Wettkampfreihenfolge, und der Nutzer
+darf sie umstellen.
+
+### 19.7 Keine Zeitplanung – auch keine grobe
+
+Es gibt **keine Trainingsdauer, keine Minuten je Gerät und keinen
+Verteilungsschlüssel.** Wie viel Raum etwas bekommen soll, sagt allein der
+`Umfang`:
+
+```
+Barren          Schwerpunkt
+Reck            Schwerpunkt
+Pauschenpferd   kurz (Wartung)
+```
+
+Das ist nachvollziehbar und behauptet keine Zeitverteilung. „90 Minuten → 40 /
+40 / 10" sieht dagegen nach einer Rechnung aus, hinter der keine steht: Wie
+lange ein Element braucht, weiss LifeHub nicht, und eine Verteilung nach Rolle
+wäre eine erfundene Genauigkeit.
+
+> **Das war kurzzeitig anders.** Eine Dauereingabe mit Verteilung nach Rolle war
+> gebaut und wurde vor dem Commit wieder entfernt – sie überschritt die
+> Scope-Grenze dieser Phase (19.16). `turnen-trainingsplanung.test.ts` prüft am
+> Quelltext, dass keine Minutenrechnung zurückkommt.
+
+Zeit gehört zu einer späteren Phase, zusammen mit Kalender und Schichtplan.
+
+### 19.8 Der Plan ist ein Vorschlag
+
+Der Nutzer darf ein Gerät abwählen, die Reihenfolge ändern, einen einzelnen
+Inhalt entfernen und ein weiteres Gerät dazunehmen. Alles davon geht durch
+`planMitAuswahl()` – eine reine Funktion, damit sich die Fälle einzeln
+nachrechnen lassen, statt sie durch die Oberfläche klicken zu müssen.
+
+Deshalb rechnet `trainingsplanung()` die Inhalte **aller sechs** Geräte, auch
+der nicht vorgeschlagenen: Ein nachträglich hinzugewähltes Gerät hat damit
+sofort etwas anzuzeigen, ohne zweite Rechnung.
+
+Ein Gerät, dessen Inhalte alle entfernt wurden, bleibt stehen – der Nutzer hat
+es ja gewählt.
+
+### 19.9 Nichts wird gespeichert
+
+**Keine Tabelle, kein Feld, keine Einstellung.** Der Vorschlag ändert sich mit
+jedem Zähler, jedem Durchgang, jeder Küränderung und jedem Wettkampf; ein
+gespeicherter Plan wäre ab dem nächsten Training falsch, ohne dass es auffällt.
+Dieselbe Überlegung wie bei „zuletzt trainiert" (2.3) und beim Trainingsfokus
+(17.1).
+
+Auch die Wahl des Nutzers wird nicht gespeichert und nicht synchronisiert: Sie
+ist eine Ansicht auf den Vorschlag. Am Handy steht deshalb wieder der volle
+Vorschlag, auch wenn am PC eben ein Gerät abgewählt wurde – `turnen-trainings-
+planung-e2e` prüft genau das.
+
+Erfasst wird hinterher mit dem **vorhandenen** Weg: Elementversuche als
+`gym_attempts`, Kürdurchgänge als `gym_routine_runs`. Es gibt keine zweite
+Trainingserfassung und keinen „Plan erledigt"-Zustand.
+
+### 19.10 Wenig Daten
+
+| Lage | was der Plan sagt |
+|---|---|
+| kein Element angelegt | „Lege zuerst die Elemente an" |
+| Wettkampfdaten fehlen | Vorschlag allein aus dem Training, mit Hinweis |
+| Trainingsdaten fehlen | keine Elementempfehlung, aber ein Durchgang – plus Hinweis |
+| praktisch alles fehlt | „Noch zu wenig Daten für einen priorisierten Trainingsvorschlag", dazu die freie Erfassung |
+
+Die Unterscheidung der ersten und letzten Zeile zählt: Ohne Elemente ist der
+nächste Schritt „Elemente anlegen", ohne Daten „einmal trainieren und
+erfassen". Beides ist etwas anderes als eine leere Liste.
+
+### 19.11 Datenstandshinweise sind keine Übungen
+
+Ein archiviertes Element in der Kür oder ein Kürplatz, dessen Element gelöscht
+wurde, ist ein nicht nachgezogener Eintrag und kein Trainingsproblem. Es als
+Übung vorzuschlagen wäre falsch, es zu verschweigen auch – es steht deshalb als
+`hinweise` neben den Inhalten.
+
+### 19.12 Mehrere Wettkämpfe und Kürfassungen
+
+**Mehrere Wettkämpfe** sind schon in 2C geklärt und werden hier nicht neu
+gewichtet: Der jüngste aussagekräftige Wettkampf trägt den Fokus
+(`analyse.aktuell`), frühere stehen nur als Verlauf daneben
+(`verlaufshinweis`). Widerspricht ein älterer dem neuen, gilt der neue – eine
+Gewichtungsformel über mehrere Wettkämpfe gibt es nirgends.
+
+**Kürfassung:**
+
+Die Phase-2E-Logik gilt unverändert weiter: Nach einer Küränderung zählen die
+alten Durchgänge **nicht** als aktuelle Stabilität. Die Planung sagt dann
+ausdrücklich, dass die aktuelle Fassung noch nicht erfasst ist, und schlägt
+einen Durchgang vor – das ist etwas anderes als „die Kür wackelt".
+
+### 19.13 Oberfläche
+
+Ein Block **Nächstes Training** oben auf Turnen → Übersicht, kein neuer Reiter.
+Die Frage stellt sich beim Aufschlagen, nicht nach zwei Klicks; ein siebter
+Reiter wäre ausserdem einer, der nach dem Training nichts mehr zu sagen hat.
+
+```
+Nächstes Training
+3 Geräte vorgeschlagen – ein Vorschlag, keine Verpflichtung
+
+1. Barren   SCHWERPUNKT   40 min          ↑ ↓ abwählen
+   Die Kür am Stück zuerst – die Einzelelemente stehen schon.
+   KÜR AM STÜCK   1–2 vollständige Kürdurchgänge   Schwerpunkt   ×
+   ▾ Warum dieses Gerät?
+
+2. Reck     SCHWERPUNKT   40 min          ↑ ↓ abwählen
+   Erst die einzelnen Elemente, die ganze Kür danach.
+   ELEMENT   Riesenfelge gezielt stabilisieren   Schwerpunkt   ×
+   ELEMENT   Tkatschew festigen                  normal        ×
+   KÜR AM STÜCK   Die Kür einmal vollständig turnen   normal   ×
+
+3. Ringe    WARTUNG       10 min          ↑ ↓ abwählen
+```
+
+Die Begründungen sind eingeklappt. Ausgeschrieben wären es je Gerät fünf bis
+acht Sätze, und aus dem Block würde eine Textwand – sie fehlen aber nicht, ein
+Tipp genügt.
+
+Bei 390 px nachgemessen, dunkler Modus geprüft, keine Emojis, bestehende Tokens.
+
+### 19.14 Gemessen
+
+| | |
+|---|---|
+| `trainingsplanung()` bei 4.000 Versuchen, 1.000 Durchgängen, 102 Elementen, 6 Küren | **0,1 ms** |
+| `planMitAuswahl()` | unter 1 ms – es rechnet nichts neu |
+| `loadAll()` | unverändert, kein neuer Lader |
+
+Die Planung ist ein Nachschlagen in Phase 2D. Gerechnet wird dort, und das war
+schon vorher gemessen (17.15, 18.11).
+
+### 19.15 Grenzen
+
+- **Kein Kalender, kein Schichtplan, keine Termine, keine Minuten.** Der Plan
+  sagt, WAS sich lohnt, nicht WANN und nicht wie lange. Das bleibt Phase 5.
+- **Keine Belastungssteuerung und keine Periodisierung.** Dafür bräuchte es
+  Daten über Ermüdung und Regeneration, die LifeHub nicht hat.
+- **Keine Aufgaben und keine Erinnerungen.** Der Plan erzeugt nichts im
+  Heute-Bereich.
+- **Kein Schwierigkeitsupgrade.** Auch ein stabiler Kandidat kommt nicht von
+  selbst in die Kür; das bleibt beim Turner und seinem Trainer.
+- **Ein Vorschlag ist nur so gut wie die Erfassung.** Was nicht erfasst wird,
+  existiert für die Planung nicht.
+
+### 19.16 Was diese Phase ausdrücklich NICHT tut
+
+- kein Wochenkalender, keine festen Trainingstage, keine Terminplanung
+- keine Push-Erinnerungen, keine Aufgaben im Heute-Bereich
+- keine Belastungssteuerung, keine automatische Dauerverteilung
+- keine Trainingsdauer und keine minutenexakte Geräteplanung
+- keine Persistenz des Plans
+
+Phase 3A endet bei: **„Was wäre für meine nächste Turneinheit ein sinnvoller
+Inhalt?"**
+
+### 19.17 Einspielen
+
+**Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
+`supabase functions deploy`. Das Datenmodell ist unverändert.

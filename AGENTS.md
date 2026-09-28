@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 1.686 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.760 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **1.705**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **1.779**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -400,6 +400,73 @@ einmal. Am Quelltext geprueft.
 node tests/turnen-kuerdurchgaenge-e2e.mjs   # erfassen -> auswerten -> Kuer
                                             # aendern -> alte Fassung bleibt
                                             # historisch getrennt
+```
+
+### Der Trainingsvorschlag ist eine Umsortierung, keine neue Rechnung
+
+Seit dem 28.09.2026 (Phase 3A) beantwortet LifeHub "was turne ich heute?":
+`core/turnen/trainingsplanung.ts`, angezeigt als Block **Naechstes Training**
+oben auf Turnen -> Uebersicht (`screens/turnen/NaechstesTraining.tsx`).
+**Keine Tabelle, keine Migration, kein neuer Reiter.**
+
+**Das Modul rechnet nichts neu.** Es nimmt `trainingsfokus()` aus 2D fertig
+entgegen und ordnet es um: Der Fokus ist nach GERAET gebaut, um zu erklaeren, wo
+etwas liegenbleibt - ein Trainingsvorschlag ist nach EINHEIT gebaut. Es hat
+darum keine eigene Stabilitaetsschwelle, keine zweite Zeitlogik (Wartung nutzt
+dieselben 28 Tage wie `KUER_SCHWELLEN.langeHerTage`) und keine Punktzahl ueber
+Geraete. Neu sind nur Auswahl- und Reihenfolgeregeln, und die stehen
+ausgeschrieben in `PLAN_SCHWELLEN` und `reihenfolgeArtFuer`.
+
+**Hoechstens drei Geraete, hoechstens zwei Schwerpunkte.** Die Reihe entsteht aus
+Prioritaet, dann "am laengsten nicht trainiert", dann Wettkampfreihenfolge. Der
+zweite Schluessel ist der Grund, warum kein Geraet wochenlang verschwindet.
+Dazu ein **Wartungsplatz**: Eine Staerke (`halten`/`zu_wenig_daten`), die seit
+28 Tagen nicht angefasst wurde, bekommt den letzten Platz und verdraengt
+hoechstens einen Nebenfokus - nie einen Schwerpunkt.
+
+**Drei Arten von Inhalt, und die Bedingungen kommen aus 2D:** Elementarbeit aus
+den auffaelligen Kuerelementen, Entwicklungsarbeit NUR bei der Empfehlung
+`schwierigkeit_pruefen`, Kuerdurchgaenge aus der Kuerstabilitaet. Die
+Reihenfolge im Geraet folgt ebenfalls der 2D-Empfehlung
+(`kuer_unter_belastung` -> Kuer zuerst) - nicht ueberall dieselbe.
+
+**Ohne Trainingsdaten gibt es KEINE Elementempfehlung.** Ohne einen einzigen
+erfassten Versuch faellt jedes Kuerelement automatisch als "nie trainiert" auf;
+daraus eine Liste zu bauen saehe nach Auskunft aus, waere aber nur die
+Feststellung, dass nichts erfasst ist. Das steht als Hinweis daneben. Ein
+Kuerdurchgang ist trotzdem moeglich - er ist keine Elementempfehlung.
+
+**Keine erfundenen Mengen und KEINE Zeitplanung.** Der Umfang ist
+`kurz`/`normal`/`schwerpunkt`; die einzige Zahl steht am Kuerdurchgang und ist
+eine Spanne von hoechstens zwei. Es gibt keine Trainingsdauer, keine Minuten je
+Geraet und keinen Verteilungsschluessel - "90 Minuten -> 40/40/10" sieht nach
+einer Rechnung aus, hinter der keine steht. Eine solche Verteilung war gebaut
+und wurde vor dem Commit als Scope-Ueberschreitung wieder entfernt;
+`turnen-trainingsplanung.test.ts` prueft am Quelltext, dass sie nicht
+zurueckkommt. Zeit gehoert zu Phase 5.
+
+**Die Auswahlregeln sind eine Produktheuristik**, keine
+trainingswissenschaftlich optimale Verteilung: Drei Geraete, zwei Schwerpunkte
+und 28 Tage sind eine Verabredung und stehen an einer Stelle
+(`PLAN_SCHWELLEN`).
+
+**Nichts wird gespeichert - auch nicht die Wahl des Nutzers.** Abwaehlen,
+Umstellen, Entfernen und Dazunehmen gehen durch `planMitAuswahl()`, eine reine
+Funktion auf dem Arbeitsspeicherzustand der Komponente. Deshalb rechnet
+`trainingsplanung()` die Inhalte ALLER sechs Geraete: Ein nachtraeglich
+gewaehltes Geraet hat sofort etwas anzuzeigen, ohne zweite Rechnung. Am Handy
+steht wieder der volle Vorschlag, auch wenn am PC eben etwas abgewaehlt wurde.
+
+**Erfasst wird mit dem vorhandenen Weg** (`gym_attempts`, `gym_routine_runs`).
+Es gibt keine zweite Trainingserfassung und keinen "Plan erledigt"-Zustand.
+Der Plan sagt WAS, nicht WANN - Kalender, Schichtplan und Termine bleiben
+Phase 5.
+
+```
+node tests/turnen-trainingsplanung-e2e.mjs   # ohne Daten -> gutes Training ->
+                                             # abgebrochene Durchgaenge ->
+                                             # schlechtes Training: der
+                                             # Vorschlag reagiert jedes Mal
 ```
 
 ## FatSecret laeuft von selbst

@@ -1,13 +1,26 @@
 /**
- * TURNEN · ÜBERSICHT – was gerade liegenbleibt.
+ * TURNEN · ÜBERSICHT – was ansteht, und was liegenbleibt.
  *
- * Beschreibend, nicht ratend. „Pauschenpferd seit 18 Tagen nicht" ist eine
- * Beobachtung; „trainiere morgen Pauschenpferd" wäre eine Empfehlung, und die
- * kommt erst in einer späteren Phase, wenn Kalender und Schichtplan
- * mitgerechnet werden (TURNEN_ARCHITEKTUR.md, Phase 5).
+ * ---------------------------------------------------------------------------
+ * Seit Phase 3A steht hier ein Vorschlag
  *
- * Eine Bildschirmhöhe, nicht mehr: Gerätekacheln, was zu lange her ist, was
- * unsicher steht. Alles Weitere steht in den anderen Reitern.
+ * Bis dahin war dieser Bildschirm ausdrücklich beschreibend: „Pauschenpferd
+ * seit 18 Tagen nicht" ist eine Beobachtung, „trainiere Pauschenpferd" wäre
+ * eine Empfehlung. Die gibt es jetzt – aber nur so weit, wie die Daten tragen:
+ * **Nächstes Training** (`core/turnen/trainingsplanung.ts`) ordnet den
+ * Trainingsfokus aus Phase 2D in die Form um, in der man vor der Halle danach
+ * fragt, und begründet jede Zeile mit vorhandenen Zahlen.
+ *
+ * Warum hier und nicht in einem eigenen Reiter: Die Frage „was turne ich
+ * heute?" stellt sich beim Aufschlagen, nicht nach zwei Klicks. Ein siebter
+ * Reiter für einen Block wäre ausserdem ein Reiter, der nach dem Training
+ * nichts mehr zu sagen hat.
+ *
+ * Kein Kalender, keine Schichtplanung, keine erzeugten Termine – das bleibt
+ * Phase 5 (TURNEN_ARCHITEKTUR.md).
+ *
+ * Eine Bildschirmhöhe, nicht mehr: Vorschlag, Gerätekacheln, was zu lange her
+ * ist, was unsicher steht. Alles Weitere steht in den anderen Reitern.
  */
 import React, { useMemo } from 'react'
 import { Card, Stat, Empty } from '../../ui/components'
@@ -20,6 +33,7 @@ import {
   bloeckeMitTag, elementBild, geraetBilder, langeNichtTrainiert,
 } from '../../core/turnen/elemente'
 import { versucheGesamt } from '../../core/turnen/versuche'
+import { NaechstesTraining } from './NaechstesTraining'
 
 export function UebersichtView({ onZuElementen, onZuTraining }: {
   onZuElementen: () => void
@@ -106,6 +120,8 @@ export function UebersichtView({ onZuElementen, onZuTraining }: {
         <Card><Stat small label="Einheiten gesamt" value={String(einheiten.length)} /></Card>
         <Card><Stat small label="Elemente" value={String(aktiveElemente.length)} /></Card>
       </div>
+
+      <NaechstesTraining onZuTraining={onZuTraining} />
 
       {/* Die Geräte sind die Achse von allem – deshalb stehen sie oben und
           nicht als eigener Reiter (siehe TURNEN_ARCHITEKTUR.md, 7.2). */}

@@ -1513,3 +1513,98 @@ table.data tbody tr:hover { background: var(--surface-2); }
    der Kasten bringt seine schon mit.                                  */
 .import-liste { margin: 6px 0 6px 18px; padding: 0; }
 .import-liste li { margin: 2px 0; }
+
+/* Turnen: Naechstes Training (Phase 3A)
+   ------------------------------------------------------------------
+   Ein Vorschlagsblock auf der Uebersicht. Baut auf den vorhandenen
+   Tokens und Flaechen auf - keine neuen Einzelfarben. Die Kopfzeile
+   umbricht, damit bei 390 px Rolle und Zeit unter den Namen rutschen
+   statt seitlich hinauszulaufen.                                     */
+.np-liste { display: flex; flex-direction: column; gap: 10px; }
+
+.np-geraet {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; background: var(--surface-1);
+}
+.np-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.np-nr {
+  font-variant-numeric: tabular-nums; color: var(--text-muted);
+  font-size: 12px; min-width: 16px;
+}
+.np-name { font-size: 14px; font-weight: 650; }
+
+.np-rolle {
+  font-size: 10.5px; font-weight: 650; letter-spacing: .04em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--border-strong); color: var(--text-2);
+}
+/* Drei Stufen, uebernommen aus den vorhandenen Bedeutungsfarben:
+   Schwerpunkt traegt den Akzent, Wartung bleibt still.            */
+.np-rolle-schwerpunkt {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+.np-rolle-nebenfokus { background: var(--surface-2); }
+.np-rolle-wartung { background: transparent; color: var(--text-muted); }
+
+.np-reihenfolge {
+  font-size: 11.5px; color: var(--text-muted); line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.np-inhalte { display: flex; flex-direction: column; gap: 4px; }
+.np-inhalt {
+  border-top: 1px solid var(--border); padding-top: 6px;
+}
+.np-inhalt:first-child { border-top: 0; padding-top: 0; }
+.np-inhalt-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.np-art {
+  font-size: 10px; font-weight: 650; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-muted);
+  min-width: 78px;
+}
+.np-art-durchgang { color: var(--accent); }
+.np-inhalt-text { font-size: 13px; flex: 1; min-width: 140px; }
+.np-umfang {
+  font-size: 10.5px; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px;
+}
+.np-weg { min-width: 32px; }
+.np-inhalt-grund {
+  margin-top: 3px; padding-left: 0; font-size: 11.5px;
+  color: var(--text-muted); line-height: 1.5;
+}
+
+.np-hinweis {
+  margin-top: 8px; font-size: 11.5px; color: var(--warn-text);
+  line-height: 1.5;
+}
+
+.np-warum { margin-top: 8px; padding-left: 0; }
+.np-begruendung { font-size: 12px; line-height: 1.55; color: var(--text-2); }
+.np-begruendung p { margin: 0 0 6px; }
+.np-begruendung p:last-child { margin-bottom: 0; }
+
+.np-nachwahl {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 12px;
+}
+.np-nachwahl-kopf {
+  font-size: 10.5px; color: var(--text-muted); font-weight: 650;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+
+:root[data-theme='dark'] .np-geraet { background: var(--surface-2); }
+:root[data-theme='dark'] .np-hinweis { color: var(--warning); }
+
+/* Bei 390 px bekommt die Art eine eigene Zeile: Art, Text, Umfang und
+   der Entfernen-Knopf nebeneinander ergaeben sonst vier Spalten auf
+   wenigen Zentimetern.                                              */
+@media (max-width: 460px) {
+  .np-art { min-width: 100%; }
+  .np-inhalt-text { min-width: 0; }
+}
