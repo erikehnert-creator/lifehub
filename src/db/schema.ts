@@ -1129,6 +1129,111 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_gym_benchmarks_competition ON gym_benchmarks(competition_id);
     `,
   },
+  {
+    id: 18,
+    name: 'turnen_kuerdurchgaenge',
+    sql: `
+    -------------------------------------------------- Turnen: Kuerdurchgaenge
+    -- Der Versuch, eine Kuer als ZUSAMMENHAENGENDE Uebung zu turnen.
+    --
+    -- ==================================================================
+    -- Warum das nicht in gym_attempts passt
+    -- ==================================================================
+    --
+    -- gym_attempts zaehlt Versuche je ELEMENT je Einheit: zwoelf Anlaeufe am
+    -- Hocksalto. Ein Kuerdurchgang ist eine andere Messgroesse - acht
+    -- Elemente hintereinander, ohne Absetzen, mit der Ermuedung am Ende. Zehn
+    -- saubere Einzelversuche an acht Elementen sind etwas anderes als eine
+    -- durchgeturnte Kuer, und genau dieser Unterschied ist im Turnen der
+    -- entscheidende. Bis hierher konnte LifeHub ihn nicht sehen
+    -- (TURNEN_ARCHITEKTUR.md, 17.11).
+    --
+    -- Ein Durchgang erzeugt deshalb AUCH KEINE gym_attempts. Waeren es
+    -- welche, verfaelschten sie die Elementstatistik: Eine Kuer, achtmal
+    -- geturnt, saehe wie 64 gezielte Elementversuche aus.
+    --
+    -- ==================================================================
+    -- Ein abgebrochener Durchgang ist ein Durchgang
+    -- ==================================================================
+    --
+    -- completed = 0 ist ein vollwertiger Datensatz und keine Luecke. Gerade
+    -- die Abbrueche sind die Auskunft: Wer viermal ansetzt und zweimal
+    -- abbricht, hat eine andere Kuer als wer viermal durchkommt.
+    --
+    -- ==================================================================
+    -- Der Bezug geht auf die FASSUNG, nicht auf die Kuer
+    -- ==================================================================
+    --
+    -- routine_version_id zeigt auf gym_routine_versions - dieselbe
+    -- unveraenderliche Fassung, auf die auch gym_results zeigt, und mit
+    -- derselben Rechnung erzeugt (core/turnen/fassungen.ts). Keine zweite
+    -- Versionierung.
+    --
+    -- Damit gilt von selbst, was gelten muss: Aendert Erik die Kuer, gehoeren
+    -- die Durchgaenge von gestern weiterhin zur Fassung von gestern, und die
+    -- Auswertung der aktuellen Wettkampfkuer vermischt sie nicht mit den
+    -- neuen. Weil die Fassungs-ID aus dem INHALT kommt, teilen sich alle
+    -- Durchgaenge einer unveraenderten Kuer dieselbe Fassung - ohne dass
+    -- irgendwo ein "Version erstellen" gedrueckt werden muesste.
+    --
+    -- Ein Verweis auf gym_routines waere genau der Fehler, den 14.1 schon
+    -- einmal beschrieben hat: Nach der naechsten Kueraenderung zeigten die
+    -- alten Durchgaenge auf eine Kuer, die es so nie gab.
+    --
+    -- ==================================================================
+    -- Gewoehnliche Zufalls-ID
+    -- ==================================================================
+    --
+    -- KEINE abgeleitete ID, und zwar aus dem Grund aus 13.3: In einer Einheit
+    -- sind mehrere Durchgaenge derselben Kuer der Normalfall ("Boden Kuer 1,
+    -- Boden Kuer 2"). Aus (session_id, routine_version_id) liesse sich keine
+    -- Eindeutigkeit bilden, und (session_id, version, sort_order) machte aus
+    -- dem Loeschen eines Durchgangs in der Mitte ein Umbenennen aller
+    -- folgenden.
+    --
+    -- Die Gefahr, gegen die abgeleitete IDs schuetzen, besteht hier nicht:
+    -- Einen Durchgang festzuhalten ist eine bewusste Handlung an EINEM Geraet.
+    -- Tun es zwei Geraete offline, sind das zwei Durchgaenge - stilles
+    -- Wegwerfen waere schlimmer als eine Zeile zu viel.
+    --
+    -- sort_order ist deshalb NUR ein Sortierwert, kein Schluessel. Gleichstand
+    -- ist erlaubt und wird ueber created_at und id gebrochen.
+    --
+    -- ==================================================================
+    -- Was NICHT dabeisteht
+    -- ==================================================================
+    --
+    -- apparatus     Steht schon in gym_routine_versions.apparatus. Ein
+    --               zweites Mal gespeichert waere es eine zweite Quelle, die
+    --               beim ersten vergessenen Nachzug auseinanderlaeuft.
+    -- day           Steht an der Einheit (workout_sessions.day), wie bei
+    --               gym_attempts.
+    -- duration      Die Dauer haengt an der Einheit. Je Durchgang gemessen
+    --               waere sie entweder doppelt gezaehlt oder eine zweite,
+    --               abweichende Wahrheit ueber dieselbe Zeit.
+    --
+    -- quality ist ABSICHTLICH grob: vier Stufen, kein 1-bis-10. Eine Skala
+    -- mit zehn Stufen wird zwischen zwei Durchgaengen nicht ehrlich
+    -- ausgefuellt, und sie verspraeche eine Genauigkeit, die es nicht gibt.
+    -- Sie darf leer bleiben und geht in KEINE Rechnung ein - gerechnet wird
+    -- mit completed, falls, interruptions und with_help.
+    CREATE TABLE gym_routine_runs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      routine_version_id TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      falls INTEGER NOT NULL DEFAULT 0,
+      interruptions INTEGER NOT NULL DEFAULT 0,
+      with_help INTEGER NOT NULL DEFAULT 0,
+      quality TEXT,
+      note TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      ${BASE}
+    );
+    CREATE INDEX ix_gym_routine_runs_session ON gym_routine_runs(session_id);
+    CREATE INDEX ix_gym_routine_runs_version ON gym_routine_runs(routine_version_id);
+    `,
+  },
 ]
 
 
@@ -1148,7 +1253,7 @@ export const SYNCED_TABLES = [
   'sleep_sessions', 'import_tokens',
   'gym_elements', 'gym_attempts', 'gym_routines', 'gym_routine_elements',
   'gym_routine_versions', 'gym_routine_version_elements',
-  'gym_competitions', 'gym_results', 'gym_benchmarks',
+  'gym_competitions', 'gym_results', 'gym_benchmarks', 'gym_routine_runs',
 ] as const
 
 export type SyncedTable = (typeof SYNCED_TABLES)[number]

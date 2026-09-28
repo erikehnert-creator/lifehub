@@ -28,6 +28,9 @@ import {
   trainingsfokus, verlaufshinweisFuer,
   type ElementLage, type GeraetFokus, type TrainingsfokusEingang,
 } from '../src/core/turnen/trainingsfokus'
+import type {
+  KuerDurchgaenge, KuerDurchgangsLage,
+} from '../src/core/turnen/kuerdurchgaenge'
 import { trefferbild } from '../src/core/turnen/sicherheit'
 import type {
   GymAttempt, GymCompetition, GymElement, GymResult, GymRoutine, GymRoutineElement,
@@ -1240,7 +1243,7 @@ describe('Leistung', () => {
   })
 
   it('wertet jedes Element nur einmal aus – Kosten wachsen nicht je Gerät', () => {
-    const messe = (n: number) => {
+    const einmal = (n: number) => {
       const els = vieleElemente.slice(0, n)
       const ids = new Set(els.map((x) => x.id))
       const att = attempts.filter((a) => ids.has(a.element_id))
@@ -1252,10 +1255,191 @@ describe('Leistung', () => {
       })
       return performance.now() - t0
     }
+
+    /**
+     * Der schnellste von mehreren Läufen.
+     *
+     * Ein Einzellauf schwankt hier um mehr als die Aussage selbst: Die kleine
+     * Messung liegt unter einer Millisekunde, und ein Einsprung der Speicher-
+     * bereinigung verdoppelt sie. Das Minimum ist der Lauf mit der wenigsten
+     * Störung – gemessen wird die Rechnung, nicht die Laune des Rechners.
+     */
+    const messe = (n: number) => {
+      let beste = Infinity
+      for (let i = 0; i < 5; i++) beste = Math.min(beste, einmal(n))
+      return beste
+    }
+
     messe(10)
     const klein = Math.max(messe(10), 0.05)
     const gross = messe(100)
-    // Zehnmal so viele Elemente duerfen nicht hundertmal so lange dauern.
+    // Zehnmal so viele Elemente duerfen nicht HUNDERTmal so lange dauern -
+    // das waere quadratisch, also je Geraet erneut ueber alle Elemente.
     expect(gross / klein).toBeLessThan(40)
+  })
+})
+
+/* ================================ Phase 2E: Elemente sind nicht die Kür */
+
+/**
+ * Die Unterscheidung, die 2D noch nicht treffen konnte.
+ *
+ * Geprüft wird durch die ganze Kette: aus Durchgängen wird eine Kürlage, daraus
+ * eine Empfehlung. Ein Fehler in der Zuordnung schlägt damit bis in die
+ * Empfehlung durch.
+ */
+describe('Elemente stabil ist nicht dasselbe wie Kür stabil', () => {
+  /** Ein Gerät mit stabilen Elementen und wählbarer Kürlage. */
+  const baueMitDurchgaengen = (o: {
+    fokus: { dRang: number; eRang: number; finalRang: number }
+    elementeStabil: boolean
+    durchgangsLage: KuerDurchgangsLage
+  }) => {
+    const a = element({ apparatus: 'boden', name: 'A', difficulty_value: 0.2 })
+    const b = element({ apparatus: 'boden', name: 'B', difficulty_value: 0.3 })
+    const k = kuer({ apparatus: 'boden' })
+    const va = o.elementeStabil ? stabileVersuche(a.id) : instabileVersuche(a.id)
+    const vb = o.elementeStabil ? stabileVersuche(b.id) : instabileVersuche(b.id)
+
+    // Die Kuerlage wird direkt vorgegeben - wie sie entsteht, prueft
+    // `turnen-kuerdurchgaenge.test.ts`.
+    const durchgaenge = new Map<string, KuerDurchgaenge>([['boden', {
+      apparatus: 'boden',
+      kuer: k,
+      fassungId: 'fassung-1',
+      aktuell: {
+        durchgaenge: o.durchgangsLage === 'zu_wenig_daten' ? 0 : 4,
+        komplett: o.durchgangsLage === 'stabil' ? 4 : 1,
+        sturzfrei: o.durchgangsLage === 'stabil' ? 4 : 1,
+        unterbrechungsfrei: 4, ohneHilfe: 4,
+        sauber: o.durchgangsLage === 'stabil' ? 4 : o.durchgangsLage === 'gemischt' ? 2 : 0,
+        sauberQuote: o.durchgangsLage === 'stabil' ? 1 : 0,
+        stuerzeGesamt: 0,
+        zuletzt: '2026-05-20', tageHer: 12,
+        zuletztKomplett: '2026-05-20', tageHerKomplett: 12,
+        lage: o.durchgangsLage,
+      },
+      verlauf: [],
+      fruehere: { durchgaenge: 0, fassungen: 0 },
+    }]])
+
+    const teil = wettkampfteil([{ apparatus: 'boden', ...o.fokus }])
+    return trainingsfokus({
+      analyse: wettkampfAnalyse(teil.wk, teil.ergebnisse, teil.benchmarks),
+      verlauf: new Map(),
+      elemente: [a, b],
+      versuche: [...va.attempts, ...vb.attempts],
+      einheiten: [va.einheit, vb.einheit],
+      kueren: [k],
+      kuerVerknuepfungen: [kuerPlatz(k.id, a.id, 1), kuerPlatz(k.id, b.id, 2)],
+      durchgaenge,
+      heute: HEUTE,
+      tagDifferenz: diffDays,
+    }).geraete.find((g) => g.apparatus === 'boden')!
+  }
+
+  const SCHWIERIGKEIT = { dRang: 5, eRang: 1, finalRang: 5 }
+  const BEIDES = { dRang: 5, eRang: 5, finalRang: 5 }
+  const HALTEN = { dRang: 1, eRang: 1, finalRang: 1 }
+
+  it('Elemente stabil + Kür stabil → Schwierigkeit darf geprüft werden', () => {
+    const g = baueMitDurchgaengen({
+      fokus: SCHWIERIGKEIT, elementeStabil: true, durchgangsLage: 'stabil',
+    })
+    expect(g.lage).toBe('stabil')
+    expect(g.durchgangsLage).toBe('stabil')
+    expect(g.empfehlung).toBe('schwierigkeit_pruefen')
+  })
+
+  it('Elemente stabil + Kür instabil → die ganze Kür am Stück üben', () => {
+    const g = baueMitDurchgaengen({
+      fokus: SCHWIERIGKEIT, elementeStabil: true, durchgangsLage: 'instabil',
+    })
+    expect(g.lage).toBe('stabil')
+    expect(g.durchgangsLage).toBe('instabil')
+    // NICHT schwierigkeit_pruefen: Wenn die Uebung am Stueck nicht durchkommt,
+    // ist ein schwereres Element der falsche naechste Schritt.
+    expect(g.empfehlung).toBe('kuer_unter_belastung')
+  })
+
+  it('Elemente instabil + Kür instabil → zuerst die Elemente', () => {
+    const g = baueMitDurchgaengen({
+      fokus: SCHWIERIGKEIT, elementeStabil: false, durchgangsLage: 'instabil',
+    })
+    expect(g.lage).toBe('instabil')
+    expect(g.empfehlung).toBe('stabilisieren')
+  })
+
+  it('keine Kürdurchgänge → die Begründung sagt es ausdrücklich', () => {
+    const g = baueMitDurchgaengen({
+      fokus: SCHWIERIGKEIT, elementeStabil: true, durchgangsLage: 'zu_wenig_daten',
+    })
+    const text = g.begruendung.join(' ')
+    expect(text).toContain('kein erfasster Durchgang')
+    // Und es wird nicht so getan, als seien Elementdaten ein Ersatz.
+    expect(text).toContain('sagt nichts darüber')
+    expect(g.empfehlung).toBe('schwierigkeit_pruefen')
+  })
+
+  it('beides + stabile Elemente + instabile Kür → Kür am Stück, nicht Schwierigkeit', () => {
+    const g = baueMitDurchgaengen({
+      fokus: BEIDES, elementeStabil: true, durchgangsLage: 'instabil',
+    })
+    expect(g.wettkampfFokus).toBe('beides')
+    expect(g.empfehlung).toBe('kuer_unter_belastung')
+  })
+
+  it('halten + instabile Kür wird Wartung, nie ein Problemgerät', () => {
+    const g = baueMitDurchgaengen({
+      fokus: HALTEN, elementeStabil: true, durchgangsLage: 'instabil',
+    })
+    expect(g.prioritaet).toBe('halten')
+    expect(g.empfehlung).toBe('wartung')
+  })
+
+  it('nennt die Zahlen der Durchgänge in der Begründung', () => {
+    const g = baueMitDurchgaengen({
+      fokus: SCHWIERIGKEIT, elementeStabil: true, durchgangsLage: 'stabil',
+    })
+    const text = g.begruendung.join(' ')
+    expect(text).toContain('4 Durchgänge')
+    expect(text).toContain('davon komplett')
+    expect(text).toContain('sturzfrei')
+  })
+
+  it('verrechnet Kürlage und Elementlage nicht miteinander', () => {
+    const g = baueMitDurchgaengen({
+      fokus: SCHWIERIGKEIT, elementeStabil: true, durchgangsLage: 'instabil',
+    })
+    // Zwei getrennte Angaben, keine gemeinsame Zahl.
+    expect(g.lage).toBe('stabil')
+    expect(g.durchgangsLage).toBe('instabil')
+  })
+})
+
+describe('empfehlungAus mit Kürdurchgängen', () => {
+  it('bleibt ohne Durchgänge genau wie in Phase 2D', () => {
+    expect(empfehlungAus('schwierigkeit', 'stabil', 0)).toBe('schwierigkeit_pruefen')
+    expect(empfehlungAus('schwierigkeit', 'stabil', 0, 'zu_wenig_daten'))
+      .toBe('schwierigkeit_pruefen')
+    expect(empfehlungAus('ausfuehrung', 'stabil', 0, 'zu_wenig_daten'))
+      .toBe('technik_stabilitaet')
+  })
+
+  it('schickt bei stabilen Elementen und instabiler Kür auf die Kür', () => {
+    expect(empfehlungAus('schwierigkeit', 'stabil', 0, 'instabil')).toBe('kuer_unter_belastung')
+    expect(empfehlungAus('beides', 'stabil', 0, 'instabil')).toBe('kuer_unter_belastung')
+    expect(empfehlungAus('ausfuehrung', 'stabil', 0, 'instabil')).toBe('kuer_unter_belastung')
+  })
+
+  it('lässt instabile Elemente vorgehen', () => {
+    expect(empfehlungAus('schwierigkeit', 'instabil', 3, 'instabil')).toBe('stabilisieren')
+    expect(empfehlungAus('beides', 'gemischt', 1, 'instabil')).toBe('stabilisieren')
+  })
+
+  it('reicht eine gemischte Kür nicht als Grund', () => {
+    // Nur `instabil` schickt auf die Kuer - `gemischt` ist kein Befund.
+    expect(empfehlungAus('schwierigkeit', 'stabil', 0, 'gemischt'))
+      .toBe('schwierigkeit_pruefen')
   })
 })

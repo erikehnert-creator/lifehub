@@ -601,6 +601,49 @@ export interface GymResult extends BaseEntity {
   note: string | null
 }
 
+/**
+ * Ein Kürdurchgang: der Versuch, eine Kür als zusammenhängende Übung zu turnen.
+ *
+ * **Eine andere Messgrösse als `GymAttempt`.** Dort geht es um Versuche an
+ * einem Element, hier um die ganze Übung – acht Elemente hintereinander, mit der
+ * Ermüdung am Ende. Ein Durchgang erzeugt deshalb **keine** `gym_attempts`;
+ * täte er es, sähe eine achtmal geturnte Kür wie 64 gezielte Elementversuche
+ * aus.
+ *
+ * Ein **abgebrochener** Durchgang ist ein vollwertiger Datensatz und keine
+ * Lücke: Gerade die Abbrüche sind die Auskunft.
+ *
+ * `routine_version_id` zeigt auf die unveränderliche Fassung, **nicht** auf die
+ * lebende Kür – dieselbe Fassung, auf die auch ein Wettkampfergebnis zeigt.
+ * Damit gehören die Durchgänge von gestern weiterhin zur Kür von gestern.
+ */
+export interface GymRoutineRun extends BaseEntity {
+  session_id: string
+  /** Die eingefrorene Fassung (`gym_routine_versions`), nie `gym_routines`. */
+  routine_version_id: string
+  /** Kür am Stück beendet? 0 heisst abgebrochen – und ist eine Aussage. */
+  completed: number
+  /** Stürze in diesem Durchgang. */
+  falls: number
+  /** Unterbrechungen bzw. Absetzen. */
+  interruptions: number
+  /** Hilfestellung nötig? 0/1, wie bei `GymAttempt.with_help`. */
+  with_help: number
+  /**
+   * Subjektiver Eindruck, vier Stufen – oder `null`.
+   *
+   * Absichtlich grob und **ergänzend**: Sie geht in keine Rechnung ein. Gerechnet
+   * wird mit `completed`, `falls`, `interruptions` und `with_help`.
+   */
+  quality: GymRunQualitaet | null
+  note: string | null
+  /** Nur ein Sortierwert innerhalb der Einheit, kein Schlüssel. */
+  sort_order: number
+}
+
+/** Die vier Stufen des subjektiven Eindrucks. Kein 1-bis-10. */
+export type GymRunQualitaet = 'sehr_gut' | 'gut' | 'gemischt' | 'schlecht'
+
 /** Gerät oder Mehrkampf – worauf sich ein Vergleichswert bezieht. */
 export type GymBenchmarkScope = string
 

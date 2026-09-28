@@ -35,7 +35,17 @@ import { GERAETE, geraetName, type GeraetKey } from '../../core/turnen/geraete'
 import { GUETEN, planeVersuche, planIstLeer, versucheGesamt, type ZaehlerStand } from '../../core/turnen/versuche'
 import { statusLabel } from '../../core/turnen/status'
 import { geraeteDerEinheit, geraeteJeEinheit } from '../../core/turnen/elemente'
-import type { GymAttempt, GymElement, WorkoutSession } from '../../core/types'
+import { wettkampfKuerJeGeraet } from '../../core/turnen/kueren'
+import { fassungsInhalt, planeFassung } from '../../core/turnen/fassungen'
+import {
+  QUALITAET_LABEL, durchgangText, eingabeAus as durchgangAus, leereEingabe,
+  planeDurchgaenge, planIstLeer as durchgangsPlanIstLeer,
+  type DurchgangsEingabe, type DurchgangsStand,
+} from '../../core/turnen/kuerdurchgaenge'
+import { nowIso } from '../../core/dates'
+import type {
+  GymAttempt, GymElement, GymRoutine, GymRoutineRun, WorkoutSession,
+} from '../../core/types'
 
 export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
   const data = useData()
@@ -182,6 +192,99 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
     [data.gymElements, geraet],
   )
 
+  /* ------------------------------------------------------ Kuerdurchgaenge */
+
+  /** Die Durchgaenge dieser Einheit, die schon gespeichert sind. */
+  const vorhandeneDurchgaenge = useMemo(
+    () => data.gymRoutineRuns.filter(
+      (r) => !r.deleted_at && einheit && r.session_id === einheit.id),
+    [data.gymRoutineRuns, einheit],
+  )
+
+  /**
+   * Die Kuer je Durchgang – ueber die Fassung, nicht ueber die lebende Kuer.
+   *
+   * Zum Anzeigen genuegt der Name der Fassung; welche lebende Kuer dahinter
+   * steht, ist hier ohne Belang und koennte sogar geloescht sein.
+   */
+  const fassungVon = useMemo(() => {
+    const m = new Map<string, { name: string; apparatus: string; routineId: string }>()
+    for (const v of data.gymRoutineVersions) {
+      if (v.deleted_at) continue
+      m.set(v.id, { name: v.name, apparatus: v.apparatus, routineId: v.routine_id })
+    }
+    return m
+  }, [data.gymRoutineVersions])
+
+  /**
+   * Durchgaenge im Arbeitsspeicher – wie die Zaehler.
+   *
+   * `routineId` statt `versionId`: Eingefroren wird erst beim Speichern, damit
+   * ein Durchgang die Fassung von genau diesem Moment bekommt und nicht die von
+   * dem Moment, in dem das Formular aufging.
+   */
+  interface DurchgangsZeile {
+    /** Ortlicher Schluessel fuer React – keine Datenbank-ID. */
+    key: string
+    id: string | null
+    apparatus: string
+    routineId: string | null
+    /** Nur bei vorhandenen Zeilen: die Fassung, auf die sie schon zeigt. */
+    versionId: string | null
+    eingabe: DurchgangsEingabe
+  }
+
+  const [durchgaenge, setDurchgaenge] = useState<DurchgangsZeile[]>(() =>
+    vorhandeneDurchgaenge
+      .slice()
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        || String(a.created_at).localeCompare(String(b.created_at)))
+      .map((r, i) => ({
+        key: `da-${i}`,
+        id: r.id,
+        apparatus: fassungVon.get(r.routine_version_id)?.apparatus ?? '',
+        routineId: fassungVon.get(r.routine_version_id)?.routineId ?? null,
+        versionId: r.routine_version_id,
+        eingabe: durchgangAus(r),
+      })))
+
+  /** Die aktive Wettkampfkuer je Geraet – der Vorschlag beim Hinzufuegen. */
+  const wettkampfKueren = useMemo(
+    () => wettkampfKuerJeGeraet(data.gymRoutines), [data.gymRoutines])
+
+  /** Alle Kueren des gewaehlten Geraets – zur Auswahl. */
+  const kuerenDesGeraets = useMemo(
+    () => data.gymRoutines
+      .filter((k) => !k.deleted_at && k.is_active && k.apparatus === geraet)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [data.gymRoutines, geraet],
+  )
+
+  const durchgaengeDesGeraets = durchgaenge.filter((d) => !geraet || d.apparatus === geraet)
+
+  const durchgangHinzu = () => {
+    if (!geraet) return
+    const vorschlag = wettkampfKueren.get(geraet) ?? kuerenDesGeraets[0] ?? null
+    setDurchgaenge((liste) => [...liste, {
+      key: `neu-${Date.now()}-${liste.length}`,
+      id: null,
+      apparatus: geraet,
+      routineId: vorschlag?.id ?? null,
+      versionId: null,
+      eingabe: leereEingabe(),
+    }])
+  }
+
+  const durchgangAendern = (key: string, teil: Partial<DurchgangsZeile>) =>
+    setDurchgaenge((liste) => liste.map((d) => (d.key === key ? { ...d, ...teil } : d)))
+
+  const durchgangFeld = (key: string, feld: keyof DurchgangsEingabe, wert: any) =>
+    setDurchgaenge((liste) => liste.map(
+      (d) => (d.key === key ? { ...d, eingabe: { ...d.eingabe, [feld]: wert } } : d)))
+
+  const durchgangWeg = (key: string) =>
+    setDurchgaenge((liste) => liste.filter((d) => d.key !== key))
+
   const hole = (id: string): ZaehlerStand =>
     stand[id] ?? { elementId: id, clean: 0, shaky: 0, failed: 0, withHelp: false }
 
@@ -250,6 +353,55 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
         for (const a of plan.aendern) m.patch('gym_attempts', a.id, a.patch)
         for (const id of plan.entfernen) m.removeQuiet('gym_attempts', id)
       }
+
+      /* ---------------------------------------------------- Kuerdurchgaenge
+         Die Kuer wird JETZT eingefroren, mit derselben Rechnung wie beim
+         Wettkampf (fassungen.ts) - keine zweite Versionierung. Ist diese
+         Fassung schon da, wird nichts geschrieben und nur ihre ID benutzt.
+         Bei einer bereits gespeicherten Zeile bleibt ihre alte Fassung
+         stehen: Ein Durchgang von damals darf nicht nachtraeglich zur
+         heutigen Kuer gehoeren. */
+      const jetzt = nowIso()
+      const staende: DurchgangsStand[] = []
+      /**
+       * Fassungen, die IN DIESEM Stapel schon angelegt wurden.
+       *
+       * `data.gymRoutineVersions` ist ein Abbild von VOR dem Stapel und kennt
+       * sie noch nicht. Ohne diese Liste legte der zweite Durchgang derselben
+       * Kuer dieselbe Fassung ein zweites Mal an - und genau daran scheiterte
+       * das Speichern mit "UNIQUE constraint failed". Mehrere Durchgaenge
+       * derselben Kuer in einer Einheit sind der Normalfall; gefunden hat es
+       * `turnen-kuerdurchgaenge-e2e`.
+       */
+      const frischEingefroren = new Set<string>()
+      for (const d of durchgaenge) {
+        let versionId = d.versionId
+        if (!versionId) {
+          const kuer = data.gymRoutines.find((k) => k.id === d.routineId)
+          if (!kuer) continue
+          const fplan = planeFassung(
+            fassungsInhalt(kuer, data.gymRoutineElements, data.gymElements),
+            data.gymRoutineVersions, jetzt)
+          if (fplan.version && !frischEingefroren.has(fplan.id)) {
+            m.create('gym_routine_versions', { id: fplan.version.id, ...fplan.version.values })
+            for (const pl of fplan.plaetze) {
+              m.create('gym_routine_version_elements', { id: pl.id, ...pl.values })
+            }
+          }
+          frischEingefroren.add(fplan.id)
+          versionId = fplan.id
+        }
+        staende.push({ id: d.id, versionId, eingabe: d.eingabe })
+      }
+
+      const dPlan = planeDurchgaenge(staende, vorhandeneDurchgaenge)
+      if (!durchgangsPlanIstLeer(dPlan)) {
+        for (const a of dPlan.anlegen) {
+          m.create('gym_routine_runs', { session_id: sessionId, ...a.values })
+        }
+        for (const a of dPlan.aendern) m.patch('gym_routine_runs', a.id, a.patch)
+        for (const id of dPlan.entfernen) m.removeQuiet('gym_routine_runs', id)
+      }
     })
     m.toast(gesamt > 0 ? `Training gespeichert · ${gesamt} Versuche` : 'Training gespeichert')
     onClose()
@@ -314,6 +466,35 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
         </div>
       )}
 
+      {/* Schritt 3: Kuerdurchgaenge. Eine andere Messgroesse als die Zaehler
+          oben - die ganze Uebung am Stueck. Mehrere Durchgaenge in derselben
+          Einheit sind der Normalfall. */}
+      {geraet && (
+        <Field label="Kürdurchgänge"
+          hint="Die ganze Kür am Stück – auch ein Abbruch ist ein Durchgang.">
+          {kuerenDesGeraets.length === 0 ? (
+            <div className="hint-box small">
+              Für {geraetName(geraet)} ist noch keine Kür angelegt. Ein Durchgang
+              braucht eine Kür, damit er sich auf deren Fassung beziehen kann.
+            </div>
+          ) : (
+            <>
+              {durchgaengeDesGeraets.map((d, i) => (
+                <DurchgangZeile key={d.key} nummer={i + 1} zeile={d}
+                  kueren={kuerenDesGeraets}
+                  fassungName={d.versionId ? fassungVon.get(d.versionId)?.name ?? null : null}
+                  onKuer={(routineId) => durchgangAendern(d.key, { routineId })}
+                  onFeld={(feld, wert) => durchgangFeld(d.key, feld, wert)}
+                  onWeg={() => durchgangWeg(d.key)} />
+              ))}
+              <button type="button" className="btn btn-sm mt8" onClick={durchgangHinzu}>
+                + Durchgang
+              </button>
+            </>
+          )}
+        </Field>
+      )}
+
       <Field label="Notiz" hint="freiwillig">
         <textarea className="textarea" value={notiz} onChange={(e) => setNotiz(e.target.value)}
           placeholder="z. B. Schulter zwickt, Abgang wieder sicher" />
@@ -330,11 +511,16 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
       )}
 
       <Confirm open={loeschen} title="Training löschen?"
-        message="Die Einheit und die darin festgehaltenen Versuche wandern in den Papierkorb."
+        message="Die Einheit, die darin festgehaltenen Versuche und ihre Kürdurchgänge wandern in den Papierkorb. Die eingefrorenen Kürfassungen bleiben erhalten – sie gehören zur Geschichte."
         danger onCancel={() => setLoeschen(false)}
         onConfirm={() => {
           m.batch(() => {
             for (const v of vorhandeneVersuche) m.removeQuiet('gym_attempts', v.id)
+            // Die Durchgaenge gehoeren zu dieser Einheit und zu keiner anderen -
+            // dasselbe Muster wie bei den Versuchen. Die eingefrorenen
+            // Kuerfassungen bleiben: Sie gehoeren zur Geschichte, nicht zu
+            // diesem einen Training.
+            for (const r of vorhandeneDurchgaenge) m.removeQuiet('gym_routine_runs', r.id)
             m.remove('workout_sessions', einheit!.id, 'Training gelöscht')
           })
           setLoeschen(false)
@@ -400,6 +586,120 @@ function ElementZeile({ element, stand, onZaehle, onHilfe }: {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Ein Kürdurchgang in der Erfassung.
+ *
+ * Die Reihenfolge der Angaben ist die Reihenfolge, in der man sie nach einem
+ * Durchgang weiss: **durchgekommen?** zuerst, dann Stürze, dann Absetzen, dann
+ * Hilfe. Die Qualität steht zuletzt und darf leer bleiben – sie geht in keine
+ * Rechnung ein.
+ *
+ * „Komplett" ist vorbelegt, weil der Normalfall das Durchkommen ist. Ein
+ * Abbruch ist damit ein Tipp, kein Formular.
+ */
+function DurchgangZeile({ nummer, zeile, kueren, fassungName, onKuer, onFeld, onWeg }: {
+  nummer: number
+  zeile: {
+    key: string
+    id: string | null
+    routineId: string | null
+    versionId: string | null
+    eingabe: DurchgangsEingabe
+  }
+  kueren: GymRoutine[]
+  /** Bei einer schon gespeicherten Zeile: der Name ihrer Fassung. */
+  fassungName: string | null
+  onKuer: (routineId: string) => void
+  onFeld: (feld: keyof DurchgangsEingabe, wert: any) => void
+  onWeg: () => void
+}) {
+  const e = zeile.eingabe
+
+  return (
+    <div className="turn-durchgang">
+      <div className="turn-durchgang-kopf">
+        <span className="turn-durchgang-nr">{nummer}.</span>
+        {zeile.versionId ? (
+          // Eine gespeicherte Zeile behaelt ihre Fassung. Die Kuer hier noch
+          // umzustellen hiesse, die Geschichte umzuschreiben.
+          <span className="turn-durchgang-kuer">
+            {fassungName ?? 'Kür'}
+            <span className="muted small"> · Fassung bleibt</span>
+          </span>
+        ) : (
+          <select className="input turn-durchgang-wahl" value={zeile.routineId ?? ''}
+            onChange={(ev) => onKuer(ev.target.value)}>
+            {kueren.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+          </select>
+        )}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onWeg}
+          aria-label={`Durchgang ${nummer} entfernen`}>entfernen</button>
+      </div>
+
+      <div className="turn-durchgang-felder">
+        <button type="button"
+          className={`turn-durchgang-schalter${e.completed ? ' aktiv' : ''}`}
+          onClick={() => onFeld('completed', !e.completed)}>
+          {e.completed ? 'komplett' : 'abgebrochen'}
+        </button>
+
+        <Zaehlfeld label="Stürze" wert={e.falls}
+          onAendern={(n) => onFeld('falls', n)} />
+        <Zaehlfeld label="Unterbrechungen" wert={e.interruptions}
+          onAendern={(n) => onFeld('interruptions', n)} />
+
+        <button type="button"
+          className={`turn-durchgang-schalter${e.withHelp ? ' aktiv' : ''}`}
+          onClick={() => onFeld('withHelp', !e.withHelp)}>
+          {e.withHelp ? 'mit Hilfe' : 'ohne Hilfe'}
+        </button>
+      </div>
+
+      <div className="turn-durchgang-qualitaet">
+        <span className="turn-durchgang-label">Eindruck</span>
+        {(Object.keys(QUALITAET_LABEL) as (keyof typeof QUALITAET_LABEL)[]).map((q) => (
+          <button key={q} type="button"
+            className={`btn btn-sm${e.quality === q ? ' btn-primary' : ''}`}
+            onClick={() => onFeld('quality', e.quality === q ? null : q)}>
+            {QUALITAET_LABEL[q]}
+          </button>
+        ))}
+      </div>
+
+      <input className="input turn-durchgang-notiz" value={e.note ?? ''}
+        onChange={(ev) => onFeld('note', ev.target.value)}
+        placeholder="Notiz, freiwillig – z. B. Abgang zu kurz" />
+    </div>
+  )
+}
+
+/**
+ * Ein kleines Zählfeld mit Plus und Minus.
+ *
+ * Bewusst keine Tastatureingabe: Stürze und Unterbrechungen sind einstellige
+ * Zahlen, und ein Zahlenfeld öffnete am Handy die Tastatur über den halben
+ * Bildschirm.
+ */
+function Zaehlfeld({ label, wert, onAendern }: {
+  label: string
+  wert: number
+  onAendern: (n: number) => void
+}) {
+  return (
+    <div className="turn-zaehlfeld">
+      <span className="turn-durchgang-label">{label}</span>
+      <div className="turn-zaehlfeld-knoepfe">
+        <button type="button" className="btn btn-sm" onClick={() => onAendern(Math.max(0, wert - 1))}
+          aria-label={`${label} weniger`}>−</button>
+        <span className="turn-zaehlfeld-wert">{wert}</span>
+        <button type="button" className="btn btn-sm" onClick={() => onAendern(wert + 1)}
+          aria-label={`${label} mehr`}>+</button>
+      </div>
     </div>
   )
 }

@@ -58,6 +58,10 @@ import {
   liegtUnten, richtung,
   type Fokus, type VerlaufsPunkt, type WettkampfAnalyse,
 } from './analyse'
+import {
+  DURCHGANG_LAGE_LABEL, durchgaengeLabel,
+  type DurchgangsBild, type KuerDurchgaenge, type KuerDurchgangsLage,
+} from './kuerdurchgaenge'
 
 /* ========================================================= Stabilität */
 
@@ -281,6 +285,7 @@ export function lageAus(kuer: GymRoutine | null, elemente: ElementLage[]): Train
 export type Empfehlung =
   | 'schwierigkeit_pruefen'
   | 'stabilisieren'
+  | 'kuer_unter_belastung'
   | 'technik_stabilitaet'
   | 'wartung'
   | 'halten'
@@ -289,6 +294,7 @@ export type Empfehlung =
 export const EMPFEHLUNG_LABEL: Record<Empfehlung, string> = {
   schwierigkeit_pruefen: 'Schwierigkeit gezielt prüfen',
   stabilisieren: 'Erst die Kür stabilisieren',
+  kuer_unter_belastung: 'Ganze Kür am Stück üben',
   technik_stabilitaet: 'Technik und Stabilität',
   wartung: 'Halten, einzelne Elemente auffrischen',
   halten: 'Stand halten',
@@ -296,43 +302,74 @@ export const EMPFEHLUNG_LABEL: Record<Empfehlung, string> = {
 }
 
 /**
- * Wettkampffokus und Trainingslage zu einer Empfehlung – als Tabelle.
+ * Wettkampffokus, Elementlage und Kürdurchgänge zu einer Empfehlung.
  *
- *   | 2C-Fokus | Trainingslage | Empfehlung |
- *   |---|---|---|
- *   | `zu_wenig_daten` | – | `zu_wenig_daten` |
- *   | `schwierigkeit` | `instabil` | `stabilisieren` |
- *   | `schwierigkeit` | sonst | `schwierigkeit_pruefen` |
- *   | `ausfuehrung` | – | `technik_stabilitaet` |
- *   | `beides` | `instabil` oder `gemischt` | `stabilisieren` |
- *   | `beides` | sonst | `schwierigkeit_pruefen` |
- *   | `halten` | ein auffälliges Element oder mehr | `wartung` |
- *   | `halten` | sonst | `halten` |
+ *   | 2C-Fokus | Elemente | Durchgänge | Empfehlung |
+ *   |---|---|---|---|
+ *   | `zu_wenig_daten` | – | – | `zu_wenig_daten` |
+ *   | `halten` | auffällige, **oder** Kür instabil | | `wartung` |
+ *   | `halten` | sonst | | `halten` |
+ *   | `ausfuehrung` | `stabil` | `instabil` | **`kuer_unter_belastung`** |
+ *   | `ausfuehrung` | sonst | | `technik_stabilitaet` |
+ *   | `schwierigkeit` | `instabil` | | `stabilisieren` |
+ *   | `schwierigkeit` | | `instabil` | **`kuer_unter_belastung`** |
+ *   | `schwierigkeit` | sonst | | `schwierigkeit_pruefen` |
+ *   | `beides` | `instabil` oder `gemischt` | | `stabilisieren` |
+ *   | `beides` | | `instabil` | **`kuer_unter_belastung`** |
+ *   | `beides` | sonst | | `schwierigkeit_pruefen` |
  *
- * Die beiden wichtigen Zeilen:
+ * Die vier Zeilen, auf die es ankommt:
  *
- * **Schwierigkeit bei instabiler Kür ergibt Stabilisieren, nicht mehr
+ * **Schwierigkeit bei instabilen Elementen ergibt Stabilisieren, nicht mehr
  * Schwierigkeit.** Ein schweres Element, das schon in der Kür steht und dort
  * wackelt, ist ein Grund weniger für ein noch schwereres.
  *
  * **`beides` sucht nicht pauschal Schwierigkeit.** Schon ein einzelnes
  * auffälliges Element genügt, um zuerst auf Stabilität zu gehen – bei `beides`
- * ist die Ausführung ja ohnehin unter dem Feld. Die Schwelle ist hier
- * absichtlich strenger als bei `schwierigkeit`.
+ * ist die Ausführung ja ohnehin unter dem Feld.
  *
- * **Aus `halten` wird nie ein Problemgerät.** Es wird höchstens `wartung`, und
- * das heisst „halten, einzelne Elemente auffrischen".
+ * **Die Elemente tragen, die Kür nicht: dann ist die Kür der Ort** (Phase 2E).
+ * Stehen die Einzelelemente stabil und brechen die Durchgänge trotzdem ab, hilft
+ * weder ein schwereres Element noch mehr Einzeltechnik – geübt werden muss die
+ * ganze Übung am Stück. Diese Unterscheidung war vor den Kürdurchgängen nicht
+ * möglich; sie ist der eigentliche Gewinn der Phase.
+ *
+ * **Aus `halten` wird nie ein Problemgerät.** Eine instabile Kür an einem
+ * starken Gerät führt zu `wartung`, nicht zu einer Warnung – die Zahlen stehen
+ * in der Detailansicht daneben.
+ *
+ * `durchgang` ist mit `'zu_wenig_daten'` vorbelegt: Ohne erfasste Durchgänge
+ * verhält sich die Regel genau wie in Phase 2D.
  */
-export function empfehlungAus(fokus: Fokus, lage: TrainingsLage, auffaellige: number): Empfehlung {
+export function empfehlungAus(
+  fokus: Fokus,
+  lage: TrainingsLage,
+  auffaellige: number,
+  durchgang: KuerDurchgangsLage = 'zu_wenig_daten',
+): Empfehlung {
   if (fokus === 'zu_wenig_daten') return 'zu_wenig_daten'
-  if (fokus === 'ausfuehrung') return 'technik_stabilitaet'
+
+  if (fokus === 'halten') {
+    return auffaellige > 0 || durchgang === 'instabil' ? 'wartung' : 'halten'
+  }
+
+  if (fokus === 'ausfuehrung') {
+    // Die Elemente stehen einzeln, die Kuer nicht: Dann ist nicht die Technik
+    // am einzelnen Element der Ort, sondern die Uebung am Stueck.
+    if (lage === 'stabil' && durchgang === 'instabil') return 'kuer_unter_belastung'
+    return 'technik_stabilitaet'
+  }
+
   if (fokus === 'schwierigkeit') {
-    return lage === 'instabil' ? 'stabilisieren' : 'schwierigkeit_pruefen'
+    if (lage === 'instabil') return 'stabilisieren'
+    if (durchgang === 'instabil') return 'kuer_unter_belastung'
+    return 'schwierigkeit_pruefen'
   }
-  if (fokus === 'beides') {
-    return lage === 'instabil' || lage === 'gemischt' ? 'stabilisieren' : 'schwierigkeit_pruefen'
-  }
-  return auffaellige > 0 ? 'wartung' : 'halten'
+
+  // beides
+  if (lage === 'instabil' || lage === 'gemischt') return 'stabilisieren'
+  if (durchgang === 'instabil') return 'kuer_unter_belastung'
+  return 'schwierigkeit_pruefen'
 }
 
 /* ====================================================== Gerätepriorität */
@@ -409,6 +446,16 @@ export interface GeraetFokus {
   verlaufshinweis: string | null
   /** Gelungene Versuche der Kürelemente im Fenster – Quote und Basis. */
   kuerQuote: { quote: number; versuche: number } | null
+  /**
+   * Die Kürdurchgänge dieser Fassung (Phase 2E), oder `null`.
+   *
+   * `null` heisst: Es gibt keine aktive Wettkampfkür. Steht hier ein Bild mit
+   * `durchgaenge: 0`, gibt es eine Kür, aber noch keinen erfassten Durchgang –
+   * ein Unterschied, den die Begründung ausdrücklich benennt.
+   */
+  durchgaenge: KuerDurchgaenge | null
+  /** Die Kategorie daraus – trägt die Empfehlung mit. */
+  durchgangsLage: KuerDurchgangsLage
 }
 
 export type KeinKandidat =
@@ -446,6 +493,14 @@ export interface TrainingsfokusEingang {
   einheiten: EinheitTag[]
   kueren: GymRoutine[]
   kuerVerknuepfungen: GymRoutineElement[]
+  /**
+   * Die Kürdurchgänge je Gerät aus `durchgaengeJeGeraet()` – optional.
+   *
+   * Fehlt die Angabe, verhält sich der Trainingsfokus genau wie in Phase 2D:
+   * Die Kürstabilität geht dann in keine Empfehlung ein, und die Begründung
+   * sagt, dass sie nicht erfasst ist.
+   */
+  durchgaenge?: Map<string, KuerDurchgaenge>
   heute: DayString
   tagDifferenz: (von: DayString, bis: DayString) => number
 }
@@ -505,8 +560,14 @@ export function trainingsfokus(e: TrainingsfokusEingang): TrainingsfokusBild {
     const fokus: Fokus = wettkampf?.fokus ?? 'zu_wenig_daten'
     const endnoteUnten = wettkampf ? liegtUnten(wettkampf.final) : null
 
+    // Kuerdurchgaenge (Phase 2E). Ohne Kuer gibt es sie nicht; mit Kuer aber
+    // ohne erfassten Durchgang steht ein leeres Bild da - der Unterschied wird
+    // in der Begruendung benannt.
+    const durchgaenge = kuer ? e.durchgaenge?.get(g.key) ?? null : null
+    const durchgangsLage: KuerDurchgangsLage = durchgaenge?.aktuell.lage ?? 'zu_wenig_daten'
+
     const prioritaet = prioritaetAus(fokus, endnoteUnten, lage)
-    const empfehlung = empfehlungAus(fokus, lage, auffaellige.length)
+    const empfehlung = empfehlungAus(fokus, lage, auffaellige.length, durchgangsLage)
 
     const { kandidaten, grund } = kandidatenFuer(
       g.key, vorhanden, kuer, kuerLagen, bildVon)
@@ -518,7 +579,9 @@ export function trainingsfokus(e: TrainingsfokusEingang): TrainingsfokusBild {
       wettkampfFokus: fokus,
       lage,
       empfehlung,
-      begruendung: begruendungFuer(wettkampf, lage, auffaellige, kuerQuoteAus(kuerLagen), kuer),
+      begruendung: begruendungFuer(
+        wettkampf, lage, auffaellige, kuerQuoteAus(kuerLagen), kuer,
+        durchgaenge?.aktuell ?? null),
       kuer,
       kuerElemente: kuerLagen,
       geloeschtePlaetze,
@@ -527,6 +590,8 @@ export function trainingsfokus(e: TrainingsfokusEingang): TrainingsfokusBild {
       keineKandidaten: kandidaten.length ? null : grund,
       verlaufshinweis: verlaufshinweisFuer(e.verlauf.get(g.key) ?? []),
       kuerQuote: kuerQuoteAus(kuerLagen),
+      durchgaenge,
+      durchgangsLage,
     })
   }
 
@@ -633,6 +698,7 @@ export function begruendungFuer(
   auffaellige: ElementLage[],
   quote: { quote: number; versuche: number } | null,
   kuer: GymRoutine | null,
+  durchgaenge: DurchgangsBild | null = null,
 ): string[] {
   const out: string[] = []
 
@@ -656,6 +722,28 @@ export function begruendungFuer(
     out.push(`In den letzten ${WOCHEN} Wochen sind zu den Elementen dieser Kür zu wenige `
       + `Versuche erfasst (unter ${SCHWELLEN.mindestVersuche}) – für konkrete `
       + 'Elementempfehlungen fehlt die Trainingsbasis.')
+  }
+
+  /* ------------------------------------------- Die Kür am Stück (Phase 2E) */
+
+  if (kuer && durchgaenge) {
+    if (durchgaenge.durchgaenge === 0) {
+      // Der Satz, der vor Phase 2E nicht gesagt werden konnte - und der
+      // wichtigste: Elementdaten sind NICHT dasselbe wie eine stehende Kür.
+      out.push(`Zur vollständigen Kür liegt noch kein erfasster Durchgang vor. `
+        + 'Wie die Elemente einzeln stehen, sagt nichts darüber, ob die Übung am '
+        + 'Stück durchkommt.')
+    } else {
+      const d = durchgaenge
+      const teile = [`${durchgaengeLabel(d.durchgaenge)} in den letzten ${WOCHEN} Wochen`,
+        `${d.komplett} davon komplett`, `${d.sturzfrei} sturzfrei`]
+      const zuletzt = d.tageHerKomplett === null
+        ? ' Komplett durchgeturnt wurde sie darin nicht.'
+        : d.tageHerKomplett === 0
+          ? ' Zuletzt komplett: heute.'
+          : ` Zuletzt komplett: vor ${d.tageHerKomplett} Tagen.`
+      out.push(`${teile.join(', ')}.${zuletzt}`)
+    }
   }
 
   const erstes = auffaellige[0]
@@ -714,29 +802,33 @@ export function verlaufshinweisFuer(punkte: VerlaufsPunkt[]): string | null {
   return `${n} Wettkämpfe mit Vergleichsfeld – ohne durchgehende Richtung.`
 }
 
-/* ==================================================== Was NICHT geht */
+/* ============================================ Elemente sind nicht die Kür */
 
 /**
- * Ob eine Kür am Stück geturnt wurde, weiss LifeHub nicht.
+ * `TrainingsLage` beschreibt die **Elemente** der Kür, einzeln betrachtet.
  *
- * `gym_attempts` zählt Versuche je **Element** je Einheit. Dass diese Versuche
- * eine zusammenhängende Kür waren – erst Element 1, dann 2, ohne Absetzen –
- * steht nirgends, und es lässt sich auch nicht ableiten: Zehn saubere
+ * Das ist ausdrücklich **nicht** dasselbe wie „die Kür steht": Zehn saubere
  * Einzelversuche an acht Elementen sind etwas anderes als eine durchgeturnte
- * Kür, und genau dieser Unterschied ist im Turnen der entscheidende.
+ * Übung – am Ende einer Kür ist man müde, und das schwierigste Element kommt
+ * selten zuerst.
  *
- * Deshalb behauptet dieses Modul **nirgends**, eine Kür sei „sicher" oder
- * „durchturnfähig". `TrainingsLage` beschreibt ausdrücklich nur die **Elemente**
- * der Kür, einzeln betrachtet. Die Oberfläche sagt das mit.
+ * Bis Phase 2D konnte LifeHub den Unterschied nicht sehen, weil `gym_attempts`
+ * nur je Element zählt. **Seit Phase 2E gibt es dafür die Kürdurchgänge**
+ * (`gym_routine_runs`, `kuerdurchgaenge.ts`): eine eigene Messgrösse mit
+ * eigener Kategorie, die hier als `durchgangsLage` neben der Elementlage steht
+ * und **nie mit ihr verrechnet** wird.
  *
- * Wollte man es wissen, bräuchte es eine kleine eigene Erfassung – ein
- * Durchgang mit Datum, Kürfassung und Ergebnis. Das ist eine eigene Phase und
- * ausdrücklich nicht Teil dieser.
+ * Genau daraus kommt die Unterscheidung, die 2D noch nicht treffen konnte:
+ *
+ *   | Elemente | Kür am Stück | Empfehlung |
+ *   |---|---|---|
+ *   | stabil | stabil | Schwierigkeit prüfen, wenn 2C es nahelegt |
+ *   | stabil | **instabil** | **die ganze Kür am Stück üben** |
+ *   | instabil | instabil | erst die Elemente |
+ *   | – | nicht erfasst | wird ausdrücklich gesagt, statt Elementdaten als Ersatz zu nehmen |
+ *
+ * Ohne erfasste Durchgänge behauptet dieses Modul weiterhin **nirgends**, eine
+ * Kür sei „sicher" oder „durchturnfähig"; die Begründung sagt dann, dass die
+ * Durchgänge fehlen.
  */
-export const KUER_AM_STUECK_UNBEKANNT = true
-
-/** Was die Oberfläche dazu sagt. */
-export const KUER_AM_STUECK_TEXT =
-  'Beurteilt werden die Elemente der Kür einzeln. Ob du die Kür am Stück '
-  + 'durchgeturnt hast, erfasst LifeHub nicht – und leitet es auch nicht aus '
-  + 'Einzelversuchen ab.'
+export const ELEMENTE_SIND_NICHT_DIE_KUER = true

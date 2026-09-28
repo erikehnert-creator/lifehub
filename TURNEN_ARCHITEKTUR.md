@@ -598,6 +598,17 @@ Statuslogik, keine zweite Wahrheit · nichts davon gespeichert.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 17.
 
+### Phase 2E — Kürdurchgänge und Wettkampfstabilität *(umgesetzt am 26.09.2026, Migration 18)*
+
+`gym_routine_runs` · `core/turnen/kuerdurchgaenge.ts` · Erfassung im
+vorhandenen Trainingsweg, Auswertung im Trainingsfokus · Bezug auf die
+unveränderliche Kürfassung über die vorhandene Freeze-Logik, keine zweite
+Versionierung · eigene Stabilitätsschwellen, weil ein Durchgang eine andere
+Messgrösse ist als ein Elementversuch · damit kann 2D erstmals „Elemente stabil,
+Kür instabil" von „Elemente instabil" unterscheiden.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 18.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -2203,11 +2214,12 @@ der Kür, einzeln betrachtet, und die Oberfläche sagt das mit:
 > durchgeturnt hast, erfasst LifeHub nicht – und leitet es auch nicht aus
 > Einzelversuchen ab.
 
-**Als Folgeschritt denkbar**, ausdrücklich nicht Teil dieser Phase: eine kleine
-eigene Erfassung für Durchgänge – Datum, Kürfassung, Ergebnis, vielleicht Stürze
-und Absetzen. Das wäre eine Tabelle, ein Erfassungsweg und eine eigene Phase.
-Ohne sie bleibt die Aussage auf der Elementebene, und das ist ehrlicher als eine
-geratene.
+> **Nachtrag Phase 2E (26.09.2026):** Genau diese Erfassung gibt es jetzt –
+> `gym_routine_runs` mit Datum, Kürfassung, Vollendung, Stürzen, Unterbrechungen
+> und Hilfe (Abschnitt 18). Der Absatz oben beschreibt den Stand von Phase 2D:
+> Damals war die Aussage auf die Elementebene beschränkt. Seither steht die
+> Kürstabilität als **eigene** Messgrösse neben der Elementstabilität und wird
+> nie mit ihr verrechnet.
 
 ### 17.12 Mehrere Wettkämpfe
 
@@ -2300,3 +2312,298 @@ Elemente sind dafür plausible Trainingskandidaten?"**
 **Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
 `supabase functions deploy`. Das Datenmodell ist unverändert; Phase 2D rechnet
 ausschliesslich auf dem, was seit 2A bis 2C schon dasteht.
+
+---
+
+## 18. Phase 2E: Kürdurchgänge und Wettkampfstabilität
+
+Umgesetzt am 26.09.2026. **Eine neue Tabelle** (`gym_routine_runs`,
+Migration 18), keine Änderung an der Edge Function.
+
+### 18.1 Die Lücke, die diese Phase schliesst
+
+Abschnitt 17.11 hielt fest, was LifeHub nicht wusste: **ob eine Kür am Stück
+funktioniert.** `gym_attempts` zählt Versuche je Element; zehn saubere
+Einzelversuche an acht Elementen sind etwas anderes als eine durchgeturnte Übung
+– am Ende einer Kür ist man müde, und das schwierigste Element kommt selten
+zuerst.
+
+Genau dieser Unterschied ist im Turnen der entscheidende, und er war bis hierher
+nicht sichtbar. Jetzt ist er es.
+
+### 18.2 Ein Durchgang ist kein Elementversuch
+
+Zwei getrennte Messgrössen, zwei getrennte Tabellen:
+
+| | `gym_attempts` | `gym_routine_runs` |
+|---|---|---|
+| Gegenstand | Versuche an **einem Element** | die **ganze Übung** am Stück |
+| Zeile je | Element und Einheit | Durchgang |
+| typische Zahl | zwölf Anläufe am Hocksalto | drei Durchgänge im Training |
+
+**Ein Durchgang erzeugt keine `gym_attempts`.** Täte er es, sähe eine achtmal
+geturnte Kür wie 64 gezielte Elementversuche aus, und die Elementstatistik wäre
+verfälscht. Trainiert Erik in derselben Einheit zusätzlich Elemente einzeln,
+werden die normal als Versuche erfasst – beides steht nebeneinander.
+`turnen-kuerdurchgaenge.test.ts` prüft am Quelltext, dass dieses Modul
+`gym_attempts` nicht einmal kennt.
+
+**Ein abgebrochener Durchgang ist ein Durchgang.** `completed = 0` ist ein
+vollwertiger Datensatz und keine Lücke: Wer viermal ansetzt und zweimal
+abbricht, hat eine andere Kür als wer viermal durchkommt.
+
+### 18.3 Das Datenmodell
+
+```
+gym_routine_runs
+  id, session_id, routine_version_id,
+  completed, falls, interruptions, with_help,
+  quality, note, sort_order, + Sync-Felder
+```
+
+**Was dabeisteht und warum:** `completed`, `falls`, `interruptions` und
+`with_help` sind beobachtbar und tragen die Rechnung. `quality` ist ein
+subjektiver Eindruck in **vier** Stufen (sehr gut / gut / gemischt / schlecht),
+darf leer bleiben und geht in **keine** Rechnung ein – eine Skala von 1 bis 10
+wird zwischen zwei Durchgängen nicht ehrlich ausgefüllt und verspräche eine
+Genauigkeit, die es nicht gibt.
+
+**Was bewusst fehlt:**
+
+| Feld | warum nicht |
+|---|---|
+| `apparatus` | steht schon in `gym_routine_versions.apparatus` – ein zweites Mal gespeichert wäre es eine zweite Quelle |
+| `day` | steht an der Einheit, wie bei `gym_attempts` |
+| Dauer | hängt an der Einheit; je Durchgang gemessen wäre sie doppelt gezählt oder eine zweite Wahrheit über dieselbe Zeit |
+
+**Gewöhnliche Zufalls-ID**, keine abgeleitete – aus dem Grund aus 13.3: Mehrere
+Durchgänge derselben Kür in einer Einheit sind der Normalfall („Boden Kür 1,
+Boden Kür 2"), also lässt sich aus `(session_id, routine_version_id)` keine
+Eindeutigkeit bilden; und `(session_id, version, sort_order)` machte aus dem
+Löschen eines Durchgangs in der Mitte ein Umbenennen aller folgenden. Die
+Gefahr, gegen die abgeleitete IDs schützen, besteht hier nicht: Einen Durchgang
+festzuhalten ist eine bewusste Handlung an einem Gerät. `sort_order` ist nur ein
+Sortierwert; Gleichstand wird über `created_at` und `id` gebrochen.
+
+### 18.4 Versionierung: die vorhandene, keine zweite
+
+`routine_version_id` zeigt auf `gym_routine_versions` – **dieselbe** Tabelle und
+dieselbe Rechnung wie bei den Wettkampfergebnissen (`fassungen.ts`, 14.1). Es
+gibt keine zweite Freeze-Logik.
+
+Weil die Fassungs-ID aus dem **Inhalt** kommt (`fassungsId`), ergibt sich das
+gewünschte Verhalten von selbst, ohne dass irgendwo „Version erstellen" gedrückt
+werden müsste:
+
+- Alle Durchgänge einer **unveränderten** Kür teilen dieselbe Fassung.
+- Ändert Erik die Kür, entsteht beim nächsten Durchgang eine **neue** Fassung;
+  die alten Durchgänge zeigen unverändert auf die alte.
+- Eine bereits gespeicherte Durchgangszeile behält ihre Fassung. Sie im Editor
+  nachträglich auf die heutige Kür umzustellen hiesse, die Geschichte
+  umzuschreiben – die Oberfläche lässt die Kürauswahl dort deshalb nicht mehr zu
+  und sagt „Fassung bleibt".
+
+> **Ein Fehler, den der E2E gefunden hat:** Drei Durchgänge derselben Kür in
+> **einem** Speichervorgang scheiterten mit
+> `UNIQUE constraint failed: gym_routine_versions.id`. Ursache: `planeFassung()`
+> prüft gegen `data.gymRoutineVersions`, und das ist ein Abbild von **vor** dem
+> Stapel – die zweite Runde sah die eben angelegte Fassung nicht und legte sie
+> erneut an. Der Speicherweg führt jetzt eine Liste der in diesem Stapel schon
+> eingefrorenen IDs. Genau der Normalfall „mehrere Durchgänge derselben Kür" war
+> davon betroffen.
+
+### 18.5 Der Erfassungsablauf
+
+Kein getrennter Trainingstracker: Der Bereich steht **im vorhandenen
+Erfassungsweg** (Turnen → Training), unter den Elementzählern desselben Geräts.
+
+1. Gerät antippen (wie bisher)
+2. **+ Durchgang** – die aktive Wettkampfkür ist vorgeschlagen, andere Küren des
+   Geräts stehen zur Wahl
+3. wenige Angaben: **komplett** (vorbelegt, weil das der Normalfall ist),
+   Stürze, Unterbrechungen, Hilfe
+4. freiwillig: Eindruck in vier Stufen, Notiz
+5. Speichern
+
+Mehrere Durchgänge in derselben Einheit, auch über mehrere Geräte: „Boden Kür 1,
+Boden Kür 2, Reck Kür 1" ist **eine** Einheit mit drei Durchgängen.
+
+Gezählt wird im Arbeitsspeicher, geschrieben **einmal** beim Speichern – dieselbe
+Regel wie bei den Elementzählern (CLAUDE.md: neue Schleife, die schreibt, gehört
+in `batch`). Die Fassung wird dabei genau in diesem Moment eingefroren, nicht
+beim Öffnen des Formulars.
+
+**Kein Live-Timer, keine Stoppuhr.** Der Durchgang wird nachträglich erfasst; die
+Dauer hängt an der Einheit und wird nicht je Kür ein zweites Mal gemessen.
+
+Am Handy sind die Schalter Flächen von 52 px – dieselbe Überlegung wie bei den
+Zählerknöpfen: Zwischen zwei Durchgängen muss das mit einem Daumen zu treffen
+sein.
+
+### 18.6 Die Stabilitätsheuristik
+
+Ein **sauberer** Durchgang ist: komplett **und** sturzfrei **und** ohne Absetzen
+**und** ohne Hilfe. Alle vier zusammen, weil jedes einzelne im Wettkampf zählt.
+
+```
+Anteil = saubere Durchgänge / Durchgänge im Fenster
+
+< 3 Durchgänge   → zu wenig Daten
+≥ 0,75           → stabil
+≥ 0,40           → gemischt
+sonst            → instabil
+```
+
+**Produktheuristik, keine Messung** – und ausdrücklich **andere** Schwellen als
+bei den Elementen (0,9 / 0,6 in `sicherheit.ts`): Eine ganze Übung am Stück
+durchzubringen ist deutlich schwerer als ein einzelnes Element sauber zu turnen;
+90 % sauberer Durchgänge zu verlangen hiesse, jeden Turner als instabil zu
+führen. Die Kürstabilität ist eine eigene Messgrösse und nicht die
+Elementstabilität mit anderem Namen.
+
+Das **Zeitfenster** ist dagegen dasselbe wie überall im Modul
+(`SCHWELLEN.fensterTage`, 56 Tage). Keine zweite Zeitlogik.
+
+Nur diese **eine** Quote trägt die Kategorie – keine vier Quoten mit
+Gewichtungsschlüssel. Die Einzelzahlen stehen in der Anzeige daneben, damit
+nachrechenbar ist, woraus sie entsteht.
+
+### 18.7 Was 2D jetzt unterscheiden kann
+
+Das ist der eigentliche Gewinn. Die Empfehlungstabelle aus 17.6 bekommt eine
+dritte Eingangsgrösse:
+
+| Elemente | Kür am Stück | Empfehlung |
+|---|---|---|
+| stabil | stabil | Schwierigkeit prüfen, wenn 2C es nahelegt |
+| **stabil** | **instabil** | **`kuer_unter_belastung`** – die ganze Kür am Stück üben |
+| instabil | instabil | erst die Elemente (`stabilisieren`) |
+| – | nicht erfasst | wird ausdrücklich gesagt |
+
+Die zweite Zeile war vorher nicht ausdrückbar. Stehen die Einzelelemente stabil
+und brechen die Durchgänge trotzdem ab, hilft weder ein schwereres Element noch
+mehr Einzeltechnik – geübt werden muss die Übung am Stück. **Bei instabiler Kür
+wird deshalb keine zusätzliche Schwierigkeit empfohlen.**
+
+Ohne erfasste Durchgänge verhält sich die Regel genau wie in 2D
+(`durchgang = 'zu_wenig_daten'` ist vorbelegt), und die Begründung sagt:
+
+> Zur vollständigen Kür liegt noch kein erfasster Durchgang vor. Wie die Elemente
+> einzeln stehen, sagt nichts darüber, ob die Übung am Stück durchkommt.
+
+Damit wird nicht mehr so getan, als seien Einzelelementdaten ausreichend.
+
+**Aus `halten` wird auch hier kein Problemgerät:** Eine instabile Kür an einem
+starken Gerät führt zu `wartung`, nicht zu einer Warnung.
+
+### 18.8 Alte Kürfassungen
+
+Die Auswertung der aktuellen Wettkampfkür zählt **nur** Durchgänge ihrer
+**jetzigen** Fassung. Durchgänge früherer Fassungen derselben Kür stehen
+getrennt darunter:
+
+> Frühere Kürfassungen: 6 Durchgänge in 2 Fassungen. Nicht mitgezählt – eine
+> geänderte Kür hat andere Elemente und eine andere Schwierigkeit.
+
+Fassungen **anderer** Küren desselben Geräts zählen nicht als frühere Fassung:
+Eine archivierte Nebenkür ist keine Vorfassung.
+
+**Die Historie bleibt auch ohne lebende Kür lesbar.** Wird die Kür gelöscht, gibt
+es keine „aktuelle Fassung" mehr – die Durchgänge selbst sind aber unberührt und
+zeigen weiter auf ihre Fassung. Genau dafür ist der Fassungsbezug da.
+
+Wird ein **Element** der Kür gelöscht, ändert sich der Inhalt der lebenden Kür
+(der Platz heisst dann „Gelöschtes Element") und damit ihre Fassungs-ID. Die
+alten Durchgänge werden dadurch zu früheren – richtig, denn die Übung ist eine
+andere.
+
+**Löschen einer Trainingseinheit** nimmt ihre Durchgänge mit, wie bei den
+Elementversuchen. Die eingefrorenen Fassungen bleiben: Sie gehören zur
+Geschichte und nicht zu diesem einen Training.
+
+### 18.9 Wettkampf bleibt Wettkampf
+
+Aus `gym_results` entsteht **nie** ein `gym_routine_run`. Ein Wettkampf ist kein
+Trainingsdurchgang: andere Halle, anderes Wertungsgericht, ein Versuch statt
+mehrerer. Beides steht in der Analyse nebeneinander, und das Durchgangsmodul
+kennt die Wettkampftypen nicht einmal – am Quelltext geprüft.
+
+### 18.10 Oberfläche
+
+**Erfassung:** in Turnen → Training, siehe 18.5.
+
+**Analyse:** im Trainingsfokus je Gerät eine Zeile „Kür am Stück" in der
+Kopfzeile, und in den Einzelheiten ein Block:
+
+```
+Kür am Stück · letzte 8 Wochen
+Durchgänge        5        komplett          4 von 5
+sturzfrei         3 von 5  ohne Absetzen     3 von 5
+ohne Hilfe        5 von 5  zuletzt komplett  vor 6 Tagen
+
+Kürstabilität: gemischt – 3 von 5 Durchgängen waren komplett,
+sturzfrei, ohne Absetzen und ohne Hilfe.
+
+12.09.  komplett · 0 Stürze
+16.09.  abgebrochen · 1 Sturz
+20.09.  komplett · 0 Stürze
+```
+
+Die Verlaufsliste ist eine Liste und kein Diagramm – bei fünf Durchgängen wäre
+ein Diagramm Zierrat.
+
+Eine Kachel erscheint auch dann, wenn es **keine** Vergleichswerte gibt, sobald
+Durchgänge erfasst sind: „Die Kür kommt am Stück durch" ist auch ohne
+importiertes Protokoll eine Auskunft.
+
+Bei 390 px nachgemessen, dunkler Modus geprüft, keine Emojis, bestehende Tokens.
+
+### 18.11 Gemessen
+
+| | |
+|---|---|
+| `durchgaengeJeGeraet()` bei 1.000 Durchgängen, 100 Elementen, 6 Küren | **6,7 ms** |
+| `trainingsfokus()` (aus 17.15, jetzt mit Durchgängen) | 7,1 ms |
+| `loadAll()` | unverändert |
+
+Die Durchgänge werden **einmal** mit ihren Tagen verbunden und **einmal** nach
+Fassung gruppiert; danach ist alles ein Nachschlagen. Die neue Tabelle hat ihren
+eigenen gezielten Lader – kein `loadAll()` und keine Regression.
+
+### 18.12 Grenzen
+
+- **Kein Urteil über die Ausführung.** Gezählt wird, was beobachtbar ist. Wie
+  gut ein Durchgang ausgesehen hat, steht nur im subjektiven Eindruck – und der
+  geht in keine Rechnung ein.
+- **Keine Kampfrichterwertung.** Keine Note, keine Punktzahl, kein simulierter
+  E-Abzug. Das gilt unverändert aus 16.14 und 17.16.
+- **Keine Zuordnung Sturz → Element.** Ein Durchgang hält fest, dass gestürzt
+  wurde, nicht wo. Das wäre eine eigene Erfassung, und ohne sie wäre jede
+  Zuordnung geraten.
+- **Die Kür wird als Ganzes beurteilt.** Ob der Abgang oder die Mitte das Problem
+  ist, sagen die Durchgänge nicht.
+- **Ein Durchgang ist eine Selbstauskunft.** Was nicht erfasst wird, existiert
+  für die Auswertung nicht – dieselbe Grenze wie bei den Elementversuchen.
+- **Fassungswechsel setzen die Zählung zurück.** Nach einer Küränderung beginnt
+  die Statistik der neuen Fassung bei null. Das ist Absicht und wird
+  ausgeschrieben; eine fortgeschriebene Zahl über zwei verschiedene Übungen wäre
+  falsch.
+
+### 18.13 Was diese Phase ausdrücklich NICHT tut
+
+- kein Live-Timer, keine Stoppuhr
+- keine Wochenplanung, kein Trainingskalender, keine Schichtplanintegration
+- keine automatischen Aufgaben
+- keine Videoanalyse, keine Kampfrichter-KI, keine E-Abzugserkennung
+
+Phase 2E endet bei: **Durchgänge erfassen, ihre Stabilität auswerten, den
+Trainingsfokus damit verbessern.**
+
+### 18.14 Einspielen
+
+**Migration 18 ist eine Schemaänderung.** Die neu erzeugte
+`supabase/migrations/0001_init.sql` muss einmal im SQL-Editor des
+Supabase-Projekts laufen – sonst scheitert der Abgleich für `gym_routine_runs`
+bei jedem Versuch, während in der Oberfläche nichts kaputt aussieht.
+
+Die Edge Function ist **unverändert**: kein `supabase functions deploy` nötig.

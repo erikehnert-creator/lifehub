@@ -165,8 +165,11 @@ try {
   await geh(pc, '/turnen/analyse', 2000)
   const ohneTraining = await text(pc)
   pruefe('Der Bereich Trainingsfokus ist da', /Trainingsfokus/.test(ohneTraining))
-  pruefe('Er sagt, dass die Kür am Stück nicht erfasst wird',
-    /Ob du die Kür am Stück/.test(ohneTraining))
+  // Seit Phase 2E wird die Kuer am Stueck erfasst; der Hinweis sagt jetzt,
+  // dass Elemente und ganze Uebung GETRENNT beurteilt werden.
+  pruefe('Er trennt Elemente und Kür am Stück',
+    /Kür am Stück/.test(ohneTraining) && /getrennt/.test(ohneTraining),
+    ohneTraining.slice(0, 200).replace(/\n/g, ' | '))
 
   const barrenVorher = await fokusKarte(pc, 'Barren').innerText()
   pruefe('Barren hat hohe Priorität – Schwierigkeit unter dem Feld, Endnote 4. von 6',

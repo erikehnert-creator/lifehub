@@ -1435,6 +1435,78 @@ table.data tbody tr:hover { background: var(--surface-2); }
   line-height: 1.5;
 }
 
+/* Turnen: Kuerdurchgaenge erfassen
+   ------------------------------------------------------------------
+   Dieselbe Ueberlegung wie bei den Zaehlerflaechen: Zwischen zwei
+   Durchgaengen muss das mit einem Daumen zu treffen sein. Die
+   Schalter sind deshalb Flaechen und keine Ankreuzfelder.       */
+.turn-durchgang {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 8px; background: var(--surface-1);
+}
+.turn-durchgang-kopf {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.turn-durchgang-nr {
+  font-variant-numeric: tabular-nums; color: var(--text-muted);
+  font-size: 12.5px; min-width: 18px;
+}
+.turn-durchgang-kuer { font-size: 13px; font-weight: 600; }
+.turn-durchgang-wahl { max-width: 60%; font-size: 13px; }
+
+/* Zwei Spalten bei 390 px: Schalter und Zaehlfelder nebeneinander,
+   ohne dass etwas umbricht.                                       */
+.turn-durchgang-felder {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px; margin-bottom: 8px;
+}
+.turn-durchgang-schalter {
+  min-height: 44px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-2); font-size: 13px; font-weight: 600;
+}
+.turn-durchgang-schalter.aktiv {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--text);
+}
+
+.turn-zaehlfeld { display: flex; flex-direction: column; gap: 2px; }
+.turn-durchgang-label {
+  font-size: 10.5px; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.turn-zaehlfeld-knoepfe {
+  display: flex; align-items: center; gap: 6px;
+}
+.turn-zaehlfeld-knoepfe .btn { min-width: 34px; min-height: 34px; }
+.turn-zaehlfeld-wert {
+  min-width: 20px; text-align: center;
+  font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 650;
+}
+
+.turn-durchgang-qualitaet {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.turn-durchgang-notiz { font-size: 12.5px; }
+
+/* Turnen: Kuerdurchgaenge in der Analyse
+   ------------------------------------------------------------------ */
+.kd-zahlen {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px; margin: 6px 0;
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.kd-zahl { display: flex; justify-content: space-between; gap: 8px; }
+.kd-zahl-name { color: var(--text-2); }
+.kd-liste { margin-top: 8px; }
+.kd-eintrag {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 3px 0; border-bottom: 1px solid var(--border);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.kd-eintrag-tag { color: var(--text-muted); min-width: 68px; }
+.kd-eintrag-text { color: var(--text-2); }
+
 /* Protokollimport: die Liste der unsicheren Angaben
    ------------------------------------------------------------------
    Eine schlichte Aufzaehlung im Hinweiskasten. Keine eigene Farbwelt -

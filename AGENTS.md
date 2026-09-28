@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 1.609 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.686 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **1.628**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **1.705**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -329,13 +329,11 @@ nicht nachgezogener Eintrag und kein Trainingsproblem. Genau das war zuerst
 falsch: Die Kuer galt als instabil, obwohl nichts wackelte, weil dieselbe
 Tatsache zweimal gezaehlt wurde. `turnen-trainingsfokus-e2e` hat es gefunden.
 
-**Was LifeHub NICHT weiss: ob eine Kuer am Stueck geturnt wurde.**
-`gym_attempts` zaehlt Versuche je ELEMENT je Einheit; dass sie eine
-zusammenhaengende Kuer waren, steht nirgends und laesst sich nicht ableiten.
-Deshalb behauptet das Modul nirgends, eine Kuer sei "sicher" oder
-"durchturnfaehig" - beurteilt werden die Elemente einzeln, und die Oberflaeche
-sagt das mit. Wollte man es wissen, braeuchte es eine eigene Erfassung fuer
-Durchgaenge; das ist eine eigene Phase.
+**Elemente einzeln stabil ist NICHT dasselbe wie "die Kuer steht".**
+`gym_attempts` zaehlt Versuche je ELEMENT. Seit Phase 2E gibt es dafuer die
+Kuerdurchgaenge (siehe unten) - eine eigene Messgroesse, die neben der
+Elementlage steht und nie mit ihr verrechnet wird. Ohne erfasste Durchgaenge
+behauptet das Modul weiterhin nirgends, eine Kuer sei "sicher".
 
 **Kein Element verursacht einen Abzug.** Das Protokoll weist Abzuege nicht je
 Element aus. Ein auffaelliges Element ist eine BEOBACHTUNG aus dem Training,
@@ -346,6 +344,62 @@ Punktgewinn: Elementgruppen und Anrechnungsgrenzen stehen nicht in LifeHub.
 ```
 node tests/turnen-trainingsfokus-e2e.mjs   # Import -> Kuer -> Training ->
                                            # der Fokus aendert sich nachvollziehbar
+```
+
+### Kuerdurchgaenge sind KEINE Elementversuche
+
+Seit dem 26.09.2026 (Phase 2E, Migration 18) erfasst LifeHub komplette
+Kuerdurchgaenge: `gym_routine_runs`, Fachlogik in
+`core/turnen/kuerdurchgaenge.ts`, Erfassung im vorhandenen Trainingsweg,
+Auswertung im Trainingsfokus.
+
+**Zwei getrennte Messgroessen, zwei Tabellen.** `gym_attempts` zaehlt Versuche
+je ELEMENT, `gym_routine_runs` die ganze Uebung am Stueck. Ein Durchgang erzeugt
+KEINE gym_attempts - waere es so, saehe eine achtmal geturnte Kuer wie 64
+gezielte Elementversuche aus, und die Elementstatistik waere verfaelscht. Ein
+abgebrochener Durchgang ist ein vollwertiger Datensatz; gerade die Abbrueche
+sind die Auskunft.
+
+**Der Bezug geht auf die FASSUNG, nie auf die lebende Kuer.**
+`routine_version_id` zeigt auf `gym_routine_versions` - dieselbe Tabelle und
+dieselbe Rechnung wie bei den Wettkampfergebnissen (`fassungen.ts`). Keine
+zweite Versionierung. Weil die Fassungs-ID aus dem INHALT kommt, teilen alle
+Durchgaenge einer unveraenderten Kuer dieselbe Fassung, und nach einer
+Kueraenderung bleiben die alten bei ihrer alten - die Auswertung der aktuellen
+Wettkampfkuer zaehlt nur die der JETZIGEN Fassung, die uebrigen stehen getrennt
+darunter.
+
+**Gewoehnliche Zufalls-ID, keine abgeleitete** (Grund wie in 13.3): Mehrere
+Durchgaenge derselben Kuer in einer Einheit sind der Normalfall.
+
+**Wer im Trainingseditor mehrere Durchgaenge in EINEM Stapel speichert, muss die
+in diesem Stapel schon eingefrorenen Fassungen mitfuehren.** `planeFassung()`
+prueft gegen `data.gymRoutineVersions`, und das ist ein Abbild von VOR dem
+Stapel - ohne diese Liste legte der zweite Durchgang derselben Kuer dieselbe
+Fassung erneut an und das Speichern scheiterte mit "UNIQUE constraint failed:
+gym_routine_versions.id". Genau der Normalfall war betroffen;
+`turnen-kuerdurchgaenge-e2e` hat es gefunden.
+
+**Die Kuerstabilitaet hat EIGENE Schwellen** (0,75 / 0,40 bei mindestens drei
+Durchgaengen), nicht die der Elemente (0,9 / 0,6). Eine ganze Uebung am Stueck
+durchzubringen ist schwerer als ein einzelnes Element sauber zu turnen. Das
+Zeitfenster ist dagegen dasselbe wie ueberall (56 Tage) - keine zweite
+Zeitlogik.
+
+**Damit kann Phase 2D erstmals unterscheiden:** Elemente stabil + Kuer instabil
+ergibt `kuer_unter_belastung` ("ganze Kuer am Stueck ueben") und NICHT mehr
+Schwierigkeit. Ohne erfasste Durchgaenge verhaelt sich die Regel wie in 2D, und
+die Begruendung sagt ausdruecklich, dass die Kuerstabilitaet nicht erfasst ist -
+Einzelelementdaten gelten nicht als Ersatz.
+
+**Ein Wettkampfergebnis ist kein Trainingsdurchgang.** Aus `gym_results`
+entsteht nie ein `gym_routine_run`; das Modul kennt die Wettkampftypen nicht
+einmal. Am Quelltext geprueft.
+
+```
+node tests/turnen-kuerdurchgaenge-e2e.mjs   # erfassen -> auswerten -> Kuer
+                                            # aendern -> alte Fassung bleibt
+                                            # historisch getrennt
 ```
 
 ## FatSecret laeuft von selbst

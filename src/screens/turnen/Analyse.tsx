@@ -46,10 +46,15 @@ import {
   type Fokus, type GeraetAnalyse, type Messwert, type VerlaufsPunkt,
 } from '../../core/turnen/analyse'
 import {
-  EMPFEHLUNG_LABEL, KEIN_KANDIDAT_TEXT, KUER_AM_STUECK_TEXT, LAGE_LABEL,
+  EMPFEHLUNG_LABEL, KEIN_KANDIDAT_TEXT, LAGE_LABEL,
   PRIORITAET_LABEL, STABILITAET_LABEL, trainingsfokus,
   type ElementLage, type GeraetFokus, type Prioritaet,
 } from '../../core/turnen/trainingsfokus'
+import {
+  DURCHGANG_LAGE_LABEL, DURCHGANG_SCHWELLEN, FENSTER_WOCHEN,
+  durchgaengeJeGeraet, durchgaengeLabel, durchgangText, QUALITAET_LABEL,
+  type KuerDurchgaenge,
+} from '../../core/turnen/kuerdurchgaenge'
 
 /** Ein Platz mit seiner Feldgrösse – nie das eine ohne das andere. */
 function platzText(m: Messwert): string | null {
@@ -444,6 +449,19 @@ function TrainingsfokusCard() {
   // nichts davon: Der Fokus aendert sich mit jedem Zaehler.
   const bild = useMemo(() => {
     const analyse = analyseBild(data.gymCompetitions, data.gymResults, data.gymBenchmarks)
+    // Die Kuerdurchgaenge (Phase 2E) gehen als eigener Durchgang ein - sie
+    // sind eine andere Messgroesse als die Elementversuche und werden nirgends
+    // mit ihnen verrechnet.
+    const durchgaenge = durchgaengeJeGeraet({
+      runs: data.gymRoutineRuns,
+      versionen: data.gymRoutineVersions,
+      einheiten: data.workoutSessions,
+      kueren: data.gymRoutines,
+      kuerVerknuepfungen: data.gymRoutineElements,
+      elemente: data.gymElements,
+      heute,
+      tagDifferenz: diffDays,
+    })
     return trainingsfokus({
       analyse: analyse.aktuell,
       verlauf: analyse.verlauf,
@@ -452,27 +470,48 @@ function TrainingsfokusCard() {
       einheiten: data.workoutSessions,
       kueren: data.gymRoutines,
       kuerVerknuepfungen: data.gymRoutineElements,
+      durchgaenge,
       heute,
       tagDifferenz: diffDays,
     })
   }, [
     data.gymCompetitions, data.gymResults, data.gymBenchmarks,
     data.gymElements, data.gymAttempts, data.workoutSessions,
-    data.gymRoutines, data.gymRoutineElements, heute,
+    data.gymRoutines, data.gymRoutineElements,
+    data.gymRoutineRuns, data.gymRoutineVersions, heute,
   ])
 
-  const mitAussage = bild.geraete.filter((g) => g.prioritaet !== 'zu_wenig_daten')
+  /**
+   * Welche Geraete eine Kachel bekommen.
+   *
+   * Nicht nur die mit Priorität: Erfasste Kürdurchgänge sind auch ohne
+   * Vergleichswerte eine Auskunft ("die Kür kommt am Stück durch"). Wer noch
+   * kein Protokoll importiert hat, soll seine Kürstabilität trotzdem sehen.
+   */
+  const mitAussage = bild.geraete.filter(
+    (g) => g.prioritaet !== 'zu_wenig_daten'
+      || (g.durchgaenge?.aktuell.durchgaenge ?? 0) > 0
+      // Auch fruehere Fassungen zaehlen: Nach einer Kueraenderung hat die neue
+      // Fassung noch keinen Durchgang, die alten sind aber eine Auskunft.
+      || (g.durchgaenge?.fruehere.durchgaenge ?? 0) > 0)
 
   return (
     <Card title="Trainingsfokus"
       sub="Was Aufmerksamkeit verdient – und welche erfassten Elemente dafür in Frage kommen">
 
-      <div className="hint-box small">{KUER_AM_STUECK_TEXT}</div>
+      <div className="hint-box small">
+        Beurteilt werden die Elemente der Kür <strong>und</strong> – seit die
+        Durchgänge erfasst werden – die Kür am Stück. Beides steht getrennt:
+        Einzelne Elemente können stehen, während die ganze Übung noch nicht
+        durchkommt.
+      </div>
 
       {mitAussage.length === 0 ? (
         <div className="muted small">
-          Für eine Priorität fehlen die Vergleichswerte. Importiere ein
-          Wettkampfprotokoll – dann steht hier je Gerät, wo der Ansatzpunkt liegt.
+          Für eine Priorität fehlen die Vergleichswerte, und Kürdurchgänge sind
+          noch keine erfasst. Importiere ein Wettkampfprotokoll – dann steht hier
+          je Gerät, wo der Ansatzpunkt liegt. Durchgänge lassen sich unabhängig
+          davon unter <strong>Training</strong> festhalten.
         </div>
       ) : (
         <div className="wk-liste">
@@ -511,8 +550,19 @@ function FokusKarte({ g }: { g: GeraetFokus }) {
           <span className="tf-wert">{FOKUS_LABEL[g.wettkampfFokus]}</span>
         </div>
         <div className="tf-zeile">
-          <span className="tf-name">Training</span>
+          <span className="tf-name">Elemente</span>
           <span className="tf-wert">{LAGE_LABEL[g.lage]}</span>
+        </div>
+        <div className="tf-zeile">
+          <span className="tf-name">Kür am Stück</span>
+          <span className="tf-wert">
+            {g.durchgaenge
+              ? g.durchgaenge.aktuell.durchgaenge === 0
+                ? 'noch kein Durchgang erfasst'
+                : `${DURCHGANG_LAGE_LABEL[g.durchgangsLage]} · `
+                  + durchgaengeLabel(g.durchgaenge.aktuell.durchgaenge)
+              : '—'}
+          </span>
         </div>
         <div className="tf-zeile">
           <span className="tf-name">Empfehlung</span>
@@ -576,6 +626,8 @@ function FokusKarte({ g }: { g: GeraetFokus }) {
           )}
         </div>
 
+        {g.durchgaenge && <DurchgangsBlock d={g.durchgaenge} />}
+
         {g.auffaellige.length > 0 && (
           <div className="tf-block">
             <div className="tf-block-kopf">Auffällige Elemente</div>
@@ -633,6 +685,104 @@ function FokusKarte({ g }: { g: GeraetFokus }) {
           )}
         </div>
       </Collapsible>
+    </div>
+  )
+}
+
+/**
+ * Die Kürdurchgänge eines Geräts – klein und nachrechenbar.
+ *
+ * Die Einzelzahlen stehen daneben, damit sichtbar ist, woraus die Kategorie
+ * entsteht. Sauber heisst: komplett **und** sturzfrei **und**
+ * unterbrechungsfrei **und** ohne Hilfe – alle vier, weil jedes davon im
+ * Wettkampf zählt.
+ *
+ * Durchgänge **früherer Fassungen** stehen getrennt und werden nie hinzugezählt:
+ * Eine geänderte Kür hat andere Elemente und eine andere Schwierigkeit.
+ */
+function DurchgangsBlock({ d }: { d: KuerDurchgaenge }) {
+  const a = d.aktuell
+  const zuletzt = (tage: number | null) =>
+    tage === null ? '—' : tage === 0 ? 'heute' : tage === 1 ? 'gestern' : `vor ${tage} Tagen`
+
+  return (
+    <div className="tf-block">
+      <div className="tf-block-kopf">
+        Kür am Stück · letzte {FENSTER_WOCHEN} Wochen
+      </div>
+
+      {!d.kuer ? (
+        <div className="muted small">
+          Ohne hinterlegte Wettkampfkür gibt es keine Durchgänge zu zählen.
+        </div>
+      ) : a.durchgaenge === 0 ? (
+        <div className="muted small">
+          Noch kein Durchgang erfasst. Wie die Elemente einzeln stehen, sagt
+          nichts darüber, ob die Übung am Stück durchkommt – erfassen lässt sich
+          das unter <strong>Training</strong>.
+        </div>
+      ) : (
+        <>
+          <div className="kd-zahlen">
+            <div className="kd-zahl">
+              <span className="kd-zahl-name">Durchgänge</span>
+              <span>{a.durchgaenge}</span>
+            </div>
+            <div className="kd-zahl">
+              <span className="kd-zahl-name">komplett</span>
+              <span>{a.komplett} von {a.durchgaenge}</span>
+            </div>
+            <div className="kd-zahl">
+              <span className="kd-zahl-name">sturzfrei</span>
+              <span>{a.sturzfrei} von {a.durchgaenge}</span>
+            </div>
+            <div className="kd-zahl">
+              <span className="kd-zahl-name">ohne Absetzen</span>
+              <span>{a.unterbrechungsfrei} von {a.durchgaenge}</span>
+            </div>
+            <div className="kd-zahl">
+              <span className="kd-zahl-name">ohne Hilfe</span>
+              <span>{a.ohneHilfe} von {a.durchgaenge}</span>
+            </div>
+            <div className="kd-zahl">
+              <span className="kd-zahl-name">zuletzt komplett</span>
+              <span>{zuletzt(a.tageHerKomplett)}</span>
+            </div>
+          </div>
+
+          <div className="tf-element-zeile">
+            <strong>Kürstabilität: {DURCHGANG_LAGE_LABEL[a.lage]}</strong>
+            {a.lage === 'zu_wenig_daten'
+              ? ` – unter ${DURCHGANG_SCHWELLEN.mindestDurchgaenge} Durchgängen gibt es keine Aussage.`
+              : ` – ${a.sauber} von ${a.durchgaenge} Durchgängen waren komplett, `
+                + 'sturzfrei, ohne Absetzen und ohne Hilfe.'}
+          </div>
+
+          {d.verlauf.length > 1 && (
+            <div className="kd-liste">
+              {d.verlauf.map(({ run, day }) => (
+                <div key={run.id} className="kd-eintrag">
+                  <span className="kd-eintrag-tag">{formatDay(day)}</span>
+                  <span className="kd-eintrag-text">
+                    {durchgangText(run)}
+                    {run.quality && ` · ${QUALITAET_LABEL[run.quality]}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {d.fruehere.durchgaenge > 0 && (
+        <div className="muted small mt8">
+          Frühere Kürfassung{d.fruehere.fassungen > 1 ? 'en' : ''}:{' '}
+          {durchgaengeLabel(d.fruehere.durchgaenge)}
+          {d.fruehere.fassungen > 1 && ` in ${d.fruehere.fassungen} Fassungen`}.
+          Nicht mitgezählt – eine geänderte Kür hat andere Elemente und eine
+          andere Schwierigkeit.
+        </div>
+      )}
     </div>
   )
 }

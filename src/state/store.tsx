@@ -27,7 +27,7 @@ import type { SyncedTable } from '../db/schema'
 import type {
   Account, Category, Transaction, Budget, Task, CalendarEvent, DayType, DayAssignment, SleepSession, GymElement, GymAttempt,
   GymRoutine, GymRoutineElement, GymRoutineVersion, GymRoutineVersionElement,
-  GymCompetition, GymResult, GymBenchmark,
+  GymCompetition, GymResult, GymBenchmark, GymRoutineRun,
   TimeBlock, Metric, MetricEntry, MetricTarget, Goal, RecurringRule, Exercise,
   WorkoutPlan, WorkoutPlanDay, WorkoutSession, WorkoutSet, BodyMeasurement, Insight,
   ShoppingItem, DayNote, Investment, InvestmentMove, FoodEntry,
@@ -124,6 +124,7 @@ export interface AppData {
   gymCompetitions: GymCompetition[]
   gymResults: GymResult[]
   gymBenchmarks: GymBenchmark[]
+  gymRoutineRuns: GymRoutineRun[]
   importTokens: any[]
   dayAssignments: DayAssignment[]
   shiftPatterns: any[]
@@ -162,7 +163,7 @@ const EMPTY: AppData = {
   accounts: [], categories: [], transactions: [], budgets: [], recurring: [],
   tasks: [], projects: [], events: [], dayTypes: [], dayAssignments: [], sleepSessions: [], importTokens: [], gymElements: [], gymAttempts: [],
   gymRoutines: [], gymRoutineElements: [],
-  gymRoutineVersions: [], gymRoutineVersionElements: [], gymCompetitions: [], gymResults: [], gymBenchmarks: [],
+  gymRoutineVersions: [], gymRoutineVersionElements: [], gymCompetitions: [], gymResults: [], gymBenchmarks: [], gymRoutineRuns: [],
   shiftPatterns: [], holidays: [], timeBlocks: [], metrics: [], metricEntries: [],
   metricTargets: [], exercises: [], workoutPlans: [], workoutPlanDays: [],
   workoutPlanExercises: [], workoutSessions: [], workoutSets: [], bodyMeasurements: [],
@@ -220,6 +221,11 @@ const LADER: Record<string, Lader> = {
   gym_competitions: { schluessel: 'gymCompetitions', laden: () => list<GymCompetition>('gym_competitions', { orderBy: 'day DESC' }) },
   gym_results: { schluessel: 'gymResults', laden: () => list<GymResult>('gym_results') },
   gym_benchmarks: { schluessel: 'gymBenchmarks', laden: () => list<GymBenchmark>('gym_benchmarks') },
+  // Nach sort_order, dann created_at, dann id: sort_order ist nur ein
+  // Sortierwert und darf doppelt vorkommen (zwei Geraete haben offline je
+  // einen Durchgang ergaenzt). Ohne festen Nachrang zeigte jedes Geraet eine
+  // andere Reihenfolge derselben Einheit.
+  gym_routine_runs: { schluessel: 'gymRoutineRuns', laden: () => list<GymRoutineRun>('gym_routine_runs', { orderBy: 'sort_order, created_at, id' }) },
   day_assignments: { schluessel: 'dayAssignments', laden: () => list<DayAssignment>('day_assignments', { orderBy: 'day' }) },
   shift_patterns: { schluessel: 'shiftPatterns', laden: () => list('shift_patterns') },
   holidays: { schluessel: 'holidays', laden: () => list('holidays', { orderBy: 'day' }) },
