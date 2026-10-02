@@ -317,16 +317,37 @@ async function tagebuch(userId: string, tage: number[]): Promise<Response> {
   if (!k) return json({ error: 'nicht_verbunden' }, 409)
 
   const ergebnis: Record<string, unknown> = {}
+  /**
+   * Tage, zu denen KEINE brauchbare Antwort kam.
+   *
+   * Sie dürfen nicht als leere Tage durchgehen. Ein leerer Tag heisst für
+   * LifeHub „in FatSecret wurde alles gelöscht, hier also auch" – bei einem
+   * Netzwackler oder einer Wartungsseite wäre das Datenverlust auf Ansage
+   * (siehe `pruefeTagesantwort` in src/core/fatsecret.ts). Sie fehlen deshalb
+   * in `days` und stehen stattdessen namentlich hier.
+   */
+  const unlesbar: number[] = []
+
   for (const tag of tage.slice(0, 62)) {
-    const text = await oauthRequest({
-      url: FATSECRET_API,
-      method: 'GET',
-      params: { method: 'food_entries.get.v2', format: 'json', date: String(tag) },
-      consumerKey: CONSUMER_KEY,
-      consumerSecret: CONSUMER_SECRET,
-      token: k.oauth_token,
-      tokenSecret: k.oauth_token_secret,
-    })
+    let text: string
+    try {
+      text = await oauthRequest({
+        url: FATSECRET_API,
+        method: 'GET',
+        params: { method: 'food_entries.get.v2', format: 'json', date: String(tag) },
+        consumerKey: CONSUMER_KEY,
+        consumerSecret: CONSUMER_SECRET,
+        token: k.oauth_token,
+        tokenSecret: k.oauth_token_secret,
+      })
+    } catch (err) {
+      // Ein falscher Schlüssel betrifft ALLE Tage – das ist kein Einzelfall
+      // und gehört als Fehler heraus, nicht als „ein Tag fehlt".
+      const t = String((err as Error)?.message ?? err)
+      if (/Invalid Consumer Key|Invalid signature/i.test(t)) throw err
+      unlesbar.push(tag)
+      continue
+    }
     let daten: any = null
     try { daten = JSON.parse(text) } catch { daten = null }
     // FatSecret antwortet auf Fehler mit HTTP 200 und einem error-Objekt.
@@ -337,13 +358,24 @@ async function tagebuch(userId: string, tage: number[]): Promise<Response> {
       if (code === 4 || code === 8 || code === 14) return json({ error: 'anmeldung_abgelaufen' }, 401)
       return json({ error: 'fatsecret', detail: String(daten.error.message ?? '') }, 502)
     }
+    if (daten === null || typeof daten !== 'object' || Array.isArray(daten)) {
+      unlesbar.push(tag)
+      continue
+    }
     ergebnis[String(tag)] = daten
   }
+
+  // Kein einziger Tag durchgekommen: Das ist kein Teilerfolg, sondern ein
+  // Fehlschlag – und er darf nicht als 200 mit leerer Ausbeute erscheinen.
+  if (!Object.keys(ergebnis).length && unlesbar.length) {
+    return json({ error: 'fatsecret_unlesbar', unlesbar }, 502)
+  }
+
   await db(`fatsecret_accounts?user_id=eq.${userId}`, {
     method: 'PATCH',
     body: JSON.stringify({ last_sync_at: new Date().toISOString() }),
   }).catch(() => {})
-  return json({ days: ergebnis })
+  return json({ days: ergebnis, ...(unlesbar.length ? { unlesbar } : {}) })
 }
 
 /**

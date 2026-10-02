@@ -187,6 +187,75 @@ export function nachzuholendeTage(
 }
 
 /**
+ * Wie weit ein Abgleich höchstens zurückgeht, wenn eine Lücke zu schliessen ist.
+ *
+ * Einunddreissig Tage – ein Monat. Darüber hinaus ist es keine Lücke mehr,
+ * sondern Historie, und dafür gibt es den Historienlauf (`historieErneut`).
+ */
+export const HOECHSTZAHL_NACHLAUFTAGE = 31
+
+/**
+ * Die Tage, die dieses Gerät nachholen muss – neueste zuerst.
+ *
+ * ---------------------------------------------------------------------------
+ * Warum das nicht einfach „die letzten drei Tage" sein kann
+ *
+ * Drei Tage decken ab, was in FatSecret nachgetragen und korrigiert wird.
+ * Sie decken NICHT ab, dass LifeHub eine Woche lang nicht geöffnet wurde:
+ * Der laufende Abgleich holte dann heute, gestern und vorgestern – und die
+ * vier Tage davor nie. Sie blieben leer, dauerhaft, ohne dass irgendwo etwas
+ * danebenging. Der Historienlauf half nicht, denn der galt als „fertig".
+ *
+ * Gerechnet wird deshalb ab dem letzten wirklichen Abruf DIESES Geräts:
+ * vom Tag des letzten Abrufs bis heute, mindestens die drei Korrekturtage,
+ * höchstens ein Monat. Das ist keine willkürliche Verlängerung – der
+ * Zeitraum ist genau die Lücke, die entstanden ist, und im Normalfall (jeden
+ * Tag geöffnet) bleibt es bei drei Tagen.
+ *
+ * Der Zeitpunkt kommt als UTC-Zeitstempel herein, der Tag wird örtlich
+ * gerechnet. Zwischen beidem kann ein Tag liegen; deshalb wird einer
+ * draufgelegt. Einmal zu viel zu holen kostet einen Aufruf, einmal zu wenig
+ * einen fehlenden Tag.
+ */
+export function nachlaufTage(opts: {
+  heute: DayString
+  /** Wann dieses Gerät zuletzt einen Abruf VERSUCHT hat (ISO), oder `null`. */
+  zuletzt: string | null
+  /**
+   * Ältester Tag, den ein früherer Lauf nicht bestätigt bekommen hat.
+   *
+   * Zwei getrennte Angaben, und das ist Absicht. `zuletzt` steuert, wie oft
+   * überhaupt abgerufen wird (`MINDESTABSTAND_MS`), und wird nach JEDEM
+   * Versuch gesetzt. Stünde dort nur „zuletzt vollständig", dann bliebe der
+   * Wert bei einem dauerhaft stummen Tag für immer stehen – das Fenster
+   * wüchse täglich bis zum Monat, und jeder Fensterwechsel kostete dann
+   * einunddreissig Aufrufe an FatSecret. Die offene Lücke gehört deshalb in
+   * eine eigene Angabe, die das Fenster nach unten erweitert, ohne die
+   * Abruf-Häufigkeit anzufassen.
+   */
+  abTag?: DayString | null
+  addDays: (d: DayString, n: number) => DayString
+  diffDays: (a: DayString, b: DayString) => number
+  mindestens?: number
+  hoechstens?: number
+}): DayString[] {
+  const mindestens = opts.mindestens ?? NACHLAUF_TAGE
+  const hoechstens = opts.hoechstens ?? HOECHSTZAHL_NACHLAUFTAGE
+  let anzahl = mindestens
+
+  const bisTag = (tag: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tag)) return
+    const luecke = opts.diffDays(tag, opts.heute)
+    if (Number.isFinite(luecke)) anzahl = Math.max(anzahl, luecke + 2)
+  }
+  bisTag((opts.zuletzt ?? '').slice(0, 10))
+  if (opts.abTag) bisTag(opts.abTag)
+
+  anzahl = Math.min(hoechstens, Math.max(1, anzahl))
+  return nachzuholendeTage(opts.heute, opts.addDays, anzahl)
+}
+
+/**
  * Ist ein Abgleich fällig?
  *
  * FatSecret meldet sich nicht von selbst, wenn sich etwas ändert. Gefragt wird

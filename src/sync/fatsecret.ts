@@ -37,6 +37,9 @@ export const MELDUNGEN: Record<string, string> = {
     'FatSecret hat den Zugriff beendet (abgelaufen oder in FatSecret zurückgezogen). Bitte einmal neu verbinden.',
   fatsecret:
     'FatSecret hat die Anfrage abgelehnt.',
+  fatsecret_unlesbar:
+    'FatSecret hat zu keinem der angefragten Tage eine lesbare Antwort geschickt. '
+    + 'Das ist meist vorübergehend – dein Ernährungstagebuch in LifeHub bleibt unverändert.',
   nicht_veroeffentlicht:
     'Die FatSecret-Funktion ist auf dem Server noch nicht veröffentlicht (supabase functions deploy fatsecret).',
   serverfehler:
@@ -183,10 +186,29 @@ export async function fatsecretMonate(
   return (daten?.months ?? {}) as Record<string, any>
 }
 
+/**
+ * Was ein Abruf des Tagebuchs zurückbringt.
+ *
+ * `unlesbar` ist der Grund, warum das kein blosses `Record` mehr ist: Ein
+ * Tag, zu dem keine brauchbare Antwort kam, DARF nicht wie ein leerer Tag
+ * behandelt werden – sonst löscht der Abgleich die Mahlzeiten dieses Tages
+ * (siehe `pruefeTagesantwort` in core/fatsecret.ts). Fehlt er nur still in
+ * `tage`, fällt er auch niemandem auf; deshalb steht er ausdrücklich hier.
+ */
+export interface Tagebuch {
+  /** Je Tag (als Tage seit dem 1.1.1970) die Rohantwort von FatSecret. */
+  tage: Record<string, any>
+  /** Angefragte Tage ohne brauchbare Antwort. */
+  unlesbar: number[]
+}
+
 export async function fatsecretTagebuch(
   settings: { sync_url: string; sync_key: string },
   dates: number[],
-): Promise<Record<string, any>> {
+): Promise<Tagebuch> {
   const daten = await ruf(settings, 'diary', { dates })
-  return (daten?.days ?? {}) as Record<string, any>
+  return {
+    tage: (daten?.days ?? {}) as Record<string, any>,
+    unlesbar: Array.isArray(daten?.unlesbar) ? daten.unlesbar.map(Number) : [],
+  }
 }

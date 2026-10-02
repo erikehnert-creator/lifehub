@@ -119,6 +119,44 @@ export function parseMonthDays(raw: any): DayString[] {
   return [...new Set(out)].sort()
 }
 
+/**
+ * Ist das überhaupt eine Antwort für diesen Tag?
+ *
+ * ---------------------------------------------------------------------------
+ * Der Unterschied, an dem Tageswerte verschwunden sind
+ *
+ * „An diesem Tag steht nichts im Tagebuch" und „zu diesem Tag kam keine
+ * brauchbare Antwort" sehen nach dem Auswerten gleich aus: In beiden Fällen
+ * liefert `parseFoodEntries()` eine leere Liste. Die FOLGEN sind aber
+ * gegensätzlich.
+ *
+ *   leerer Tag     → Was in LifeHub steht, wurde in FatSecret gelöscht und
+ *                    muss hier ebenfalls weg. Das ist richtig so.
+ *   keine Antwort  → Über den Tag ist NICHTS bekannt. Ihn wie einen leeren zu
+ *                    behandeln heisst: die Mahlzeiten des Tages löschen und
+ *                    die Tageswerte gleich mit – wegen einer Wartungsseite,
+ *                    eines abgeschnittenen Rumpfes oder eines Netzwacklers.
+ *                    Gemeldet wurde das als „1 Tag abgeglichen".
+ *
+ * Deshalb wird hier unterschieden, und zwar an einer Stelle: Eine Antwort ist
+ * brauchbar, wenn sie ein Objekt ist. Ein leeres Objekt zählt dazu – so
+ * antwortet FatSecret auf einen Tag ohne Einträge. `null`, ein Text, eine
+ * Zahl und ein `error`-Objekt zählen nicht.
+ */
+export type Tagesantwort =
+  | { brauchbar: true }
+  | { brauchbar: false; grund: string }
+
+export function pruefeTagesantwort(raw: unknown): Tagesantwort {
+  if (raw === undefined) return { brauchbar: false, grund: 'keine Antwort für diesen Tag' }
+  if (raw === null) return { brauchbar: false, grund: 'die Antwort war nicht lesbar' }
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { brauchbar: false, grund: 'die Antwort hatte nicht die erwartete Form' }
+  }
+  if ((raw as any).error) return { brauchbar: false, grund: 'FatSecret hat einen Fehler gemeldet' }
+  return { brauchbar: true }
+}
+
 export function parseFoodEntries(raw: any, fallbackDay?: DayString): FatSecretEntry[] {
   const container = raw?.food_entries ?? raw
   const roh = container?.food_entry

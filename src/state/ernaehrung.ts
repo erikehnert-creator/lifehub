@@ -16,21 +16,21 @@
  */
 import { useCallback, useState } from 'react'
 import { useApp } from './store'
-import { addDays, nowIso, todayString } from '../core/dates'
+import { addDays, diffDays, nowIso, todayString } from '../core/dates'
 import type { DayString } from '../core/dates'
 import {
   aggregateDay, dayToEpochDay, oauthRueckweg, parseFoodEntries, parseMonthDays,
-  planNutritionMetrics, reconcileFoodEntries, type FatSecretEntry,
+  planNutritionMetrics, pruefeTagesantwort, reconcileFoodEntries, type FatSecretEntry,
 } from '../core/fatsecret'
 import {
-  LEERER_STAND, MINDESTABSTAND_MS, abgleichFaellig, ersterTagDesMonats, nachzuholendeTage,
+  LEERER_STAND, MINDESTABSTAND_MS, abgleichFaellig, ersterTagDesMonats, nachlaufTage,
   naechsteMonate, standFuerNeuenLauf, standNachMonaten,
   type AbgleichAnlass, type ImportStand, type MonatsBefund,
 } from '../core/fatsecretImport'
 import { PUBLIC_APP_URL } from '../sync/config'
 import {
   FatSecretFehler, fatsecretMonate, fatsecretStatus, fatsecretTagebuch, fatsecretTrennen,
-  fatsecretVerbinden, type FatSecretStatus,
+  fatsecretVerbinden, type FatSecretStatus, type Tagebuch,
 } from '../sync/fatsecret'
 import { list } from '../db/repo'
 
@@ -78,13 +78,54 @@ function geraetZuletztMerken(wann: string): void {
   try { localStorage.setItem(GERAET_ZULETZT_KEY, wann) } catch { /* bleibt flüchtig */ }
 }
 
+/**
+ * Der älteste Tag, den ein Abruf dieses Geräts nicht bestätigt bekommen hat.
+ *
+ * Getrennt von `GERAET_ZULETZT_KEY`, weil beide Angaben verschiedene Fragen
+ * beantworten: „wann wurde zuletzt VERSUCHT" steuert die Häufigkeit, „ab wann
+ * ist noch etwas offen" steuert, wie weit das Fenster zurückreicht. Fasste man
+ * sie zusammen, hielte ein einziger dauerhaft stummer Tag den Zeitstempel für
+ * immer fest – und jeder Fensterwechsel holte danach einen ganzen Monat.
+ *
+ * Ebenfalls je Gerät und nicht synchronisiert: Was DIESES Gerät gesehen hat,
+ * geht kein anderes etwas an.
+ */
+export const GERAET_LUECKE_KEY = 'lifehub.fatsecret.geraetLuecke'
+let geraetLueckeFluechtig: string | null = null
+
+function offeneLuecke(): DayString | null {
+  let roh: string | null = null
+  try { roh = localStorage.getItem(GERAET_LUECKE_KEY) } catch { roh = null }
+  const wert = roh ?? geraetLueckeFluechtig
+  return wert && /^\d{4}-\d{2}-\d{2}$/.test(wert) ? wert : null
+}
+
+function lueckeMerken(tag: DayString | null): void {
+  geraetLueckeFluechtig = tag
+  try {
+    if (tag) localStorage.setItem(GERAET_LUECKE_KEY, tag)
+    else localStorage.removeItem(GERAET_LUECKE_KEY)
+  } catch { /* bleibt flüchtig */ }
+}
+
 export interface AbgleichErgebnis {
+  /** Nur wahr, wenn JEDER angefragte Tag verarbeitet wurde. */
   ok: boolean
   tage: number
   neu: number
   geaendert: number
   entfernt: number
   ersetzt: number
+  /**
+   * Angefragte Tage ohne brauchbare Antwort – übersprungen, nicht geleert.
+   *
+   * Sie sind der Grund, warum `ok` nicht einfach „es hat nichts geworfen"
+   * bedeutet: Ein Abgleich, der die Hälfte der Tage nicht gesehen hat, ist
+   * kein erfolgreicher Abgleich, auch wenn jeder Netzwerkaufruf geklappt hat.
+   */
+  unvollstaendig: number
+  /** Die Tage, die übersprungen wurden – für die Anzeige, nicht für die Logik. */
+  uebersprungen: DayString[]
   meldung: string
 }
 
@@ -159,11 +200,14 @@ export function useFatSecret() {
   const abgleichen = useCallback(async (anzahlTage = ABGLEICH_TAGE): Promise<AbgleichErgebnis> => {
     setLaeuft(true)
     setFehler(null)
-    const leer: AbgleichErgebnis = { ok: false, tage: 0, neu: 0, geaendert: 0, entfernt: 0, ersetzt: 0, meldung: '' }
+    const leer: AbgleichErgebnis = {
+      ok: false, tage: 0, neu: 0, geaendert: 0, entfernt: 0, ersetzt: 0,
+      unvollstaendig: 0, uebersprungen: [], meldung: '',
+    }
     try {
       const tage = abzugleichendeTage(anzahlTage)
-      const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
-      const ergebnis = mutations.batch(() => anwenden(tage, roh, mutations, data))
+      const tagebuch = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
+      const ergebnis = mutations.batch(() => anwenden(tage, tagebuch, mutations, data))
       geraetZuletztMerken(nowIso())
       setStatus((s) => (s ? { ...s, last_sync_at: nowIso() } : s))
       return ergebnis
@@ -214,7 +258,8 @@ export function useFatSecret() {
     //    Monatsübersicht nicht hat. In Häppchen, damit weder FatSecret noch
     //    die Edge Function in einem Zug überlastet werden.
     const alleTage = befunde.flatMap((b) => b.tage).sort().reverse()
-    let geschrieben = 0
+    /** Tage, zu denen FatSecret nichts Brauchbares geliefert hat. */
+    const luecken = new Set<DayString>()
     for (let i = 0; i < alleTage.length; i += TAGE_JE_ANFRAGE) {
       const haeppchen = alleTage.slice(i, i + TAGE_JE_ANFRAGE)
       const tagesdaten = await fatsecretTagebuch(settings, haeppchen.map(dayToEpochDay))
@@ -224,10 +269,26 @@ export function useFatSecret() {
       // und damit 900 Neuladungen. Die alte Fassung hat den Import daran nicht
       // nur verlangsamt, sondern die Seite zum Absturz gebracht.
       const e = mutations.batch(() => anwenden(haeppchen, tagesdaten, mutations, data))
-      geschrieben += e.neu + e.geaendert
+      for (const t of e.uebersprungen) luecken.add(t)
     }
 
-    const neuerStand = standNachMonaten(stand, befunde)
+    /* Nur die Monate abhaken, die WIRKLICH durch sind.
+    
+       Vorher wanderte `geprueftBis` in jedem Fall weiter – auch über einen
+       Monat, dessen Tage gar nicht angekommen waren. Der Lauf ging dann zum
+       nächsten Monat, erreichte irgendwann „fertig", und die Lücke war
+       dauerhaft: Der laufende Abgleich sieht nur die letzten Tage, und der
+       Historienlauf hielt sich für erledigt. Jetzt bleibt der erste
+       unvollständige Monat stehen, und die nächste Runde beginnt wieder bei
+       ihm. Die Monate werden von neu nach alt abgearbeitet, deshalb genügt
+       es, beim ersten Loch abzubrechen. */
+    const vollstaendig: MonatsBefund[] = []
+    for (const b of [...befunde].sort((x, y) => (x.monat < y.monat ? 1 : -1))) {
+      if (b.tage.some((t) => luecken.has(t))) break
+      vollstaendig.push(b)
+    }
+
+    const neuerStand = standNachMonaten(stand, vollstaendig)
     mutations.setSetting('fatsecret_import', neuerStand)
     return { weiter: !neuerStand.fertig, tage: alleTage.length, stand: neuerStand }
   }, [settings.sync_url, settings.sync_key, mutations, data])
@@ -255,15 +316,39 @@ export function useFatSecret() {
     const faellig = abgleichFaellig(geraetZuletzt(), Date.now(), MINDESTABSTAND_MS[anlass])
     if (!faellig && stand.fertig) return false
 
-    const dreiTageHolen = async () => {
-      const tage = nachzuholendeTage(todayString(), addDays)
-      const roh = await fatsecretTagebuch(settings, tage.map(dayToEpochDay))
-      mutations.batch(() => anwenden(tage, roh, mutations, data))
+    /**
+     * Die letzten Tage nachholen – so viele, wie seit dem letzten Abruf
+     * dieses Geräts vergangen sind.
+     *
+     * Im Alltag sind das die drei Korrekturtage. War LifeHub eine Woche zu,
+     * sind es sieben; höchstens ein Monat (`nachlaufTage`). Vorher waren es
+     * immer genau drei – und alles, was länger zurücklag, wurde nie geholt.
+     *
+     * In Häppchen, weil die Edge Function je Tag einen Aufruf an FatSecret
+     * macht und bei dreissig Tagen in einem Zug in ihre Zeitgrenze liefe.
+     */
+    const letzteTageHolen = async () => {
+      const tage = nachlaufTage({
+        heute: todayString(), zuletzt: geraetZuletzt(), abTag: offeneLuecke(), addDays, diffDays,
+      })
+      const offen: DayString[] = []
+      for (let i = 0; i < tage.length; i += TAGE_JE_ANFRAGE) {
+        const haeppchen = tage.slice(i, i + TAGE_JE_ANFRAGE)
+        const tagebuch = await fatsecretTagebuch(settings, haeppchen.map(dayToEpochDay))
+        const e = mutations.batch(() => anwenden(haeppchen, tagebuch, mutations, data))
+        offen.push(...e.uebersprungen)
+      }
+      // Versucht wurde es – das steuert, wann der nächste Lauf fällig ist.
       geraetZuletztMerken(nowIso())
+      // Was dabei offen blieb, hält das Fenster beim nächsten Mal so weit
+      // offen, dass der Tag wieder mitkommt. Ohne diese Merkstelle waere er
+      // nach drei Tagen aus dem Fenster gewandert und nie wieder geholt worden.
+      lueckeMerken(offen.length ? [...offen].sort()[0] : null)
+      return offen.length === 0
     }
 
     try {
-      if (faellig) await dreiTageHolen()
+      if (faellig) await letzteTageHolen()
       // Der Stand NACH dem Importschritt – und zwar der, den der Schritt
       // zurückgibt, nicht der aus `data`.
       //
@@ -277,7 +362,7 @@ export function useFatSecret() {
       // Eben fertig geworden: Die drei Tage noch einmal frisch holen. Ein
       // Erstimport über Jahre dauert, und was währenddessen in FatSecret
       // eingetragen wurde, soll nicht bis zum nächsten Öffnen warten.
-      if (!stand.fertig && danach.fertig && !faellig) await dreiTageHolen()
+      if (!stand.fertig && danach.fertig && !faellig) await letzteTageHolen()
       mutations.setSetting('fatsecret_import', { ...danach, zuletzt: nowIso() })
       return !danach.fertig
     } catch (err) {
@@ -321,19 +406,40 @@ function ernaehrungsMetriken(data: ReturnType<typeof useApp>['data']) {
     .map((m) => ({ id: m.id, key: m.key }))
 }
 
+/**
+ * Die Antworten auf die Tage anwenden, für die es welche gibt.
+ *
+ * ---------------------------------------------------------------------------
+ * Der Unterschied zwischen „leer" und „keine Antwort"
+ *
+ * Vorher stand hier `if (antwort === undefined) continue` – und das war die
+ * einzige Absicherung. Sie griff aber nur, wenn der Tag ganz fehlte. Kam er
+ * als `null` zurück (die Edge Function setzte das, sobald sich die Antwort
+ * von FatSecret nicht als JSON lesen liess – Wartungsseite, abgeschnittener
+ * Rumpf), dann las `parseFoodEntries(null)` eine leere Liste. Und eine leere
+ * Liste heisst hier: „in FatSecret wurde alles gelöscht." Der Abgleich
+ * entfernte daraufhin die Mahlzeiten dieses Tages UND seine Tageswerte –
+ * und meldete „1 Tag abgeglichen".
+ *
+ * Jetzt entscheidet `pruefeTagesantwort()`, und ein Tag ohne brauchbare
+ * Antwort wird übersprungen und gezählt. Was in LifeHub steht, bleibt
+ * stehen; beim nächsten Abgleich wird der Tag erneut geholt.
+ */
 function anwenden(
   tage: DayString[],
-  roh: Record<string, any>,
+  tagebuch: Tagebuch,
   mutations: ReturnType<typeof useApp>['mutations'],
   data: ReturnType<typeof useApp>['data'],
 ): AbgleichErgebnis {
   const syncedAt = nowIso()
   const metriken = ernaehrungsMetriken(data)
   let neu = 0, geaendert = 0, entfernt = 0, ersetzt = 0, verarbeitet = 0
+  const uebersprungen: DayString[] = []
 
   for (const tag of tage) {
-    const antwort = roh[String(dayToEpochDay(tag))]
-    if (antwort === undefined) continue
+    const antwort = tagebuch.tage[String(dayToEpochDay(tag))]
+    const geprueft = pruefeTagesantwort(antwort)
+    if (!geprueft.brauchbar) { uebersprungen.push(tag); continue }
     const eintraege: FatSecretEntry[] = parseFoodEntries(antwort, tag)
 
     /* ------------------------------------------------ einzelne Lebensmittel */
@@ -398,9 +504,21 @@ function anwenden(
   if (geaendert) teile.push(`${geaendert} aktualisiert`)
   if (entfernt) teile.push(`${entfernt} entfernt`)
   if (ersetzt) teile.push(`${ersetzt} eigene Eingabe durch FatSecret ersetzt`)
-  const meldung = teile.length
+  const kern = teile.length
     ? `${verarbeitet} Tage abgeglichen: ${teile.join(' · ')}.`
     : `${verarbeitet} Tage abgeglichen – alles war schon aktuell.`
+  // Übersprungene Tage gehören in die Meldung, nicht nur ins Ergebnisobjekt:
+  // „7 Tage abgeglichen", während drei davon gar nicht angesehen wurden, ist
+  // genau die Erfolgsmeldung, die man nicht haben will.
+  const meldung = uebersprungen.length
+    ? `${kern} ${uebersprungen.length} Tag(e) hat FatSecret nicht beantwortet `
+      + `(${uebersprungen.slice(0, 3).join(', ')}${uebersprungen.length > 3 ? ' …' : ''}) – `
+      + 'sie bleiben unverändert und werden beim nächsten Mal erneut geholt.'
+    : kern
 
-  return { ok: true, tage: verarbeitet, neu, geaendert, entfernt, ersetzt, meldung }
+  return {
+    ok: uebersprungen.length === 0,
+    tage: verarbeitet, neu, geaendert, entfernt, ersetzt,
+    unvollstaendig: uebersprungen.length, uebersprungen, meldung,
+  }
 }

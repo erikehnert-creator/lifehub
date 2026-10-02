@@ -62,6 +62,15 @@ const ausEpoch = (n) => new Date(n * 86400000).toISOString().slice(0, 10)
  */
 const tagebuch = new Map()
 
+/**
+ * Tage, zu denen der Nachbau KEINE brauchbare Antwort gibt.
+ *
+ * Bildet nach, was im Betrieb vorkommt: eine Wartungsseite, ein
+ * abgeschnittener Rumpf, ein Netzwackler. Genau daran hing der Datenverlust –
+ * `null` statt einer Antwort wurde wie „der Tag ist leer" gelesen.
+ */
+const stilleTage = new Set()
+
 function eintrag(id, name, werte = {}) {
   return {
     food_entry_id: id, food_id: '900', food_entry_name: name,
@@ -134,12 +143,18 @@ const server = http.createServer((req, res) => {
         const tage = (daten.dates ?? []).map(ausEpoch)
         diaryAufrufe.push(tage)
         const out = {}
+        const unlesbar = []
         for (const d of daten.dates ?? []) {
           const tag = ausEpoch(d)
+          // Ein Tag, zu dem FatSecret nichts Lesbares geliefert hat. Die echte
+          // Edge Function nimmt ihn aus `days` heraus und nennt ihn unter
+          // `unlesbar`; LifeHub muss ihn dann UEBERSPRINGEN und nicht als
+          // leeren Tag behandeln - sonst loescht der Abgleich die Mahlzeiten.
+          if (stilleTage.has(tag)) { unlesbar.push(d); continue }
           const e = tagebuch.get(tag)
           out[String(d)] = e && e.length ? { food_entries: { food_entry: e } } : { food_entries: {} }
         }
-        return antwort(res, 200, { days: out })
+        return antwort(res, 200, { days: out, ...(unlesbar.length ? { unlesbar } : {}) })
       }
       return antwort(res, 200, {})
     })
@@ -222,6 +237,37 @@ async function warteAufImport(p, ms = 420000) {
 }
 
 /** Den Wert einer Metrik auf der Ernährungsseite ablesen – dort, wo Erik schaut. */
+/**
+ * Auf „Jetzt abgleichen" druecken – und vorher abwarten, dass der Knopf
+ * ueberhaupt da ist.
+ *
+ * Waehrend ein Abgleich laeuft, heisst der Knopf „Wird geholt …" und ist
+ * gesperrt. Ein festes waitForTimeout davor ist ein Wettrennen: Es geht so
+ * lange gut, bis ein Abgleich einmal eine halbe Sekunde laenger braucht.
+ */
+async function abgleichKlicken(p, ms = 45000) {
+  // Erst auf die Seite, auf der der Knopf steht. `wertAufErnaehrungsseite`
+  // wechselt zwischendurch nach /tracking – ohne diese Zeile wartet der
+  // Aufrufer auf einen Knopf, der auf der aktuellen Seite gar nicht vorkommt.
+  if (!/#\/einstellungen\/ernaehrung/.test(p.url())) {
+    await p.goto(DATEI + '#/einstellungen/ernaehrung')
+    await p.waitForTimeout(700)
+  }
+  const bis = Date.now() + ms
+  const knopf = p.locator('button', { hasText: 'Jetzt abgleichen' }).first()
+  let letzter = ''
+  while (Date.now() < bis) {
+    try {
+      if (await knopf.count() && await knopf.isEnabled()) {
+        await knopf.click({ timeout: 5000 })
+        return
+      }
+    } catch (e) { letzter = String(e?.message ?? e).split('\n')[0] }
+    await p.waitForTimeout(400)
+  }
+  throw new Error(`„Jetzt abgleichen" wurde nicht klickbar${letzter ? ` (${letzter})` : ''}`)
+}
+
 async function wertAufErnaehrungsseite(p, tag, beschriftung) {
   await geh(p, '/tracking')
   await p.waitForTimeout(900)
@@ -451,7 +497,7 @@ async function main() {
   /* ------------------------ 7. Korrektur von gestern kommt an */
   await p.goto(DATEI + '#/einstellungen/ernaehrung')
   await p.waitForTimeout(800)
-  await p.locator('button', { hasText: 'Jetzt abgleichen' }).first().click()
+  await abgleichKlicken(p)
   await p.waitForTimeout(4000)
   const gestern = await wertAufErnaehrungsseite(p, tagVor(1), 'Kalorien')
   pruefe('Korrektur von gestern wird übernommen', gestern === '555', `abgelesen: ${gestern}`)
@@ -460,7 +506,7 @@ async function main() {
   tagebuch.set(heute, [])
   await p.goto(DATEI + '#/einstellungen/ernaehrung')
   await p.waitForTimeout(500)
-  await p.locator('button', { hasText: 'Jetzt abgleichen' }).first().click()
+  await abgleichKlicken(p)
   await p.waitForTimeout(4000)
   const nachLoeschen = await wertAufErnaehrungsseite(p, heute, 'Kalorien')
   pruefe('Gelöschter FatSecret-Eintrag räumt den Tageswert ab',
@@ -476,7 +522,7 @@ async function main() {
   await p.goto(DATEI + '#/einstellungen/ernaehrung')
   await p.waitForTimeout(500)
   for (let i = 0; i < 2; i++) {
-    await p.locator('button', { hasText: 'Jetzt abgleichen' }).first().click()
+    await abgleichKlicken(p)
     await p.waitForTimeout(3000)
   }
   const wiederKcal = await wertAufErnaehrungsseite(p, heute, 'Kalorien')
@@ -497,6 +543,63 @@ async function main() {
     const altWert = await wertAufErnaehrungsseite(p, ALT, 'Kalorien')
     pruefe('Die alte Korrektur ist angekommen', altWert === '777', `abgelesen: ${altWert}`)
   }
+
+  /* ------- 11. Ein Tag ohne Antwort loescht nichts (und wird nachgeholt) */
+  // Ausgangslage: heute steht ein Eintrag mit 400 kcal.
+  tagebuch.set(heute, [eintrag('e-heute', 'Haferflocken')])
+  await p.goto(DATEI + '#/einstellungen/ernaehrung')
+  await p.waitForTimeout(500)
+  await abgleichKlicken(p)
+  await p.waitForTimeout(3000)
+  const vorStille = await wertAufErnaehrungsseite(p, heute, 'Kalorien')
+  pruefe('Ausgangslage steht', vorStille === '400', `abgelesen: ${vorStille}`)
+
+  // Jetzt antwortet FatSecret zu heute nicht mehr brauchbar. Der Eintrag ist
+  // aber NICHT geloescht - er ist nur unbekannt.
+  stilleTage.add(heute)
+  await abgleichKlicken(p)
+  await p.waitForTimeout(3500)
+  // Die Meldung steht auf der Einstellungsseite – also HIER lesen, bevor
+  // `wertAufErnaehrungsseite` nach /tracking wechselt.
+  const meldungStille = await p.evaluate(() => document.body.innerText)
+  pruefe('Der Teilerfolg wird als solcher gemeldet',
+    /nicht beantwortet/i.test(meldungStille),
+    (meldungStille.match(/\d+ Tage abgeglichen[^\n]*/) ?? ['(keine Meldung gefunden)'])[0])
+  const beiStille = await wertAufErnaehrungsseite(p, heute, 'Kalorien')
+  pruefe('Ein Tag ohne Antwort loescht die Tageswerte nicht',
+    beiStille === '400', `abgelesen: "${beiStille}"`)
+
+  // Antwortet FatSecret wieder, kommt die Aenderung an - der Tag war nur
+  // aufgeschoben, nicht verloren.
+  stilleTage.delete(heute)
+  tagebuch.set(heute, [eintrag('e-heute', 'Haferflocken', { calories: '410' })])
+  await abgleichKlicken(p)
+  await p.waitForTimeout(3500)
+  const nachStille = await wertAufErnaehrungsseite(p, heute, 'Kalorien')
+  pruefe('Der uebersprungene Tag wird beim naechsten Mal nachgeholt',
+    nachStille === '410', `abgelesen: "${nachStille}"`)
+
+  /* ----------- 12. Eine Woche nicht geoeffnet: die Luecke wird geschlossen */
+  // Fuenf Tage zurueck etwas eintragen, das der Dreitagesblick nie gesehen
+  // haette, und den letzten Abruf dieses Geraets auf vor acht Tagen setzen.
+  const luecke = tagVor(5)
+  tagebuch.set(luecke, [eintrag('e-luecke', 'Linsen', { calories: '333' })])
+  diaryAufrufe = []
+  await p.evaluate(() => localStorage.setItem('lifehub.fatsecret.geraetZuletzt',
+    new Date(Date.now() - 8 * 86400000).toISOString()))
+  await p.goto('about:blank')
+  await p.goto(DATEI + '#/tracking')
+  await warteAufApp(p)
+  let geholt = []
+  for (let i = 0; i < 50; i++) {
+    await p.waitForTimeout(500)
+    geholt = diaryAufrufe.flat()
+    if (geholt.includes(luecke)) break
+  }
+  pruefe('Nach acht Tagen Pause wird die Luecke mitgeholt',
+    geholt.includes(luecke), `geholt: ${[...new Set(geholt)].sort().join(', ') || '(nichts)'}`)
+  const lueckenWert = await wertAufErnaehrungsseite(p, luecke, 'Kalorien')
+  pruefe('Der Tag aus der Luecke steht danach da', lueckenWert === '333', `abgelesen: "${lueckenWert}"`)
 
   pruefe('Keine Fehler in der Konsole', konsole.length === 0, konsole.slice(0, 2).join(' | '))
 
