@@ -88,7 +88,20 @@ node tests/ballaststoffe-e2e.mjs    # zwei Geräte, eine doppelte Metrik
 node tests/fatsecret-alltag-e2e.mjs # Ernährung holt sich selbst nach
 node tests/umbuchung-e2e.mjs        # Umbuchung zwischen zwei Konten
 node tests/zusammenhaenge-e2e.mjs   # Zusammenhänge ohne Ursachenbehauptung
+node tests/schlaf-e2e.mjs           # Kurzbefehl -> Edge Function -> Anzeige
+node tests/sync-schema-e2e.mjs      # fehlende Servertabellen als EIN Hinweis
 node tests/performance-benchmark.mjs
+
+node tests/turnen-e2e.mjs                 # Elemente, Versuche, Status
+node tests/turnen-analyse-e2e.mjs         # Leistungsanalyse, Konkurrenzvergleich
+node tests/turnen-kueren-e2e.mjs          # Küren und Fassungen
+node tests/turnen-kuerdurchgaenge-e2e.mjs # Durchgänge, Wettkampfstabilität
+node tests/turnen-trainingsfokus-e2e.mjs  # Prioritäten und Empfehlungen
+node tests/turnen-trainingsplanung-e2e.mjs # Phase 3A
+node tests/turnen-wochenplanung-e2e.mjs   # Phase 3B
+node tests/turnen-wettkampf-e2e.mjs       # Wettkampf und PDF
+node tests/turnen-import-e2e.mjs          # Protokollimport in der Oberfläche
+node tests/turnen-benchmark.mjs
 ```
 
 `sync-e2e.mjs` und `sync-ganzzahlen-e2e.mjs` bringen ihren Server selbst mit.

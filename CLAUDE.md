@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 1.760 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.916 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **1.779**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **1.935**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -150,6 +150,36 @@ Prozentzahl in der eigenen App. Was LifeHub daraus machte, waere LifeHubs Zahl -
 sie darf nicht als Sleep-Cycle-Wert ausgegeben werden. Die Bewertung leistet der
 Zielbereich von `sleep_h`.
 
+**Die Verarbeitung steht in `verarbeite.ts`, nicht in `index.ts`** (seit
+30.09.2026). `index.ts` ist nur noch die Deno-Huelle: Umgebung, CORS,
+Tabellenzugriff, `Deno.serve`. Autorisierung, Rumpf, Schreibentscheidung und
+Rueckgabe liegen in `verarbeite.ts` und sind von
+`tests/schlaf-endpunkt.test.ts` aus aufrufbar. Solange das alles in `index.ts`
+stand, lief es nur auf Deno - und war damit von keiner Pruefung erreichbar.
+Genau dort sassen zwei Fehler:
+
+1. **Eine geloeschte Nacht kam nie zurueck.** Die Abfrage auf die vorhandene
+   Zeile las `deleted_at` nicht mit. Lag die Nacht im Papierkorb und schickte
+   der Kurzbefehl dieselben Werte noch einmal, entschied der Vergleich auf
+   „gleich" - es wurde nichts geschrieben, und die Antwort meldete
+   `unveraendert: 1`. In LifeHub blieb die Nacht unsichtbar, bei jedem Versuch
+   aufs Neue.
+2. **Der Server konnte zwei Zeilen fuer denselben Tag bekommen.** Gesucht
+   wurde nur ueber die abgeleitete ID. Lag fuer den Tag eine Zeile mit einer
+   ANDEREN ID, legte die Funktion eine zweite an. Auf dem Server stoert das
+   niemanden; auf dem Geraet ist `day` UNIQUE, und beim Holen loescht
+   `loeseSchluesselkollision()` eine der beiden - moeglicherweise die frisch
+   importierte, ohne Meldung. Gesucht wird deshalb ueber `(user_id, day)`.
+
+**Eine einzelne kaputte Probe kippt die Sendung nicht mehr.** Vorher war eine
+Probe mit leerem Feld „Wert" ein 400 fuer die ganze Uebertragung - und der
+Kurzbefehl schickt drei Tage Apple Health auf einmal. Jetzt faellt der einzelne
+Eintrag heraus, wird gezaehlt und in der Antwort benannt
+(`empfangen`/`angenommen`/`zurueckgewiesen`/`nicht_deutbar`). Abgewiesen wird
+die Sendung nur noch, wenn NICHTS Brauchbares uebrig bleibt - ein „200, 0
+Naechte" ohne Erklaerung soll es nicht geben. Streng bleibt die Verpackung:
+leerer Rumpf, JSON das keines ist, Hoechstzahl.
+
 **Nach jeder Aenderung unter `supabase/functions/schlaf/` reicht ein Push nicht:**
 
 ```
@@ -160,7 +190,8 @@ npx supabase functions deploy schlaf --no-verify-jwt
 sondern das Importtoken. Geprueft wird in der Funktion, nicht davor.
 
 ```
-node tests/schlaf-e2e.mjs   # Anzeige, Tageswert, zweiter Abgleich, PC<->Handy
+npx vitest run tests/schlaf-endpunkt.test.ts   # Anfrage -> Verarbeitung -> Tabelle
+node tests/schlaf-e2e.mjs   # Kurzbefehl -> Edge Function -> Abgleich -> Anzeige
 ```
 
 ## Eindeutige Spalten: die ID muss sich daraus ableiten
@@ -469,6 +500,80 @@ node tests/turnen-trainingsplanung-e2e.mjs   # ohne Daten -> gutes Training ->
                                              # Vorschlag reagiert jedes Mal
 ```
 
+### Die Wochenplanung verteilt nur - sie bewertet nichts neu
+
+Seit dem 28.09.2026 (Phase 3B) beantwortet LifeHub "an welchen kommenden
+Trainingstagen setze ich welche Schwerpunkte?": `core/turnen/wochenplanung.ts`,
+angezeigt als zweite Ansicht **Kommende Einheiten** im Block Naechstes Training
+(`screens/turnen/Wochenplan.tsx`). **Keine Tabelle, keine Migration.**
+
+**Ein Turntermin ist eine `workout_sessions`-Zeile mit `status = 'planned'` und
+`discipline = 'turnen'`** - dieselbe Tabelle wie die absolvierten Einheiten und
+dieselbe Statuslogik, die `Tracking` und `Heute` schon benutzen. Es gibt deshalb
+keinen zweiten Kalender, keine Wochentagsliste im Quelltext und kein eigenes
+Terminmodell. Ein hier geplanter Termin erscheint von selbst unter Tracking ->
+Geplant und auf Heute.
+
+**Warum nicht aus `workout_plan_days`?** Geprueft: Die Tabelle kennt keine
+Disziplin - ob ein Plantag Turnen oder Kraft ist, steht nur im freien Text.
+Tagesarten unterscheiden Arbeit/frei, Kalendereintraege und Aufgaben sind freier
+Text. Raten waere schlechter als fragen, deshalb gibt es eine kleine
+Anlegemoeglichkeit in der Wochenansicht.
+
+**Der Trainingseditor unter `Tracking` setzt die Disziplin mit** (seit
+30.09.2026). Vorher konnte er sie nicht setzen, und eine dort angelegte Einheit
+blieb ohne `discipline` - der Turnenbereich kannte sie damit nicht: Ein
+geplanter Turntermin fehlte in den kommenden Einheiten, eine erfasste Einheit
+fehlte unter "Einheiten gesamt". Zugeordnet wird ueber das Feld, NICHT ueber den
+Titel - "Turntraining" hinzuschreiben ist eine Vermutung, keine Zuordnung. Beim
+Bearbeiten ist der Anfangswert die eigene Disziplin der Einheit, sonst ginge sie
+beim Speichern verloren. `turnen-wochenplanung-e2e` prueft beides (Anlegen und
+Bearbeiten).
+
+**`status` trennt geplant von durchgefuehrt, an einer Stelle.** Der
+Turnen-Speicherweg setzt beim Erfassen `status: 'completed'` - ohne diese Zeile
+bliebe eine erfasste Einheit auf "planned" stehen und wuerde erneut verplant. Ein
+vergangener Termin ohne Erfassung gilt als ueberfaellig, nicht als absolviert.
+Die Turnuebersicht zaehlt fuer "Letzte Einheit" und "Einheiten gesamt" nur
+Einheiten, die NICHT geplant sind - sonst stuende "Letzte Einheit" in der
+Zukunft.
+
+**Der Zeitraum sind die kommenden 14 Tage, kein Kalenderausschnitt.** Bewusst
+gegen die vorhandene Montagswoche: Eine feste Woche zeigte am Samstag fast nichts
+mehr. Es entsteht dabei KEIN neuer Datumshelfer - gerechnet wird mit
+`tagDifferenz`, beschriftet mit `relativeDay()` und `weekdayLong()`. Der Test
+prueft am Quelltext, dass kein `new Date()` und kein `86400000` im Modul steht.
+
+**Verteilt wird reihum**, hoechstens drei Geraete und zwei Schwerpunkte JE
+EINHEIT (die Phase-3A-Heuristik gilt weiter und wird nicht angehoben, auch nicht
+fuer eine lange Einheit). Die Reihe und die Rollenabbildung sind aus
+`trainingsplanung.ts` IMPORTIERT (`nachDringlichkeit`, `rolleAus`) - eine zweite
+Sortierregel waere eine zweite Antwort auf dieselbe Frage. Bei genau einem Termin
+gilt der Phase-3A-Vorschlag unveraendert. Was nicht passt, steht unter "Noch
+offen" und verschwindet nicht.
+
+**Dieselbe Kuer darf mehrfach**, aber nur wenn die Kuer das Problem ist
+(`kuer_zuerst`), nur mit dem Durchgang - und nur, wenn nichts offen geblieben
+ist. Ein Geraet zweimal zu bringen, waehrend ein anderes gar nicht vorkommt,
+waere die schlechtere Verteilung; der Unit-Test hat das gefunden.
+
+**Tagesart und freie Zeit sind Kontext, keine Bedingung.** Beides kommt aus dem
+vorhandenen `computeCapacity()` und wird nur angezeigt. Die freie Zeit begrenzt
+die Plaetze ausdruecklich NICHT - sonst haengte Turnen am gepflegten
+Arbeitsplan. Nur eine an der Einheit hinterlegte Dauer tut das (kurz/normal/lang,
+keine Minuten je Geraet). Und keine physiologischen Aussagen zu Schichten.
+
+**Nichts wird gespeichert ausser den Terminen selbst** - auch nicht die
+Nutzerwahl (verschieben, tauschen, entfernen, einplanen). Sie geht durch
+`wocheMitAuswahl()`, eine reine Funktion. Nach dem ersten absolvierten Training
+aendert sich der Fokus, und der Rest der Woche muss sich aendern duerfen.
+
+```
+node tests/turnen-wochenplanung-e2e.mjs   # Termine anlegen -> verteilt ->
+                                          # erste Einheit erfassen -> Termin
+                                          # geschlossen, zweite reagiert
+```
+
 ## FatSecret laeuft von selbst
 
 Seit dem 13.09.2026 holt LifeHub die Ernaehrung ohne Knopfdruck: `automatisch()`
@@ -478,8 +583,8 @@ der Erstimport laeuft (`automatikTaktMs`). Der Knopf bleibt fuer den Notfall.
 
 Zwei Dinge laufen dort getrennt:
 
-  laufend      Heute, gestern, vorgestern erneut holen (dort wird nachgetragen
-               und korrigiert). Wie lange der letzte Abruf her sein muss, haengt
+  laufend      Die letzten Tage erneut holen (dort wird nachgetragen und
+               korrigiert). Wie lange der letzte Abruf her sein muss, haengt
                am Anlass (`MINDESTABSTAND_MS`: Start 15 s, Vordergrund/online
                5 min) und wird je GERAET gemessen (localStorage), nicht am
                synchronisierten `zuletzt` - sonst ueberspringt das Handy beim
@@ -488,6 +593,35 @@ Zwei Dinge laufen dort getrennt:
   historisch   Monat fuer Monat rueckwaerts. `food_entries.get_month.v2`
                nennt je Monat NUR die Tage mit Eintraegen, deshalb kostet ein
                Jahr zwoelf Aufrufe statt 365.
+
+**Wie weit „die letzten Tage" zurueckreichen, ist gerechnet und nicht
+festgeschrieben** (`nachlaufTage` in `core/fatsecretImport.ts`, seit
+30.09.2026). Vorher waren es immer genau drei. Drei decken ab, was in
+FatSecret nachgetragen wird - nicht aber, dass LifeHub eine Woche lang nicht
+geoeffnet wurde: Die vier Tage davor wurden nie geholt und blieben dauerhaft
+leer, und der Historienlauf half nicht, denn der galt als „fertig". Gerechnet
+wird jetzt ab dem letzten wirklichen Abruf DIESES Geraets: mindestens drei
+Tage, hoechstens ein Monat. Das ist keine Verlaengerung ins Blaue - der
+Zeitraum IST die entstandene Luecke, und im Alltag bleibt es bei drei Tagen.
+Wer mehr braucht, nimmt den Historienlauf.
+
+**„Kein Eintrag" und „keine Antwort" sind zwei verschiedene Dinge.** Beide
+ergeben nach dem Auswerten eine leere Liste, die Folgen sind aber
+gegensaetzlich: Ein leerer Tag heisst „in FatSecret geloescht, hier also
+auch", und der Abgleich raeumt die Mahlzeiten UND die Tageswerte dieses Tages
+ab. Kam zu einem Tag nur keine lesbare Antwort - Wartungsseite, abge-
+schnittener Rumpf, Netzwackler -, war das Datenverlust auf Ansage, gemeldet
+als „1 Tag abgeglichen". Entschieden wird das jetzt an einer Stelle
+(`pruefeTagesantwort` in `core/fatsecret.ts`): Eine Antwort ist brauchbar,
+wenn sie ein Objekt ist; ein leeres Objekt zaehlt dazu. Die Edge Function
+nimmt unlesbare Tage aus `days` heraus und nennt sie unter `unlesbar`, der
+Client ueberspringt sie, zaehlt sie (`AbgleichErgebnis.unvollstaendig`) und
+meldet den Lauf als unvollstaendig - `ok` ist nur wahr, wenn JEDER angefragte
+Tag verarbeitet wurde.
+
+**Der Historienlauf hakt keinen Monat ab, dessen Tage nicht angekommen sind.**
+Sonst wandert `geprueftBis` ueber die Luecke hinweg, der Lauf erreicht
+„fertig", und die fehlenden Tage holt niemand mehr.
 
 Der Fortschritt steht in `settings.fatsecret_import` - also im mitsynchro-
 nisierten Einstellungsspeicher. Das ist Absicht: Das Handy macht dort weiter,
@@ -533,3 +667,72 @@ IndexedDB ist ohnehin auf 250 ms gedrosselt.
 Gemessen wird mit `node tests/performance-benchmark.mjs [monate]`. Der Lauf
 bringt seinen eigenen Server mit und treibt den echten Importpfad. Fuer einen
 Vorher/Nachher-Vergleich: `LIFEHUB_HTML=<andere.html>`.
+
+## Wiederkehrende Aufgaben: die Invariante
+
+Fuer jede aktive Vorlage und jeden lokalen Kalendertag gilt:
+
+> **Ist die Vorlage an diesem Tag faellig, steht ihre regulaere Tagesinstanz an
+> diesem Tag genau einmal zur Verfuegung.**
+
+„Regulaer" heisst: die Zeile mit der wiederholbaren ID
+(`templateTaskId(vorlage, tag)`). Eine unerledigte Aufgabe von gestern, die
+der Tagesuebertrag mitgenommen hat, steht daneben zu Recht auch an einem Tag,
+an dem die Vorlage gar nicht faellig waere - das ist der Sinn des Uebertrags
+und kein Verstoss gegen die Invariante.
+
+Daraus folgt, was NICHT passieren darf:
+
+- Eine Vortagesaufgabe blockiert eine neue Faelligkeit.
+- Eine erledigte Tagesinstanz verhindert die naechste Wiederholung.
+- Ein App-Neustart verliert Aufgaben.
+- PC und Handy erkennen verschiedene Tagesinstanzen.
+- Wiederholtes Rechnen oder Abgleichen erzeugt Dubletten.
+
+`tests/vorlagen-faelligkeit.test.ts` prueft das ueber 14 Tage, fuer jede Art
+von Vorlage (taeglich, Wochentag, Tagesart, mehrwoechig, deaktiviert), ueber
+Monats- und Jahreswechsel, ueber beide Zeitumstellungen und mit zwei Geraeten.
+Die Nachbildung bildet zwei Dinge ab, die `vorlagen-taeglich.test.ts` nicht
+kennt und ohne die der Fehler nicht auftritt:
+
+1. **Der Tagesuebertrag rechnet auf einer veralteten Momentaufnahme.**
+   `state/automatik.ts` liest `stand.tasks` EINMAL am Anfang eines Laufs, ruft
+   dann den Abgleich (der schreibt) und danach `carryOverPatches` - mit der
+   Liste von vorhin.
+2. **Die Schleifensperre.** Dieselbe Aenderungsliste zweimal hintereinander
+   wird nicht ausgefuehrt. Im Ernstfall wuerde damit genau das unterbleiben,
+   worum es geht: das Anlegen der heutigen Aufgabe.
+
+**Ein Rhythmus braucht einen festen Bezugstag.** `vorlageGiltAm()` nahm bei
+fehlendem `anchor_date` HEUTE als Bezug - und der wandert taeglich mit. Eine
+zweiwoechige Vorlage war damit jeden Tag faellig, denn von heute aus liegt
+heute immer in Woche 0. Schlimmer noch: Die Aufgaben, die gestern fuer
+naechste Woche entstanden waren, raeumte der Abgleich heute als „Tag passt
+nicht mehr" wieder ab - und eine geloeschte Zeile sperrt ihren Tag dauerhaft
+gegen ein Neuanlegen (`belegt`). Der Bezug ist jetzt `ankerTag()`:
+Ankerdatum, sonst der Anlegetag der Vorlage.
+
+**Ein Tag, den die Automatik selbst geraeumt hat, bleibt heilbar.** Eine
+geloeschte Zeile sperrt ihren Vorlagentag dauerhaft gegen ein Neuanlegen
+(`belegt` zaehlt auch geloeschte Zeilen mit) - richtig, solange ERIK die
+Aufgabe geloescht hat. Raeumt die Automatik sie selbst ab, weil die Vorlage
+den Tag gerade nicht mehr will, und will die Vorlage den Tag spaeter wieder,
+blieb der Tag fuer immer leer. Ein Tagesarttausch hin und zurueck genuegte,
+und eine pausierte und wieder eingeschaltete Vorlage kam nie zurueck.
+
+Unterschieden wird an den vorhandenen Zeitstempeln, ohne neues Feld
+(`VorlagenPlan.wiederherstellen`): Die Zeile lebt wieder auf, wenn NACH ihrer
+Loeschung etwas geaendert wurde, das den Tag wieder faellig macht - die
+Vorlage selbst (`updated_at`) oder, bei einer an eine Tagesart gebundenen
+Vorlage, die Zuordnung dieses Tages. Loescht Erik eine Aufgabe von Hand,
+aendert sich danach nichts davon, und sie bleibt geloescht. Deshalb muessen
+die Tageszuordnungen ihr `updated_at` mitbringen (`state/automatik.ts`).
+
+**Heute und Planner nehmen dieselbe Fachlogik.** `tasksForDay()` entscheidet,
+welche Aufgaben an einem Tag stehen - auf „Heute", in der Tagesansicht UND in
+der Wochenansicht. Dort stand bis zum 30.09.2026 eine eigene Zeile
+(`data.tasks.filter(t => t.scheduled_on === d)`), und die war in beide
+Richtungen daneben: Sie zeigte fuer heute die Aufgaben mit, die „Heute"
+bewusst verdeckt, zaehlte abgesagte in die Auslastung und liess weg, was
+liegengeblieben ist oder eine Frist hat. Zwei Bildschirme sagten ueber
+denselben Tag Verschiedenes.
