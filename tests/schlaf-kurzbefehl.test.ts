@@ -227,10 +227,25 @@ describe('probenAusText', () => {
     expect(probenAusText('{"a":1}').roh).toEqual([{ a: 1 }])
   })
 
-  it('nennt die Zeilennummer, wenn eine Zeile nicht passt', () => {
+  it('übergeht eine unpassende Zeile, nennt sie aber beim Namen', () => {
+    // Geändert am 30.09.2026, mit Absicht: Vorher brachte EINE krumme Zeile
+    // die ganze Sendung zu Fall. Der Kurzbefehl schickt drei Tage Apple
+    // Health auf einmal – dann kam wegen einer einzigen Probe drei Tage lang
+    // nichts an. Jetzt fällt die eine Zeile heraus und wird gezählt; die
+    // übrigen werden verarbeitet.
     const e = probenAusText(`${alsZeile}\nunfug`)
+    expect(e.ok).toBe(true)
+    expect(e.roh).toHaveLength(1)
+    expect(e.empfangen).toBe(2)
+    expect(e.zurueckgewiesen).toHaveLength(1)
+    expect(e.zurueckgewiesen![0].grund).toContain('Zeile 2')
+  })
+
+  it('bleibt ein Fehler, wenn KEINE Zeile passt', () => {
+    const e = probenAusText('unfug\nnoch mehr unfug')
     expect(e.ok).toBe(false)
-    expect(e.fehler).toContain('Zeile 2')
+    expect(e.fehler).toContain('Zeile 1')
+    expect(e.zurueckgewiesen).toHaveLength(2)
   })
 })
 

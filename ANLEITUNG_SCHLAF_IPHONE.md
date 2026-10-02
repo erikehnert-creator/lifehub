@@ -253,17 +253,36 @@ Fertig. Der ganze Kurzbefehl besteht aus **fünf Aktionen**:
 **Was jetzt kommen muss:** Unten erscheint eine Antwort wie
 
 ```json
-{"naechte":3,"neu":3,"geaendert":0,"unveraendert":0,"tage":["2026-09-27","2026-09-28","2026-09-29"]}
+{"empfangen":312,"angenommen":312,"zurueckgewiesen":0,"nicht_deutbar":0,
+ "naechte":3,"neu":3,"geaendert":0,"unveraendert":0,
+ "tage":["2026-09-27","2026-09-28","2026-09-29"]}
 ```
+
+**Die Antwort ist die Diagnose.** Sie sagt der Reihe nach, wie weit es gekommen ist:
+
+| Feld | heisst |
+|---|---|
+| `empfangen` | So viele Zeilen hat der Kurzbefehl geschickt. Steht hier 0, liegt es am iPhone, nicht an LifeHub. |
+| `angenommen` | So viele davon waren als Probe lesbar. |
+| `zurueckgewiesen` | So viele Zeilen wurden übergangen. Unter `gruende` stehen die ersten drei. **Einzelne sind kein Grund zur Sorge** – die Sendung läuft trotzdem durch. |
+| `nicht_deutbar` | Angenommen, aber das Feld **Wert** war unbekannt. Viele davon heissen: Schritt 19 stimmt nicht. |
+| `naechte` / `neu` / `geaendert` / `unveraendert` | Was wirklich gespeichert wurde. `unveraendert` ist der Normalfall, wenn du den Kurzbefehl zweimal ausführst. |
 
 | Antwort | Bedeutung | Was tun |
 |---|---|---|
 | `"naechte":3,"neu":3` | Es hat geklappt | Weiter zu Teil C |
-| `"naechte":0` … `"Keine auswertbaren Schlafproben"` | Die Proben kamen an, aber keine war als Schlaf erkennbar | Siehe Kasten unten |
-| `{"fehler":"Zugang ungueltig"}` | Token falsch | Schritt 28 prüfen: Leerzeichen nach `Bearer`? |
-| `{"fehler":"Zeile 1 hat nicht die Form …"}` | Die Textzeile stimmt nicht | Schritt 18 und 19 prüfen – vier Felder, drei Striche |
-| `{"fehler":"Probe 1: „start" ist kein ISO-Zeitpunkt"}` | Datumsformat fehlt | Schritt 20 nachholen |
+| `"naechte":0`, `nicht_deutbar` gleich `angenommen` | Die Proben kamen an, aber keine war als Schlaf erkennbar | Siehe Kasten unten |
+| `{"fehler":"Zugang ungueltig"}` | Token falsch oder widerrufen | Schritt 28 prüfen: Leerzeichen nach `Bearer`? Und in LifeHub unter Einstellungen → Schlafimport, ob der Zugang noch gilt |
+| `{"fehler":"Zeile 1 hat nicht die Form …"}` | **Keine** Zeile stimmt | Schritt 18 und 19 prüfen – vier Felder, drei Striche |
+| `{"fehler":"Probe 1: „start" ist kein ISO-Zeitpunkt"}` | Datumsformat fehlt bei allen | Schritt 20 nachholen |
 | `{"fehler":"Feld „proben" fehlt"}` | Der Anfragetext ist leer | Schritt 29/30 prüfen |
+| `{"gescheitert":1, …}` | Die Nacht kam an, liess sich aber nicht speichern | Sag mir die Antwort – das ist ein Serverproblem, kein Kurzbefehlproblem |
+
+> **Eine einzelne krumme Zeile bringt die Sendung nicht mehr zu Fall.** Früher genügte
+> eine Probe mit leerem Feld **Wert**, und drei Tage Apple Health kamen gar nicht an
+> (Antwort: `400`). Jetzt fällt diese eine Zeile heraus, wird unter `zurueckgewiesen`
+> gezählt, und der Rest wird ganz normal gespeichert. Abgewiesen wird nur noch, wenn
+> **nichts** Brauchbares übrig bleibt.
 
 > **Wenn „Keine auswertbaren Schlafproben" kommt:** Dann war das Feld **Wert** leer oder
 > enthält etwas Unerwartetes. Setze zum Nachsehen vorübergehend eine Aktion

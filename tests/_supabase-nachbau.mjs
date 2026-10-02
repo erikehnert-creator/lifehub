@@ -263,6 +263,17 @@ export async function starteNachbau(opts = {}) {
     url: `http://127.0.0.1:${port}`,
     tabellen,
     abgelehnt,
+    /**
+     * Die naechste Revisionsnummer – dieselbe Sequenz, die der Nachbau beim
+     * Speichern vergibt.
+     *
+     * Gebraucht von Pruefungen, die eine Zeile nicht ueber HTTP, sondern
+     * direkt in `tabellen` legen (etwa die Edge Function `schlaf`, die mit
+     * dem Dienstschluessel an PostgREST vorbeischreibt). Ohne eine Nummer aus
+     * DIESER Sequenz holt der Client die Zeile nie ab – sein Lesezeiger steht
+     * ja schon weiter.
+     */
+    naechsteRev: () => ++rev,
     /** Zeilen einer Tabelle, ohne die gelöschten. */
     zeilen: (tabelle) => [...(tabellen.get(tabelle)?.values() ?? [])].filter((z) => !z.deleted_at),
     /** Alle Zeilen einer Tabelle, auch die gelöschten. */

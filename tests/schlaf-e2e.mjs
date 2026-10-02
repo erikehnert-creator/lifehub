@@ -21,6 +21,8 @@ import { starteNachbau, ANON, MAIL, PASS } from './_supabase-nachbau.mjs'
 import { starteWebserver, starteGeraet, anmelden, abgleich, geh, pruefer, DIST } from './_sync-app.mjs'
 import { brauche, EINZELDATEI } from './_browser.mjs'
 import { idAusSchluessel } from '../supabase/functions/_shared/stabileId.ts'
+import { tokenAbdruck } from '../supabase/functions/_shared/importToken.ts'
+import { verarbeiteAnfrage } from '../supabase/functions/schlaf/verarbeite.ts'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -83,9 +85,111 @@ function legeNachtAufServer({ day, dauer, phasen = false, quelle = 'Sleep Cycle'
     deleted_at: null,
     version: (vorhanden?.version ?? 0) + 1,
     last_device_id: 'apple-health',
-    server_rev: 100000 + store.size + (vorhanden ? 1000 : 0),
+    // Dieselbe Sequenz wie der Nachbau sie vergibt. Eine eigene, viel hoehere
+    // Nummer schob den Lesezeiger des Clients nach vorn - alles, was danach
+    // ueber die Edge Function hereinkam, lag darunter und wurde nie geholt.
+    server_rev: server.naechsteRev(),
   })
   return id
+}
+
+/* ------------------------------------- Der echte Weg des Kurzbefehls
+ *
+ * Bis hierher legte diese Pruefung die Naechte von Hand auf den Server –
+ * „so, wie die Edge Function sie schriebe". Das ist eine Annahme, und genau
+ * in ihr sassen zwei Fehler (siehe supabase/functions/schlaf/verarbeite.ts).
+ *
+ * Der Abschnitt am Ende laeuft deshalb durch die ECHTE Verarbeitung: Der
+ * Rumpf ist der, den der iOS-Kurzbefehl schickt (Zeilenform), die
+ * Autorisierung laeuft ueber ein Importtoken, und geschrieben wird ueber
+ * einen kleinen Adapter auf den Tabellenspeicher des Nachbaus – dasselbe
+ * PostgREST, nur ohne HTTP dazwischen.
+ *
+ * Damit ist die Kette geschlossen: Kurzbefehl → Edge Function → Datenbank →
+ * Abgleich → Anzeige.
+ */
+const NUTZER = '11111111-1111-1111-1111-111111111111'
+/** Erfunden, in der Form eines echten Tokens. Nie ein produktives Token hier. */
+const IMPORT_TOKEN = 'RTJFVGVzdFRva2VuX2VyZnVuZGVuX25pY2h0X2VjaHQxMjM'
+
+function tabelle(name) {
+  if (!server.tabellen.has(name)) server.tabellen.set(name, new Map())
+  return server.tabellen.get(name)
+}
+
+/** Nur die Bedingungen, die die Funktion wirklich stellt: eq und is.null. */
+function trifft(zeile, bedingungen) {
+  return bedingungen.every(([feld, ausdruck]) => {
+    if (ausdruck === 'is.null') return zeile[feld] === null || zeile[feld] === undefined
+    if (ausdruck.startsWith('eq.')) return String(zeile[feld]) === decodeURIComponent(ausdruck.slice(3))
+    return true
+  })
+}
+
+const edgeDb = async (pfad, init) => {
+  const [name, abfrage = ''] = pfad.split('?')
+  const store = tabelle(name)
+  const bedingungen = []
+  for (const teil of abfrage.split('&')) {
+    if (!teil) continue
+    const [k, ...rest] = teil.split('=')
+    if (['select', 'limit', 'order'].includes(k)) continue
+    bedingungen.push([k, rest.join('=')])
+  }
+  const treffer = [...store.values()].filter((z) => trifft(z, bedingungen))
+
+  if (!init?.method || init.method === 'GET') return treffer.map((z) => ({ ...z }))
+  if (init.method === 'PATCH') {
+    const patch = JSON.parse(String(init.body))
+    for (const z of treffer) Object.assign(z, patch, { server_rev: server.naechsteRev() })
+    return treffer.map((z) => ({ ...z }))
+  }
+  if (init.method === 'POST') {
+    const roh = JSON.parse(String(init.body))
+    for (const z of (Array.isArray(roh) ? roh : [roh])) {
+      store.set(z.id, { deleted_at: null, note: null, ...z, server_rev: server.naechsteRev() })
+    }
+    return roh
+  }
+  throw new Error(`nicht nachgebaut: ${init.method}`)
+}
+
+/** Den Importzugang anlegen – genauso, wie LifeHub ihn anlegt. */
+async function legeImportzugangAn() {
+  const jetzt = new Date().toISOString()
+  tabelle('import_tokens').set('tok-e2e', {
+    id: 'tok-e2e', user_id: NUTZER, label: 'iPhone (Test)',
+    token_hash: await tokenAbdruck(IMPORT_TOKEN), scope: 'schlaf',
+    last_used_at: null, revoked_at: null, deleted_at: null,
+    created_at: jetzt, updated_at: jetzt,
+    version: 1, last_device_id: 'test', server_rev: server.naechsteRev(),
+  })
+}
+
+/** Den Kurzbefehl ausfuehren: Zeilenform, Bearer-Token, POST. */
+async function schickeKurzbefehl(zeilen, token = IMPORT_TOKEN) {
+  return verarbeiteAnfrage(
+    { methode: 'POST', authorization: 'Bearer ' + token, rumpf: async () => zeilen.join('\n') },
+    { db: edgeDb },
+  )
+}
+
+/**
+ * Eine Nacht als Health-Proben: ab 23:00 des Vortags, `minuten` lang.
+ *
+ * In MINUTEN, weil die Pruefung den Text abliest, den `formatDuration`
+ * erzeugt – und der laesst volle Stunden weg („6 h", nicht „6 h 0 min").
+ * Krumme Dauern sind hier deshalb die eindeutigeren.
+ */
+function nachtProben(tag, minuten, quelle = 'Sleep Cycle') {
+  const vortag = new Date(Date.parse(tag + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10)
+  const beginn = Date.parse(vortag + 'T23:00:00+02:00')
+  const ende = beginn + minuten * 60000
+  const iso = (ms) => new Date(ms).toISOString().replace('Z', '+00:00')
+  return [
+    iso(beginn) + '|' + iso(ende) + '|AsleepCore|' + quelle,
+    iso(beginn - 15 * 60000) + '|' + iso(ende) + '|InBed|' + quelle,
+  ]
 }
 
 const text = async (g) => (await g.page.innerText('#root'))
@@ -187,6 +291,58 @@ try {
 
   const aufServer = server.zeilen('sleep_sessions').length
   pruefe('Auf dem Server steht je Nacht genau eine Zeile', aufServer === 3, `${aufServer} Zeilen`)
+
+  /* ======== Der echte Weg: Kurzbefehl → Edge Function → Anzeige ========= */
+  await legeImportzugangAn()
+  // Ein Tag, den bisher keine Prüfung angefasst hat – sonst mischen sich die
+  // von Hand gelegten Nächte mit denen aus dem Kurzbefehl.
+  const kbTag = tagVor(6)
+
+  // 1. Ein gültiger Kurzbefehl-Request. 6 h 30 min – eine Zahl, die in keiner
+  //    der von Hand gelegten Nächte vorkommt.
+  const a1 = await schickeKurzbefehl(nachtProben(kbTag, 390))
+  pruefe('Der Kurzbefehl wird angenommen', a1.status === 200, `HTTP ${a1.status} ${JSON.stringify(a1.rumpf)}`)
+  pruefe('Die Antwort nennt Empfang und Wirkung',
+    a1.rumpf.empfangen === 2 && (a1.rumpf.neu ?? 0) === 1, JSON.stringify(a1.rumpf))
+
+  await abgleich(pc)
+  await geh(pc, '/tracking/schlaf', 2500)
+  pruefe('Die übertragene Nacht steht in LifeHub', /6 h 30 min/.test(await text(pc)))
+
+  // 2. Ein fremdes Token darf nichts bewegen.
+  const a2 = await schickeKurzbefehl(nachtProben(kbTag, 180), 'ZmFsc2NoZXNUb2tlbl9uaWNodF9lY2h0X2FiY2RlZmdo')
+  pruefe('Ein fremdes Token wird abgewiesen', a2.status === 401, `HTTP ${a2.status}`)
+  await abgleich(pc)
+  await geh(pc, '/tracking/schlaf', 2000)
+  pruefe('Nach dem abgewiesenen Versuch steht die Nacht unverändert da',
+    /6 h 30 min/.test(await text(pc)))
+
+  // 3. Dasselbe noch einmal: keine zweite Nacht, keine neue Fassung.
+  const a3 = await schickeKurzbefehl(nachtProben(kbTag, 390))
+  pruefe('Ein zweiter Lauf ändert nichts', a3.rumpf.unveraendert === 1, JSON.stringify(a3.rumpf))
+
+  // 4. Apple Health korrigiert nach – die Änderung kommt durch.
+  const a4 = await schickeKurzbefehl(nachtProben(kbTag, 410))
+  pruefe('Eine Korrektur wird als Änderung gemeldet', a4.rumpf.geaendert === 1, JSON.stringify(a4.rumpf))
+  await abgleich(pc)
+  await geh(pc, '/tracking/schlaf', 2500)
+  const nachKorrektur = await text(pc)
+  pruefe('Die Korrektur steht in LifeHub',
+    /6 h 50 min/.test(nachKorrektur) && !/6 h 30 min/.test(nachKorrektur))
+
+  // 5. Eine einzelne kaputte Probe darf die Sendung nicht mehr kippen.
+  const kbTag2 = tagVor(7)
+  const a5 = await schickeKurzbefehl([...nachtProben(kbTag2, 320), 'voelliger unfug'])
+  pruefe('Eine kaputte Zeile kippt die Sendung nicht', a5.status === 200, `HTTP ${a5.status}`)
+  pruefe('Sie wird aber gezählt', a5.rumpf.zurueckgewiesen === 1, JSON.stringify(a5.rumpf))
+  await abgleich(pc)
+  await geh(pc, '/tracking/schlaf', 2500)
+  pruefe('Die übrigen Proben sind angekommen', /5 h 20 min/.test(await text(pc)))
+
+  // 6. Je Nacht genau eine Zeile auf dem Server – auch nach all dem.
+  const alleTage = server.zeilen('sleep_sessions').map((z) => z.day)
+  pruefe('Kein Tag steht doppelt auf dem Server',
+    new Set(alleTage).size === alleTage.length, alleTage.sort().join(', '))
 
   /* ------------------------------------------------- Konsolenfehler */
   const echte = [...pc.fehler, ...handy.fehler].filter(

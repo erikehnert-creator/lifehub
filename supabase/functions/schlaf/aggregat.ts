@@ -243,6 +243,21 @@ export function teileInNaechte(proben: Probe[], luecke = 240): Probe[][] {
   return gruppen
 }
 
+/**
+ * Proben, deren Wert sich nicht deuten liess.
+ *
+ * `baueNacht()` übergeht sie – zu Recht, denn eine Probe mit unbekanntem Wert
+ * ist keine Messung. Sie zu ZÄHLEN ist trotzdem nötig: „200 empfangen, 0
+ * Nächte" ist eine Auskunft, mit der man weitersuchen kann. „Keine
+ * auswertbaren Schlafproben" allein ist eine Sackgasse – man weiss nicht, ob
+ * nichts ankam oder ob alles Angekommene unverständlich war.
+ */
+export function nichtDeutbareProben(proben: Probe[]): number {
+  let n = 0
+  for (const p of proben ?? []) if (!deute(p?.wert)) n++
+  return n
+}
+
 /** Alle Nächte aus einer Ladung Proben – eine je zusammenhängendem Block. */
 export function baueNaechte(proben: Probe[], luecke = 240): Nacht[] {
   const out: Nacht[] = []
@@ -262,10 +277,46 @@ export function baueNaechte(proben: Probe[], luecke = 240): Nacht[] {
 
 /* ----------------------------------------------------------- Prüfung */
 
+/** Ein Eintrag, mit dem sich nichts anfangen liess – und warum. */
+export interface Zurueckweisung {
+  /** Die Stelle in der Sendung, so wie die jeweilige Stufe sie gezählt hat. */
+  nummer: number
+  grund: string
+}
+
 export interface Pruefergebnis {
   ok: boolean
   fehler?: string
   proben?: Probe[]
+  /** Wie viele Einträge die Sendung überhaupt enthielt. */
+  empfangen?: number
+  /**
+   * Einträge, die übergangen wurden – einzeln benannt.
+   *
+   * ---------------------------------------------------------------------
+   * Warum nicht mehr die ganze Sendung daran scheitert
+   *
+   * Vorher brachte EIN unbrauchbarer Eintrag die gesamte Übertragung zu Fall:
+   * 400, nichts gespeichert. Der Kurzbefehl schickt aber drei Tage Apple
+   * Health auf einmal, und dort genügt eine einzige Probe, deren Feld „Wert"
+   * leer geblieben ist – dann kommt drei Tage lang nichts an, obwohl
+   * zweihundert andere Proben tadellos sind. Von aussen sieht das aus wie
+   * „der Schlafimport geht nicht mehr".
+   *
+   * Dass ausgerechnet ein LEERER Wert tödlich war, stand ausserdem im
+   * Widerspruch zum Rest: Ein Wert, den `deute()` nicht kennt, wurde
+   * stillschweigend übergangen. Beide tragen dieselbe Menge Information,
+   * nämlich keine.
+   *
+   * Jetzt gilt: Der EINZELNE Eintrag fällt heraus und wird gezählt, die
+   * Sendung läuft weiter. Stillschweigend ist das nicht – die Antwort nennt
+   * Anzahl und Gründe. Bleibt NICHTS Brauchbares übrig, ist es weiterhin ein
+   * Fehler; sonst hiesse „200, 0 Nächte" wieder, es sei alles in Ordnung.
+   *
+   * Streng bleibt, was die Verpackung betrifft: ein leerer Rumpf, ein Rumpf,
+   * der wie JSON aussieht und keines ist, und die Höchstzahl.
+   */
+  zurueckgewiesen?: Zurueckweisung[]
 }
 
 /** Wie viele Proben eine Sendung höchstens enthalten darf. */
@@ -339,7 +390,9 @@ function probeAusZeile(zeile: string): Record<string, string> | null {
  * Geprüft wird danach in allen Fällen gleich streng. Die Nachsicht betrifft
  * nur die VERPACKUNG, nicht den Inhalt.
  */
-export function probenAusText(text: string): { ok: boolean; fehler?: string; roh?: unknown[] } {
+export function probenAusText(
+  text: string,
+): { ok: boolean; fehler?: string; roh?: unknown[]; empfangen?: number; zurueckgewiesen?: Zurueckweisung[] } {
   const roh = (text ?? '').trim()
   if (!roh) return { ok: false, fehler: 'Der Rumpf ist leer' }
 
@@ -370,25 +423,36 @@ export function probenAusText(text: string): { ok: boolean; fehler?: string; roh
   // --- Zeilenform
   const zeilen = roh.split(/[\r\n]+/).map((z) => z.trim()).filter(Boolean)
   const liste: Record<string, string>[] = []
+  const zurueckgewiesen: Zurueckweisung[] = []
   for (let i = 0; i < zeilen.length; i++) {
     const p = probeAusZeile(zeilen[i])
     if (!p) {
-      return {
-        ok: false,
-        fehler: `Zeile ${i + 1} hat nicht die Form start${FELDTRENNER}ende${FELDTRENNER}wert${FELDTRENNER}quelle`,
-      }
+      // Diese eine Zeile fällt heraus, die Sendung läuft weiter – siehe
+      // `Pruefergebnis.zurueckgewiesen`.
+      zurueckgewiesen.push({
+        nummer: i + 1,
+        grund: `Zeile ${i + 1} hat nicht die Form start${FELDTRENNER}ende${FELDTRENNER}wert${FELDTRENNER}quelle`,
+      })
+      continue
     }
     liste.push(p)
   }
-  return { ok: true, roh: liste }
+  // Keine einzige brauchbare Zeile: Dann ist nicht ein Eintrag schief, sondern
+  // die Sendung als Ganzes – und das ist ein Fehler, kein Hinweis.
+  if (!liste.length) {
+    return { ok: false, fehler: zurueckgewiesen[0]?.grund, empfangen: zeilen.length, zurueckgewiesen }
+  }
+  return { ok: true, roh: liste, empfangen: zeilen.length, zurueckgewiesen }
 }
 
 /**
  * Eine bereits entpackte Liste prüfen.
  *
  * Streng, weil der Endpunkt aus dem Internet erreichbar ist: Was nicht
- * eindeutig als Probe erkennbar ist, wird abgewiesen – nicht stillschweigend
- * übergangen. Eine Sendung, die zur Hälfte Unsinn ist, soll auffallen.
+ * eindeutig als Probe erkennbar ist, wird nicht stillschweigend übernommen.
+ * Es fällt einzeln heraus, wird gezählt und benannt (siehe
+ * `Pruefergebnis.zurueckgewiesen`); bleibt gar nichts übrig, ist die Sendung
+ * als Ganzes falsch und wird abgewiesen.
  *
  * Ein Eintrag darf auch eine Zeichenkette in Zeilenform sein: Kurzbefehle
  * schickt eine Liste mitunter als Liste von Texten.
@@ -400,27 +464,29 @@ export function pruefeListe(roh: unknown[]): Pruefergebnis {
   }
 
   const proben: Probe[] = []
+  const zurueckgewiesen: Zurueckweisung[] = []
+  /** Diesen einen Eintrag übergehen – benannt, nicht stillschweigend. */
+  const weg = (i: number, grund: string) => { zurueckgewiesen.push({ nummer: i + 1, grund }) }
+
   for (let i = 0; i < roh.length; i++) {
     let p: any = roh[i]
     if (typeof p === 'string') {
       const ausZeile = probeAusZeile(p.trim())
       if (!ausZeile) {
-        return {
-          ok: false,
-          fehler: `Probe ${i + 1} ist Text, aber nicht in der Form `
-            + `start${FELDTRENNER}ende${FELDTRENNER}wert${FELDTRENNER}quelle`,
-        }
+        weg(i, `Probe ${i + 1} ist Text, aber nicht in der Form `
+          + `start${FELDTRENNER}ende${FELDTRENNER}wert${FELDTRENNER}quelle`)
+        continue
       }
       p = ausZeile
     }
-    if (!p || typeof p !== 'object') return { ok: false, fehler: `Probe ${i + 1} ist kein Objekt` }
+    if (!p || typeof p !== 'object') { weg(i, `Probe ${i + 1} ist kein Objekt`); continue }
     const start = p.start ?? p.startDate ?? p.von
     const ende = p.ende ?? p.end ?? p.endDate ?? p.bis
     const wert = p.wert ?? p.value ?? p.stage
-    if (!istZeitpunkt(start)) return { ok: false, fehler: `Probe ${i + 1}: „start" ist kein ISO-Zeitpunkt` }
-    if (!istZeitpunkt(ende)) return { ok: false, fehler: `Probe ${i + 1}: „ende" ist kein ISO-Zeitpunkt` }
-    if (Date.parse(ende) < Date.parse(start)) return { ok: false, fehler: `Probe ${i + 1}: endet vor ihrem Beginn` }
-    if (typeof wert !== 'string' || !wert.trim()) return { ok: false, fehler: `Probe ${i + 1}: „wert" fehlt` }
+    if (!istZeitpunkt(start)) { weg(i, `Probe ${i + 1}: „start" ist kein ISO-Zeitpunkt`); continue }
+    if (!istZeitpunkt(ende)) { weg(i, `Probe ${i + 1}: „ende" ist kein ISO-Zeitpunkt`); continue }
+    if (Date.parse(ende) < Date.parse(start)) { weg(i, `Probe ${i + 1}: endet vor ihrem Beginn`); continue }
+    if (typeof wert !== 'string' || !wert.trim()) { weg(i, `Probe ${i + 1}: „wert" fehlt`); continue }
     const quelle = p.quelle ?? p.source
     proben.push({
       start: String(start).trim(),
@@ -429,7 +495,13 @@ export function pruefeListe(roh: unknown[]): Pruefergebnis {
       quelle: typeof quelle === 'string' && quelle.trim() ? quelle.trim().slice(0, 120) : undefined,
     })
   }
-  return { ok: true, proben }
+
+  // Bleibt nichts übrig, ist nicht ein Eintrag schief, sondern die Sendung.
+  if (!proben.length) {
+    return { ok: false, fehler: zurueckgewiesen[0]?.grund ?? 'Keine Proben enthalten',
+      empfangen: roh.length, zurueckgewiesen }
+  }
+  return { ok: true, proben, empfangen: roh.length, zurueckgewiesen }
 }
 
 /**
@@ -448,6 +520,9 @@ export function pruefeListe(roh: unknown[]): Pruefergebnis {
  */
 export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
   let roh: unknown = rumpf
+  /** Was schon beim Auspacken herausfiel, geht nicht verloren. */
+  let ausText: Zurueckweisung[] = []
+  let empfangen: number | undefined
 
   if (rumpf && typeof rumpf === 'object' && !Array.isArray(rumpf)) {
     const feld = (rumpf as any).proben ?? (rumpf as any).samples
@@ -459,14 +534,24 @@ export function pruefeRumpf(rumpf: unknown): Pruefergebnis {
 
   if (typeof roh === 'string') {
     const entpackt = probenAusText(roh)
-    if (!entpackt.ok) return { ok: false, fehler: entpackt.fehler }
+    ausText = entpackt.zurueckgewiesen ?? []
+    empfangen = entpackt.empfangen
+    if (!entpackt.ok) {
+      return { ok: false, fehler: entpackt.fehler, empfangen, zurueckgewiesen: ausText }
+    }
     roh = entpackt.roh
   }
 
   if (!Array.isArray(roh)) {
     return { ok: false, fehler: 'Feld „proben" ist weder eine Liste noch Text' }
   }
-  return pruefeListe(roh)
+  const ergebnis = pruefeListe(roh)
+  return {
+    ...ergebnis,
+    // Gezählt wird, was ANKAM – nicht, was das Auspacken übrig gelassen hat.
+    empfangen: empfangen ?? ergebnis.empfangen,
+    zurueckgewiesen: [...ausText, ...(ergebnis.zurueckgewiesen ?? [])],
+  }
 }
 
 /* ------------------------------------------------- Anlegen oder ändern */

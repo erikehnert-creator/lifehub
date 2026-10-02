@@ -12,6 +12,12 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
+    // Die Edge Functions laufen auf Deno, und Deno verlangt die Endung im
+    // Importpfad. Seit die Verarbeitung des Schlafendpunkts geprüft wird
+    // (tests/schlaf-endpunkt.test.ts), liegt so eine Datei im Prüfumfang –
+    // ohne diese Zeile beschwert sich tsc über genau die Schreibweise, die
+    // Deno braucht. Mit `noEmit` ist die Erlaubnis folgenlos.
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "noEmit": true,
     "types": ["vite/client"],
