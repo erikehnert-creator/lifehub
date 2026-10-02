@@ -66,6 +66,33 @@ export interface VorlagenPlan {
   anlegen: { id: string; values: Record<string, any> }[]
   /** Aufgaben, deren Vorlage sich geändert hat – nur noch zukünftige, offene. */
   aendern: { id: string; titel: string; patch: Record<string, any> }[]
+  /**
+   * Tagesinstanzen, die die Automatik selbst weggeräumt hatte und die nun
+   * wieder gebraucht werden.
+   *
+   * ---------------------------------------------------------------------
+   * Wozu das nötig ist
+   *
+   * Eine gelöschte Zeile sperrt ihren Tag dauerhaft: `belegt` zählt auch
+   * gelöschte Zeilen mit, und das ist richtig – eine von Hand entfernte
+   * Aufgabe darf beim nächsten Durchlauf nicht wieder auferstehen.
+   *
+   * Es gibt aber einen zweiten Weg, wie eine Zeile verschwindet: Die
+   * Automatik räumt sie selbst ab, weil die Vorlage den Tag gerade nicht
+   * mehr will. Wird die Vorlage danach wieder eingeschaltet oder die
+   * Tagesart zurückgestellt, will sie den Tag wieder – und der Tag blieb
+   * trotzdem für immer leer. Ein Tagesarttausch hin und zurück genügte, und
+   * die Aufgabe kam nie wieder. Das ist genau die Sorte Fehler, die aussieht
+   * wie „meine Aufgabe erscheint nicht zuverlässig".
+   *
+   * Unterschieden wird an den Zeitstempeln, ohne ein neues Feld: Die Zeile
+   * lebt wieder auf, wenn sich NACH ihrer Löschung etwas geändert hat, das
+   * den Tag wieder fällig macht – die Vorlage selbst (`updated_at`) oder,
+   * bei einer an eine Tagesart gebundenen Vorlage, die Zuordnung dieses
+   * Tages. Löscht Erik eine Aufgabe von Hand, ändert sich danach nichts
+   * davon, und sie bleibt gelöscht.
+   */
+  wiederherstellen: { id: string; titel: string; values: Record<string, any> }[]
   /** Aufgaben, die es laut Vorlage nicht mehr geben darf. */
   entfernen: { id: string; titel: string; grund: 'vorlage-weg' | 'tag-passt-nicht' | 'doppelt' }[]
 }
@@ -93,6 +120,29 @@ function gleich(a: any, b: any): boolean {
   return String(x) === String(y)
 }
 
+/**
+ * Der feste Bezugstag einer mehrwöchigen Vorlage.
+ *
+ * Ein Rhythmus braucht einen Punkt, von dem aus gezählt wird, und der muss
+ * STEHEN. Vorher stand hier `tpl.anchor_date ?? from` – und `from` ist HEUTE.
+ * Damit wanderte der Bezug jeden Tag mit, und eine zweiwöchige Vorlage war
+ * jeden Tag fällig: Von heute aus gerechnet liegt heute immer in Woche 0.
+ * Aus „alle zwei Wochen" wurde faktisch „täglich", und die Aufgaben, die
+ * gestern für nächste Woche entstanden waren, räumte der Abgleich heute als
+ * „Tag passt nicht mehr" wieder ab – gelöschte Zeilen, die ihren Tag danach
+ * dauerhaft gegen ein Neuanlegen sperren.
+ *
+ * Fehlt das Ankerdatum, zählt deshalb der Tag, an dem die Vorlage angelegt
+ * wurde. Der ist auf jedem Gerät derselbe und ändert sich nie. Erst wenn auch
+ * der fehlt, bleibt nur der heutige Tag – dann ist der Rhythmus ohnehin nicht
+ * bestimmbar, und „jede Woche" ist die harmlosere Annahme als „nie".
+ */
+export function ankerTag(tpl: TaskTemplate, ersatz: DayString): DayString {
+  if (tpl.anchor_date) return tpl.anchor_date
+  const angelegt = String(tpl.created_at ?? '').slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(angelegt) ? angelegt : ersatz
+}
+
 /** Gilt die Vorlage an diesem Tag? */
 function vorlageGiltAm(
   tpl: TaskTemplate, day: DayString, dayTypeOf: Map<DayString, string>, from: DayString,
@@ -100,7 +150,7 @@ function vorlageGiltAm(
   if (tpl.weekday && weekdayIndex(day) !== tpl.weekday) return false
   if (tpl.day_type_id && dayTypeOf.get(day) !== tpl.day_type_id) return false
   if (tpl.interval_weeks > 1) {
-    const anchor = tpl.anchor_date ?? from
+    const anchor = ankerTag(tpl, from)
     const weeks = Math.floor(diffDays(anchor, day) / 7)
     if (((weeks % tpl.interval_weeks) + tpl.interval_weeks) % tpl.interval_weeks !== 0) return false
   }
@@ -123,7 +173,12 @@ function vorlageGiltAm(
  */
 export function reconcileTemplateTasks(opts: {
   templates: TaskTemplate[]
-  assignments: { day: DayString; day_type_id: string }[]
+  /**
+   * Die Tagesart je Tag. `updated_at` ist freiwillig und wird nur gebraucht,
+   * um eine von der Automatik weggeraeumte Instanz wieder aufleben zu lassen
+   * (siehe `VorlagenPlan.wiederherstellen`).
+   */
+  assignments: { day: DayString; day_type_id: string; updated_at?: string | null }[]
   tasks: VorlagenAufgabe[]
   today?: DayString
   horizonDays?: number
@@ -134,6 +189,10 @@ export function reconcileTemplateTasks(opts: {
   const from = today
   const to = addDays(today, opts.horizonDays ?? VORPLANUNG_TAGE)
   const dayTypeOf = new Map(opts.assignments.map((a) => [a.day, a.day_type_id]))
+  /** Wann die Tagesart eines Tages zuletzt angefasst wurde. */
+  const tagesartGeaendert = new Map(
+    opts.assignments.map((a) => [a.day, String(a.updated_at ?? '')]),
+  )
 
   /* ------------------------------------------------------------------ Soll */
   const soll = new Map<string, { tpl: TaskTemplate; day: DayString }>()
@@ -146,7 +205,7 @@ export function reconcileTemplateTasks(opts: {
   }
 
   /* ------------------------------------------------------------------- Ist */
-  const plan: VorlagenPlan = { anlegen: [], aendern: [], entfernen: [] }
+  const plan: VorlagenPlan = { anlegen: [], aendern: [], wiederherstellen: [], entfernen: [] }
   // Ein Schlüssel gilt als belegt, sobald irgendeine Zeile dazu existiert –
   // auch eine gelöschte. Sonst käme eine von Hand entfernte Aufgabe zurück.
   const belegt = new Set<string>()
@@ -158,6 +217,9 @@ export function reconcileTemplateTasks(opts: {
   // Von Hand angelegte Aufgaben je Tag, nach Titel. Wer „Dehnung" heute selbst
   // einträgt, soll sie nicht ein zweites Mal von der Automatik bekommen.
   const vonHand = new Map<string, Set<string>>()
+  // Gelöschte Zeilen je Vorlagentag – gebraucht, um eine von der Automatik
+  // selbst weggeräumte Instanz wieder aufleben zu lassen.
+  const geloescht = new Map<string, VorlagenAufgabe[]>()
 
   for (const t of opts.tasks) {
     if (!t.scheduled_on) continue
@@ -170,7 +232,12 @@ export function reconcileTemplateTasks(opts: {
     }
     const key = `${t.template_id}|${t.scheduled_on}`
     belegt.add(key)
-    if (t.deleted_at) continue
+    if (t.deleted_at) {
+      const tote = geloescht.get(key)
+      if (tote) tote.push(t)
+      else geloescht.set(key, [t])
+      continue
+    }
     const liste = proTag.get(key)
     if (liste) liste.push(t)
     else proTag.set(key, [t])
@@ -221,8 +288,52 @@ export function reconcileTemplateTasks(opts: {
   }
 
   /* -------------------------------------------------------------- Fehlende */
+
+  /**
+   * Hat sich NACH dieser Löschung etwas geändert, das den Tag wieder fällig
+   * macht?
+   *
+   * Nur dann lebt die Zeile wieder auf. Zwei Quellen kommen in Frage, und
+   * beide bringen ihren Zeitstempel ohnehin mit: die Vorlage selbst (wurde
+   * sie wieder eingeschaltet, umgestellt, bearbeitet) und – bei einer an
+   * eine Tagesart gebundenen Vorlage – die Zuordnung dieses Tages.
+   */
+  const wiederFaellig = (tpl: TaskTemplate, day: DayString, geloeschtAm: string): boolean => {
+    if (!geloeschtAm) return false
+    if (String(tpl.updated_at ?? '') > geloeschtAm) return true
+    if (tpl.day_type_id && (tagesartGeaendert.get(day) ?? '') > geloeschtAm) return true
+    return false
+  }
+
   for (const [key, { tpl, day }] of soll) {
-    if (belegt.has(key)) continue
+    if (belegt.has(key)) {
+      // Lebt hier noch etwas, ist der Tag versorgt – das ist der Normalfall.
+      if (proTag.has(key)) continue
+      // Auch eine von Hand eingetragene Aufgabe gleichen Namens versorgt den
+      // Tag. Ohne diese Zeile stünde nach einer Wiederbelebung die eigene
+      // Eintragung neben der wiedergeholten.
+      if (vonHand.get(day)?.has(titelSchluessel(tpl.title))) continue
+      // Nur noch gelöschte Zeilen. Die kanonische darf wieder aufleben, wenn
+      // die Vorlage den Tag inzwischen wieder will.
+      const kanonisch = templateTaskId(tpl.id, day)
+      const tote = geloescht.get(key) ?? []
+      const zeile = tote.find((t) => t.id === kanonisch)
+      if (!zeile || !wiederFaellig(tpl, day, String(zeile.deleted_at ?? ''))) continue
+      plan.wiederherstellen.push({
+        id: zeile.id,
+        titel: tpl.title,
+        values: {
+          title: tpl.title,
+          description: leer(tpl.description),
+          scheduled_time: leer(tpl.scheduled_time),
+          status: 'open',
+          scheduled_on: day,
+          duration_minutes: tpl.duration_minutes,
+          priority: tpl.priority,
+        },
+      })
+      continue
+    }
     // Heute schon von Hand eingetragen? Dann ist der Tag versorgt.
     if (vonHand.get(day)?.has(titelSchluessel(tpl.title))) continue
     const id = templateTaskId(tpl.id, day)

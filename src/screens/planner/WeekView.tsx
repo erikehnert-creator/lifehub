@@ -1,7 +1,16 @@
 /**
  * PLAN · WOCHE – sieben Tage nebeneinander.
+ *
+ * Welche Aufgaben an einem Tag stehen, entscheidet `tasksForDay()` – dieselbe
+ * Funktion wie auf „Heute" und in der Tagesansicht. Hier stand früher eine
+ * eigene Zeile (`t.scheduled_on === d`), und die war knapp daneben: Sie zeigte
+ * für heute die Aufgaben mit, die „Heute" bewusst verdeckt (mehrere
+ * Tagesinstanzen derselben Vorlage, siehe core/planner.ts), zählte abgesagte
+ * Aufgaben in die Auslastung und liess umgekehrt weg, was liegengeblieben ist
+ * oder eine Frist hat. Damit sagten zwei Bildschirme über denselben Tag
+ * Verschiedenes – und man konnte nicht wissen, welcher recht hat.
  */
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Card } from '../../ui/components'
 import { Icon } from '../../ui/icons'
 import { useData, useMutations } from '../../state/store'
@@ -9,7 +18,7 @@ import {
   todayString, formatDay, formatDuration, addDays, startOfWeek, endOfWeek,
   weekdayShort, isoWeekNumber, daysInRange,
 } from '../../core/dates'
-import { toggleTaskPatch } from '../../core/planner'
+import { tasksForDay, toggleTaskPatch } from '../../core/planner'
 import type { Task } from '../../core/types'
 import { TaskEditor } from './TaskEditor'
 
@@ -22,6 +31,14 @@ export function WeekView() {
   const [editing, setEditing] = useState<Task | null>(null)
   const start = startOfWeek(anchor)
   const days = daysInRange(start, endOfWeek(anchor))
+  const heute = todayString()
+  // Einmal je Woche gerechnet statt siebenmal beim Zeichnen: tasksForDay()
+  // wertet fuer den heutigen Tag die Vorlagenverdeckung aus, und die soll
+  // nicht bei jedem Tastendruck erneut ueber den ganzen Bestand laufen.
+  const jeTag = useMemo(
+    () => new Map(days.map((d) => [d, tasksForDay(data.tasks, d, heute)])),
+    [data.tasks, days.join(','), heute],
+  )
 
   return (
     <>
@@ -37,9 +54,9 @@ export function WeekView() {
         {days.map((d) => {
           const assignment = data.dayAssignments.find((a) => !a.deleted_at && a.day === d)
           const dt = assignment ? data.dayTypes.find((t) => t.id === assignment.day_type_id) : null
-          const tasks = data.tasks.filter((t) => !t.deleted_at && t.scheduled_on === d)
+          const tasks = jeTag.get(d) ?? []
           const events = data.events.filter((e) => !e.deleted_at && e.day === d)
-          const isToday = d === todayString()
+          const isToday = d === heute
           const holiday = data.holidays.find((h: any) => !h.deleted_at && h.day === d)
           const load = tasks.filter((t) => t.status !== 'done').reduce((s, t) => s + (t.duration_minutes ?? 0), 0)
           return (

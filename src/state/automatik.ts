@@ -111,7 +111,10 @@ export function useAutomatik() {
           templates: list('task_templates', { includeDeleted: true }) as any,
           assignments: stand.dayAssignments
             .filter((a) => !a.deleted_at)
-            .map((a) => ({ day: a.day, day_type_id: a.day_type_id })),
+            // `updated_at` gehoert dazu: Daran erkennt der Abgleich, dass eine
+            // Tagesart NACH dem Wegraeumen einer Aufgabe zurueckgestellt wurde
+            // - und dass die Aufgabe deshalb wieder aufleben darf.
+            .map((a) => ({ day: a.day, day_type_id: a.day_type_id, updated_at: a.updated_at })),
           tasks: list('tasks', { includeDeleted: true }) as any,
           today: heute,
           horizonDays: VORPLANUNG_TAGE,
@@ -121,7 +124,8 @@ export function useAutomatik() {
         // Schutzschalter gegen eine Schleife: Genau dieselbe Liste zweimal
         // hintereinander bedeutet, dass das Schreiben nichts bewirkt hat.
         const signatur = JSON.stringify(plan)
-        const etwasZuTun = plan.anlegen.length + plan.aendern.length + plan.entfernen.length > 0
+        const etwasZuTun = plan.anlegen.length + plan.aendern.length
+          + plan.wiederherstellen.length + plan.entfernen.length > 0
         if (etwasZuTun && signatur === letzteAenderungen.current) {
           console.warn('[Automatik] Dieselbe Änderung zweimal hintereinander – abgebrochen.', plan)
         } else {
@@ -129,6 +133,12 @@ export function useAutomatik() {
           mutations.batch(() => {
             for (const a of plan.anlegen) mutations.create('tasks', a.values)
             for (const a of plan.aendern) mutations.patch('tasks', a.id, a.patch)
+            // Erst zurueckholen, dann fuellen - die Zeile stand womoechlich
+            // seit Wochen im Papierkorb und traegt noch alte Vorgaben.
+            for (const w of plan.wiederherstellen) {
+              mutations.restoreRow('tasks', w.id)
+              mutations.patch('tasks', w.id, w.values)
+            }
             // Leise, mit einer zusammenfassenden Meldung danach: Räumt die
             // Automatik zwölf Aufgaben einer gelöschten Vorlage ab, will niemand
             // zwölf einzelne Hinweise dazu wegtippen.
@@ -139,6 +149,10 @@ export function useAutomatik() {
           else if (plan.anlegen.length > 1) meldungen.push(`${plan.anlegen.length} Aufgaben aus Vorlagen eingeplant`)
           if (plan.aendern.length === 1) meldungen.push('1 Aufgabe an die geänderte Vorlage angepasst')
           else if (plan.aendern.length > 1) meldungen.push(`${plan.aendern.length} Aufgaben an geänderte Vorlagen angepasst`)
+          if (plan.wiederherstellen.length === 1) meldungen.push('1 Aufgabe wieder eingeplant')
+          else if (plan.wiederherstellen.length > 1) {
+            meldungen.push(`${plan.wiederherstellen.length} Aufgaben wieder eingeplant`)
+          }
           if (plan.entfernen.length === 1) meldungen.push('1 nicht mehr geplante Aufgabe entfernt')
           else if (plan.entfernen.length > 1) meldungen.push(`${plan.entfernen.length} nicht mehr geplante Aufgaben entfernt`)
         }
