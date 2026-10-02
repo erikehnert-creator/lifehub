@@ -33,6 +33,7 @@ import {
   bloeckeMitTag, elementBild, geraetBilder, langeNichtTrainiert,
 } from '../../core/turnen/elemente'
 import { versucheGesamt } from '../../core/turnen/versuche'
+import { absolvierteTurneinheiten } from '../../core/turnen/einheiten'
 import { NaechstesTraining } from './NaechstesTraining'
 
 export function UebersichtView({ onZuElementen, onZuTraining }: {
@@ -42,11 +43,19 @@ export function UebersichtView({ onZuElementen, onZuTraining }: {
   const data = useData()
   const heute = todayString()
 
+  /**
+   * Die absolvierten Einheiten – ausdrücklich ohne die geplanten und ohne die,
+   * die noch bevorstehen.
+   *
+   * Seit Phase 3B kann eine Turneinheit als Termin in der Zukunft stehen.
+   * Sie in „Letzte Einheit" oder „Einheiten gesamt" mitzuzählen hiesse, ein
+   * Training zu behaupten, das nicht stattgefunden hat – und „Letzte Einheit"
+   * stünde in der Zukunft. Was zählt, entscheidet
+   * `core/turnen/einheiten.ts`, damit hier und anderswo dasselbe gilt.
+   */
   const einheiten = useMemo(
-    () => data.workoutSessions
-      .filter((s) => !s.deleted_at && s.discipline === 'turnen')
-      .sort((a, b) => (a.day < b.day ? 1 : -1)),
-    [data.workoutSessions],
+    () => absolvierteTurneinheiten(data.workoutSessions, heute),
+    [data.workoutSessions, heute],
   )
   const letzte = einheiten[0] ?? null
 

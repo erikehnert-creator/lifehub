@@ -29,9 +29,26 @@
  * als `gym_attempts` und Kürdurchgänge als `gym_routine_runs`, genau wie
  * bisher. Es gibt keine zweite Trainingserfassung und keinen „Plan
  * erledigt"-Zustand: Der Plan ist eine Ansicht, kein Datensatz.
+ *
+ * ---------------------------------------------------------------------------
+ * Zwei Ansichten, ein Vorschlag
+ *
+ * **Nächste Einheit** ist Phase 3A: was sich lohnt, wenn ich jetzt turne.
+ * **Kommende Einheiten** ist Phase 3B (`Wochenplan.tsx`): dieselben Inhalte,
+ * verteilt auf die Trainingstage, die es wirklich gibt.
+ *
+ * Der Umschalter steht **immer** da, auch wenn noch kein Termin geplant ist:
+ * Der erste Turntermin wird in der Wochenansicht angelegt, und ein Umschalter,
+ * der erst nach dem ersten Termin erscheint, liesse sich nie erreichen. Die
+ * leere Wochenansicht sagt dann, dass nichts geplant ist – und bietet den
+ * Knopf dafür an.
+ *
+ * Gerechnet wird der Phase-3A-Plan **einmal** und an beide Ansichten
+ * weitergegeben; zwei Rechnungen wären zwei Zustände, die auseinanderlaufen
+ * können.
  */
 import React, { useMemo, useState } from 'react'
-import { Card } from '../../ui/components'
+import { Card, Segment } from '../../ui/components'
 import { useData } from '../../state/store'
 import { todayString, diffDays } from '../../core/dates'
 import { BRAUCHT_ARBEIT } from '../../core/turnen/status'
@@ -44,6 +61,14 @@ import {
   geraeteLabel, nachwaehlbar, planMitAuswahl, trainingsplanung,
   type GeraetPlan, type PlanungsBild,
 } from '../../core/turnen/trainingsplanung'
+import { WochenAnsicht } from './Wochenplan'
+
+type Ansicht = 'einheit' | 'woche'
+
+const ANSICHTEN: { value: Ansicht; label: string }[] = [
+  { value: 'einheit', label: 'Nächste Einheit' },
+  { value: 'woche', label: 'Kommende Einheiten' },
+]
 
 export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }) {
   const data = useData()
@@ -53,6 +78,7 @@ export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }
   const [zusatz, setZusatz] = useState<string[]>([])
   const [reihenfolge, setReihenfolge] = useState<string[]>([])
   const [ohneInhalte, setOhneInhalte] = useState<string[]>([])
+  const [ansicht, setAnsicht] = useState<Ansicht>('einheit')
 
   /**
    * Der Vorschlag.
@@ -142,12 +168,27 @@ export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }
     )
   }
 
+  if (ansicht === 'woche') {
+    return (
+      <Card className="mb16" title="Nächstes Training"
+        sub="Die Inhalte auf die geplanten Trainingstage verteilt"
+        action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
+        <WochenAnsicht plan={bild} onZuTraining={onZuTraining} />
+      </Card>
+    )
+  }
+
   return (
     <Card className="mb16" title="Nächstes Training"
       sub={`${geraeteLabel(plan.length)} – ein Vorschlag, keine Verpflichtung`}
-      action={geaendert
-        ? <button className="btn btn-sm btn-ghost" onClick={zurueck}>zurücksetzen</button>
-        : undefined}>
+      action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
+
+      {geaendert && (
+        <div className="row mb8">
+          <span style={{ flex: 1 }} />
+          <button className="btn btn-sm btn-ghost" onClick={zurueck}>zurücksetzen</button>
+        </div>
+      )}
 
       {!bild.hatWettkampf && (
         <div className="hint-box small mb8">

@@ -19,6 +19,7 @@ import { MetricInput } from '../ui/metricInput'
 import { Icon, BEREICH_FARBE, type IconName } from '../ui/icons'
 import type { FoodEntry, Metric, MetricEntry, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
 import { SchlafView } from './tracking/SchlafView'
+import { DISZIPLINEN, DISZIPLIN_TURNEN } from '../core/turnen/einheiten'
 
 /** Wertebereich mit Einheit einmal am Ende, z. B. "18,0–22,0 kg" bzw. für Schlaf "7:00–8:00". */
 function formatRange(metric: Metric, min: number, max: number): string {
@@ -624,6 +625,18 @@ function SessionEditor({ session, onClose }: { session: WorkoutSession | null; o
   const [effort, setEffort] = useState<number | null>(session?.perceived_effort ?? 7)
   const [note, setNote] = useState(session?.note ?? '')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /**
+   * Die Disziplin – bisher konnte dieser Editor sie nicht setzen.
+   *
+   * Eine hier angelegte Einheit blieb deshalb ohne `discipline`, und ohne die
+   * kennt der Turnenbereich sie nicht: Weder erscheint ein geplanter
+   * Turntermin in der Wochenplanung (Phase 3B), noch zählt eine erfasste
+   * Einheit unter „Einheiten gesamt". Erkannt wird das NICHT am Titel –
+   * „Turntraining" hinzuschreiben ist keine Zuordnung, sondern eine
+   * Vermutung. Der Anfangswert einer vorhandenen Einheit ist ihre eigene
+   * Disziplin, damit ein Bearbeiten sie nicht verliert.
+   */
+  const [discipline, setDiscipline] = useState<string | null>(session?.discipline ?? null)
 
   const planTitles = data.workoutPlanDays
     .filter((d) => !d.deleted_at && d.weekday === weekdayIndex(day))
@@ -637,6 +650,7 @@ function SessionEditor({ session, onClose }: { session: WorkoutSession | null; o
       perceived_effort: status === 'completed' ? effort : null,
       note: note || null, type: null, plan_day_id: null,
       started_at: time || null, ended_at: null,
+      discipline,
     }
     if (session) m.patch('workout_sessions', session.id, payload, 'Einheit geändert')
     else m.create('workout_sessions', payload, 'Einheit erfasst')
@@ -679,6 +693,16 @@ function SessionEditor({ session, onClose }: { session: WorkoutSession | null; o
       </Field>
 
       <Field label="Dauer"><DurationInput minutes={duration} onChange={setDuration} /></Field>
+
+      <Field label="Disziplin"
+        hint={discipline === DISZIPLIN_TURNEN
+          ? 'Geplante Turneinheiten erscheinen unter Turnen in den kommenden Einheiten.'
+          : 'Nur nötig, wenn die Einheit zu einem eigenen Bereich gehört.'}>
+        <Chips
+          options={DISZIPLINEN.map((d) => ({ value: d.wert ?? '', label: d.label }))}
+          value={discipline ?? ''}
+          onChange={(v) => setDiscipline(v === '' ? null : String(v))} />
+      </Field>
 
       {status === 'completed' && (
         <Field label="Anstrengung (1–10)">

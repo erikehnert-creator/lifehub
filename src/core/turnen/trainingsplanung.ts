@@ -584,6 +584,48 @@ function warumFuer(
 
 const PRIORITAET_REIHE: Prioritaet[] = ['hoch', 'mittel', 'halten', 'zu_wenig_daten']
 
+/**
+ * Die Rolle, die sich allein aus der Priorität ergibt.
+ *
+ * Sie bestimmt schon beim Rechnen der Inhalte, wie viele Elemente ein Gerät
+ * nennt und mit welchem Umfang – deshalb steht sie hier und nicht erst bei der
+ * Auswahl. Ein Gerät, das gar nicht vorgeschlagen wird, hat seine Inhalte
+ * trotzdem in dieser Rolle gerechnet.
+ *
+ * **Exportiert für Phase 3B** (`wochenplanung.ts`): Wird ein Gerät dort auf
+ * einen weiteren Trainingstag verteilt, das in Phase 3A keinen Platz bekam,
+ * muss seine Rolle nach derselben Regel entstehen – nicht nach einer zweiten.
+ */
+export function rolleAus(prioritaet: Prioritaet): Rolle {
+  if (prioritaet === 'hoch') return 'schwerpunkt'
+  if (prioritaet === 'mittel') return 'nebenfokus'
+  return 'wartung'
+}
+
+/**
+ * Die Reihe, in der Geräte an die Reihe kommen – als Vergleichsfunktion.
+ *
+ * Drei Schlüssel: Priorität, dann **am längsten nicht trainiert** (nie
+ * trainiert zuerst), dann Wettkampfreihenfolge. Der zweite ist der Grund,
+ * warum kein Gerät wochenlang verschwindet.
+ *
+ * **Exportiert für Phase 3B**, und zwar ausdrücklich, damit die Wochenplanung
+ * dieselbe Reihe benutzt. Eine zweite Sortierregel wäre eine zweite Antwort auf
+ * dieselbe Frage – und sie würde beim nächsten Eingriff hier auseinanderlaufen.
+ */
+export function nachDringlichkeit(
+  a: { prioritaet: Prioritaet; tageHer: number | null; apparatus: string },
+  b: { prioritaet: Prioritaet; tageHer: number | null; apparatus: string },
+): number {
+  const pa = PRIORITAET_REIHE.indexOf(a.prioritaet)
+  const pb = PRIORITAET_REIHE.indexOf(b.prioritaet)
+  if (pa !== pb) return pa - pb
+  const ta = a.tageHer ?? Infinity
+  const tb = b.tageHer ?? Infinity
+  if (ta !== tb) return tb - ta
+  return (geraet(a.apparatus)?.reihenfolge ?? 99) - (geraet(b.apparatus)?.reihenfolge ?? 99)
+}
+
 /** Hat dieses Gerät überhaupt etwas, das sich vorschlagen liesse? */
 function nichtsZuTunFuer(g: GeraetFokus, inhalte: Inhalt[]): NichtsZuTun | null {
   if (inhalte.length) return null
@@ -635,8 +677,7 @@ export function trainingsplanung(e: PlanungsEingang): PlanungsBild {
     const bild = e.geraetBilder.get(g.apparatus)
     const tageHer = bild?.tageHer ?? null
     const hatDaten = (bild?.versuche ?? 0) > 0
-    const rolleFuerInhalte: Rolle = g.prioritaet === 'hoch' ? 'schwerpunkt'
-      : g.prioritaet === 'mittel' ? 'nebenfokus' : 'wartung'
+    const rolleFuerInhalte = rolleAus(g.prioritaet)
 
     const teile = [
       ...elementInhalte(g, rolleFuerInhalte, hatDaten),
@@ -664,16 +705,9 @@ export function trainingsplanung(e: PlanungsEingang): PlanungsBild {
      Der zweite Schlüssel ist der Grund, warum kein Gerät wochenlang
      verschwindet: Bei gleicher Priorität kommt das dran, das länger liegt. */
   const waehlbar = roh.filter((r) => r.inhalte.length > 0)
-  const reihe = [...waehlbar].sort((a, b) => {
-    const pa = PRIORITAET_REIHE.indexOf(a.g.prioritaet)
-    const pb = PRIORITAET_REIHE.indexOf(b.g.prioritaet)
-    if (pa !== pb) return pa - pb
-    const ta = a.tageHer ?? Infinity
-    const tb = b.tageHer ?? Infinity
-    if (ta !== tb) return tb - ta
-    return (geraet(a.g.apparatus)?.reihenfolge ?? 99)
-      - (geraet(b.g.apparatus)?.reihenfolge ?? 99)
-  })
+  const reihe = [...waehlbar].sort((a, b) => nachDringlichkeit(
+    { prioritaet: a.g.prioritaet, tageHer: a.tageHer, apparatus: a.g.apparatus },
+    { prioritaet: b.g.prioritaet, tageHer: b.tageHer, apparatus: b.g.apparatus }))
 
   /* ------------------------------------------------------ Die Auswahl */
   const gewaehlt: { apparatus: string; rolle: Rolle; grund: AuswahlGrund }[] = []

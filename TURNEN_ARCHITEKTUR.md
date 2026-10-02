@@ -619,6 +619,17 @@ begründet · der Nutzer darf abwählen, umstellen, entfernen und dazunehmen.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 19.
 
+### Phase 3B — Wochenplanung *(umgesetzt am 28.09.2026, keine Migration)*
+
+`core/turnen/wochenplanung.ts` · `screens/turnen/Wochenplan.tsx` als zweite
+Ansicht im Block „Nächstes Training" · **keine Tabelle, keine Schemaänderung** ·
+Trainingstermine sind `workout_sessions` mit `status = 'planned'` und
+`discipline = 'turnen'` – dieselbe Tabelle wie die absolvierten Einheiten ·
+verteilt die Phase-3A-Inhalte reihum auf die kommenden Termine, ohne Priorität
+oder Stabilität neu zu bewerten.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 20.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -2895,3 +2906,285 @@ Inhalt?"**
 
 **Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
 `supabase functions deploy`. Das Datenmodell ist unverändert.
+
+---
+
+## 20. Phase 3B: Wochenplanung
+
+Umgesetzt am 28.09.2026. **Keine Tabelle, keine Migration, keine Änderung an der
+Edge Function.**
+
+### 20.1 Die Frage, die diese Phase beantwortet
+
+> „An welchen kommenden Trainingstagen sollte ich welche Schwerpunkte setzen?"
+
+Phase 3A beantwortet „was", Phase 3B „wann davon was". Mehr nicht: Nicht wann
+Training stattfindet (das weiss LifeHub aus den Terminen), nicht wie lange, und
+nicht in welcher Minute.
+
+### 20.2 Woher die Trainingstage kommen
+
+**Aus `workout_sessions` mit `status = 'planned'` und `discipline = 'turnen'.`**
+
+Das ist kein neues Modell, sondern das vorhandene: `status` mit den Werten
+`planned`, `completed`, `skipped`, `rest` gibt es seit dem ersten Schema,
+`discipline` seit Migration 14, und `Tracking` und `Heute` lesen beides schon.
+Ein hier geplanter Turntermin erscheint deshalb von selbst unter Tracking →
+Geplant und in der Heute-Karte. Kein zweiter Kalender, keine gespiegelten
+Termine, keine Wochentagsliste im Quelltext.
+
+**Warum nicht aus dem vorhandenen Trainingsplan?** Geprüft und verworfen:
+
+| Quelle | warum nicht |
+|---|---|
+| `workout_plan_days` (Wochentagsmuster mit `title`, `focus`) | kennt **keine Disziplin**. Ob ein Plantag Turnen oder Krafttraining ist, steht nur im freien Text – das zu raten wäre schlechter als zu fragen. Eine Spalte zu ergänzen wäre eine Migration. |
+| `day_types` / `day_assignments` | unterscheiden Arbeit, Schule, frei, krank. Kein Trainingsbegriff. |
+| `calendar_events` | freier Titel; „ist das Turnen?" wäre geraten. |
+| Aufgaben / `task_templates` | dasselbe Problem, und Aufgabenlogik soll unberührt bleiben. |
+
+Deshalb gibt es eine **kleine** Anlegemöglichkeit in der Wochenansicht: Tag und
+freiwillig eine Dauer. Sie schreibt eine gewöhnliche `workout_sessions`-Zeile.
+
+**Der allgemeine Trainingseditor kann die Disziplin inzwischen auch** (seit
+30.09.2026, vorher eine bekannte Lücke). Unter `Tracking` steht ein Feld
+„Disziplin" mit „Ohne Zuordnung" und „Turnen"; die Auswahl geht in dasselbe
+`payload`, das der Editor zum Anlegen und zum Ändern benutzt. Zwei Dinge sind
+daran wichtig:
+
+- **Der Anfangswert einer vorhandenen Einheit ist ihre eigene Disziplin.** Ein
+  über die Wochenansicht angelegter Turntermin, der danach hier bearbeitet
+  wird, verliert sie also nicht.
+- **Erkannt wird nichts am Titel.** „Turntraining" hinzuschreiben ist eine
+  Vermutung, keine Zuordnung. Wer eine Einheit dem Turnen zurechnen will,
+  wählt die Disziplin.
+
+Die Werte stehen in `core/turnen/einheiten.ts` (`DISZIPLINEN`), nicht als
+Zeichenkette im Bildschirm.
+
+### 20.3 Der Wochenbegriff: ein rollender Zeitraum
+
+**Die kommenden 14 Tage**, nicht die Kalenderwoche – und das ist eine bewusste
+Entscheidung gegen die vorhandene Montagswoche (`startOfWeek`, im Planer
+benutzt):
+
+- Eine feste Woche zeigte am Samstag fast nichts mehr an, obwohl gerade dann
+  die nächsten Einheiten interessant sind.
+- Vierzehn statt sieben Tage, weil zwei bis drei Einheiten je Woche sonst kaum
+  eine Verteilung ergeben.
+
+Es entsteht dadurch **kein neuer Wochenbegriff und kein neuer Datumshelfer**:
+Gerechnet wird mit dem übergebenen `tagDifferenz`, beschriftet mit dem
+vorhandenen `relativeDay()` und `weekdayLong()`. Der Test prüft am Quelltext,
+dass kein `new Date()` und kein `86400000` im Modul steht.
+
+### 20.4 Die Verteilungsregeln
+
+Eine **Produktheuristik**, keine trainingswissenschaftlich optimale Verteilung.
+`WOCHEN_SCHWELLEN` hält die Zahlen an einer Stelle.
+
+```
+1. Einheiten chronologisch. Plätze je Einheit: PLAN_SCHWELLEN.maxGeraete (3),
+   bei nachweislich kurzer Einheit 2. Höchstens 2 Schwerpunkte je Einheit.
+2. Geräte mit Inhalt in der Phase-3A-Reihe (nachDringlichkeit).
+3. Reihum: erste Einheit ← erstes Gerät, zweite ← zweites, dann von vorn.
+4. Passt ein Gerät nicht (Plätze voll, Schwerpunktgrenze), rückt es in die
+   nächste Einheit, in die es passt.
+5. Bleiben Plätze frei UND ist nichts offen: ein Gerät darf ein zweites Mal –
+   aber nur, wenn die KÜR das Problem ist, und dann nur mit dem Durchgang.
+6. Was übrig bleibt, steht unter „Noch offen".
+```
+
+**Die Phase-3A-Grenzen werden nicht umgangen.** Auch eine lange Einheit bekommt
+drei Geräte, nicht vier. Was nicht passt, verschwindet nicht, sondern wird
+genannt.
+
+**Die Inhalte eines Geräts bleiben zusammen.** Elementarbeit, Entwicklung und
+Kürdurchgang desselben Geräts auf zwei Tage zu zerlegen hiesse, an einem Tag an
+Element A zu arbeiten und an einem anderen die Kür zu turnen, in der es
+vorkommt. Verteilt werden Geräte, nicht Zeilen.
+
+**Regel 5 hat eine Bedingung, die beim Bauen erst gefehlt hat:** Ein Gerät ein
+zweites Mal zu bringen, während ein anderes mit Inhalt gar nicht vorkommt, ist
+die schlechtere Verteilung – auch wenn der freie Platz an der Schwerpunktgrenze
+entstanden ist und das offene Gerät ihn nicht nehmen könnte. Der Unit-Test hat
+das gefunden.
+
+### 20.5 Eine einzige Einheit
+
+Gibt es genau einen Termin, gilt der **Phase-3A-Vorschlag unverändert**
+(`planMitAuswahl(plan)`), ohne neue Verteilung: Bei einer Einheit gibt es nichts
+zu verteilen, und ein abweichendes Ergebnis wäre nur verwirrend. Geräte, für die
+3A keinen Platz hatte, stehen unter „Noch offen".
+
+### 20.6 Tagesarten sind Kontext, keine Bedingung
+
+Tagesart und freie Zeit kommen aus dem vorhandenen `computeCapacity()` und
+werden **angezeigt**. Die Verteilung hängt nicht daran – wer keinen Arbeitsplan
+pflegt, bekommt denselben Vorschlag. Ein Test rechnet nach, dass dieselben
+Geräte an denselben Tagen stehen, ob eine Tagesart hinterlegt ist oder nicht.
+
+**Die freie Zeit begrenzt die Plätze ausdrücklich nicht.** Nur eine an der
+Einheit hinterlegte Dauer tut das – sonst hinge Turnen am gepflegten
+Arbeitsplan.
+
+Und **keine physiologischen Aussagen**: Dass nach einer Frühschicht ein Gerät
+ungeeignet wäre, steht nirgends in LifeHub und wäre erfunden. Der Test prüft am
+Quelltext, dass keine Schichtart vorkommt.
+
+### 20.7 Kapazität, qualitativ
+
+Steht an einer Einheit eine Dauer, gilt sie als `kurz` (< 60 min), `normal` oder
+`lang` (≥ 120 min). Fehlt sie, wird über die Kapazität **nichts** behauptet
+(`unbekannt`) und es gilt die normale Platzzahl.
+
+`kurz` nimmt einen Platz weg, `lang` gibt keinen dazu. **Keine Minuten je
+Gerät** – dieselbe Grenze wie in 19.7, und der Test hält sie am Quelltext fest.
+
+### 20.8 Geplant ist nicht durchgeführt
+
+`status` trennt beides, an einer Stelle.
+
+- Ein Termin wird absolviert, indem im Reiter **Training** etwas dazu erfasst
+  wird. Der vorhandene Speicherweg setzt dabei `status: 'completed'` – **diese
+  Zeile war nötig**: Ohne sie bliebe eine erfasste Einheit auf `planned` stehen,
+  zählte weiter als offener Termin und würde erneut verplant.
+- Ein vergangener Termin ohne Erfassung wird **nicht** als absolviert behandelt.
+  Er erscheint als überfällig und bekommt keine Inhalte.
+- Die Turnübersicht zählt für „Letzte Einheit" und „Einheiten gesamt" nur
+  Einheiten, die **stattgefunden haben**. Das sind zwei Bedingungen, und die
+  zweite hat anfangs gefehlt:
+
+  > **„Letzte Einheit" ist die neueste tatsächlich absolvierte Einheit mit
+  > Datum bis einschliesslich heute.**
+
+  `status` allein genügt nicht: Eine Einheit mit morgigem Datum, die jemand
+  als „absolviert" angelegt hat, ist trotzdem keine vergangene Aktivität.
+  Entschieden wird das in `core/turnen/einheiten.ts` – `istAbsolviert()`,
+  `absolvierteTurneinheiten()`, `letzteTurneinheit()` – und nicht an drei
+  Bildschirmen dreimal. `planned`, `skipped` und `rest` sagen ausdrücklich,
+  dass nicht trainiert wurde; der Tag wird örtlich verglichen, über die
+  vorhandenen Datumshelfer (Kalendertage sind Zeichenketten `YYYY-MM-DD`,
+  deren Vergleich der ihrer Kalendertage ist).
+- Die Trainingsliste zeigt Termine mit dem Vermerk „geplant" und nennt sie
+  getrennt („dazu 2 geplante Termine").
+
+### 20.9 Reaktion auf absolviertes Training
+
+Weil alles gerechnet ist, ergibt sich das von selbst: Nach dem Training am
+ersten Tag ändert sich der Trainingsfokus, damit der Phase-3A-Vorschlag und
+damit die Verteilung auf die restlichen Tage. `turnen-wochenplanung-e2e` geht
+genau diesen Weg: zwei Termine → verteilt → ersten erfassen → nur noch ein
+Termin, mit neuem Inhalt.
+
+### 20.10 Nichts wird gespeichert
+
+Gespeichert sind nur die **Termine** – und die waren schon vorher Daten. Die
+Verteilung ist gerechnet; eine festgeschriebene Wochenplanung wäre ab dem ersten
+Training falsch, ohne dass es auffällt (dieselbe Überlegung wie 17.1 und 19.9).
+
+Auch die Eingriffe des Nutzers – Gerät auf einen anderen Tag, tauschen,
+entfernen, einplanen – laufen über eine reine Funktion auf dem
+Arbeitsspeicherzustand (`wocheMitAuswahl`) und werden **nicht** synchronisiert.
+Ein Tausch ist dabei zwei Verschiebungen; ein eigener Fall dafür wäre unnötig.
+
+Wollte man eine Woche wirklich festschreiben, wäre der richtige Träger eine
+Notiz oder ein Feld an der **vorhandenen** Einheit – keine neue Tabelle. Das ist
+bisher nicht nötig.
+
+### 20.11 Oberfläche
+
+Der Block **Nächstes Training** bekommt einen Umschalter:
+
+```
+Nächstes Training                    [ Nächste Einheit | Kommende Einheiten ]
+2 Einheiten geplant · die kommenden 14 Tage          [zurücksetzen] [+ Turntermin]
+
+Dienstag  29.09.  morgen                              [Termin löschen]
+Frühschicht · kurze Einheit · 6 Std. 20 Min. frei
+  Barren  SCHWERPUNKT                    [verschieben …] [×]
+    ELEMENT       Felge vorwärts gezielt stabilisieren   Schwerpunkt
+    KÜR AM STÜCK  Die Kür einmal vollständig turnen      normal
+  Ringe   WARTUNG
+  ▾ Warum diese Geräte?
+
+Freitag   02.10.  in 4 Tagen
+  Reck    SCHWERPUNKT
+```
+
+Der Umschalter steht **immer** da, auch bei leerer Woche – der erste Turntermin
+wird in der Wochenansicht angelegt, und ein Umschalter, der erst nach dem ersten
+Termin erscheint, liesse sich nie erreichen. Das war beim Bauen zuerst falsch und
+fiel beim Schreiben des E2E auf.
+
+Kein neuer Haupttab. Bei 390 px nachgemessen, dunkler Modus geprüft, bestehende
+Tokens, keine Emojis.
+
+### 20.12 Leere Woche
+
+Kein Termin im Zeitraum: keine erfundenen Trainingstage, sondern der Satz, dass
+nichts geplant ist – und der Hinweis, dass der Vorschlag für die nächste Einheit
+unter **Nächste Einheit** steht und gilt, sobald geturnt wird. Die Inhalte
+stehen dabei als offene Posten da, damit nichts unsichtbar wird.
+
+### 20.13 Gemessen
+
+| | |
+|---|---|
+| `wochenplanung()` bei 200 Terminen und 6 Geräten | **0,3 ms** |
+| `wocheMitAuswahl()` | rechnet nichts neu |
+| `loadAll()` | unverändert, kein neuer Lader |
+
+Betrachtet werden nur Termine im Zeitraum; jahrelange Plandaten werden nicht
+durchgearbeitet. Die Planung ist ein Nachschlagen in Phase 3A.
+
+### 20.14 Grenzen
+
+- **Kein Wettkampf-Peaking, keine Periodisierung, keine Deload-Wochen.**
+- **Keine Belastungssteuerung** aus Puls oder Schlaf, keine automatische
+  Verschiebung.
+- **Keine Aufgaben, keine Erinnerungen, keine Push-Nachrichten.**
+- **Kein Terminvorschlag.** LifeHub sagt nicht, wann trainiert werden sollte –
+  nur, was an den Tagen sinnvoll ist, die es gibt.
+- **Ein Termin ohne Disziplin wird nicht erkannt** (20.2).
+- **Wer eine Einheit mit Datum in der Zukunft erfasst**, bekommt „Letzte
+  Einheit" mit einem zukünftigen Tag. Das Datumsfeld steht im Editor und ist
+  Eriks Entscheidung; erfunden wird nichts.
+
+### 20.15 Was diese Phase ausdrücklich NICHT tut
+
+- kein zweiter Kalender, kein zweiter Aufgabenplaner, keine zweite Tageslogik
+- keine Änderung an Aufgaben, Tagesarten oder fremden Planereinträgen
+- keine automatische Erledigung von irgendetwas
+- keine Persistenz der Verteilung
+- keine Minuten je Gerät
+
+Phase 3B endet bei: **„Welche Inhalte verteile ich auf meine bereits vorhandenen
+kommenden Turneinheiten?"**
+
+### 20.16 Einspielen
+
+**Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
+`supabase functions deploy`. Das Datenmodell ist unverändert.
+
+### 20.17 Abschluss
+
+Phase 3B ist abgeschlossen (30.09.2026). Was zuletzt dazukam:
+
+- Das Disziplinfeld im allgemeinen Trainingseditor (20.2) – damit erscheinen
+  auch dort geplante Turneinheiten in der Wochenansicht.
+- Die Festlegung, was als absolvierte Einheit zählt (20.8), an einer Stelle:
+  `core/turnen/einheiten.ts`. Übersicht, Trainingsliste und Wochenansicht
+  fragen dieselbe Funktion; keiner der drei Bildschirme entscheidet das noch
+  selbst.
+
+Unverändert geblieben ist alles, was vorher stand: Termine aus
+`workout_sessions`, die rollenden 14 Tage, die vorhandene
+Planner-Kapazitätsrechnung, die Phase-3A-Prioritäten, höchstens drei Geräte
+und zwei Schwerpunkte je Einheit, die durchsichtige Verteilungsheuristik, der
+Bereich „Noch offen", die nur im Arbeitsspeicher lebenden Nutzeranpassungen –
+und es ist **keine zweite Planungsdatenbank** entstanden.
+
+```
+npx vitest run tests/turnen-wochenplanung.test.ts tests/turnen-einheiten.test.ts
+node tests/turnen-wochenplanung-e2e.mjs
+```

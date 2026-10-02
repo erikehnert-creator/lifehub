@@ -34,6 +34,7 @@ import { todayString, formatDay, formatDuration } from '../../core/dates'
 import { GERAETE, geraetName, type GeraetKey } from '../../core/turnen/geraete'
 import { GUETEN, planeVersuche, planIstLeer, versucheGesamt, type ZaehlerStand } from '../../core/turnen/versuche'
 import { statusLabel } from '../../core/turnen/status'
+import { istAbsolviert, istTurnen } from '../../core/turnen/einheiten'
 import { geraeteDerEinheit, geraeteJeEinheit } from '../../core/turnen/elemente'
 import { wettkampfKuerJeGeraet } from '../../core/turnen/kueren'
 import { fassungsInhalt, planeFassung } from '../../core/turnen/fassungen'
@@ -51,11 +52,20 @@ export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
   const data = useData()
   const [offen, setOffen] = useState<WorkoutSession | 'neu' | null>(null)
 
+  // Die Liste zeigt ALLES, was zu Turnen gehoert - auch die geplanten
+  // Termine, damit sich dort ein Training erfassen laesst. Gezaehlt wird
+  // darunter aber nur, was wirklich stattgefunden hat
+  // (core/turnen/einheiten.ts).
   const einheiten = useMemo(
     () => data.workoutSessions
-      .filter((s) => !s.deleted_at && s.discipline === 'turnen')
+      .filter((s) => istTurnen(s))
       .sort((a, b) => (a.day < b.day ? 1 : -1)),
     [data.workoutSessions],
+  )
+  const heute = todayString()
+  const absolviert = useMemo(
+    () => einheiten.filter((s) => istAbsolviert(s, heute)).length,
+    [einheiten, heute],
   )
 
   const versucheJeEinheit = useMemo(() => {
@@ -82,6 +92,7 @@ export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
   )
 
   const hatElemente = data.gymElements.some((e) => !e.deleted_at && e.is_active)
+  const geplante = einheiten.filter((s) => s.status === 'planned').length
 
   return (
     <>
@@ -103,7 +114,9 @@ export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
         <Empty title="Noch kein Turntraining erfasst"
           hint="Nach dem Training kurz festhalten, was am Gerät war – das ist die Grundlage für alles Weitere." />
       ) : (
-        <Card className="pad0" title={`${einheiten.length} Einheiten`}>
+        <Card className="pad0"
+          title={`${absolviert} Einheiten`}
+          sub={geplante > 0 ? `dazu ${geplante} geplante Termine` : undefined}>
           <div className="list">
             {einheiten.slice(0, 40).map((s) => {
               const versuche = versucheJeEinheit.get(s.id) ?? []
@@ -116,6 +129,10 @@ export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
                   <span className="list-main">
                     <span className="list-title">{formatDay(s.day)}</span>
                     <span className="list-sub">
+                      {/* Geplant ist nicht durchgefuehrt: Ein Turntermin steht
+                          hier mit, damit er sich erfassen laesst - aber sichtbar
+                          als Termin und nicht als absolvierte Einheit. */}
+                      {s.status === 'planned' ? 'geplant · ' : ''}
                       {geraete.length ? geraete.join(' · ') : s.title || 'ohne Gerät'}
                       {s.duration_minutes ? ` · ${formatDuration(s.duration_minutes)}` : ''}
                       {gesamt > 0 ? ` · ${gesamt} Versuche` : ''}
@@ -337,8 +354,14 @@ function EinheitEditor({ einheit, onClose }: { einheit: WorkoutSession | null; o
       : geraet ? geraetName(geraet) : 'Turnen'
     m.batch(() => {
       const sessionId = einheit
+        // `status: completed` gehoert dazu: Seit Phase 3B kann diese Einheit als
+        // geplanter Turntermin entstanden sein. Wer hier etwas erfasst, hat
+        // trainiert - bliebe der Status auf "planned", zaehlte die Einheit
+        // weiter als offener Termin und die Wochenplanung wuerde sie erneut
+        // verplanen.
         ? (m.patch('workout_sessions', einheit.id, {
             day, duration_minutes: dauer, note: notiz.trim() || null, title: titel,
+            status: 'completed',
           }), einheit.id)
         : m.create('workout_sessions', {
             day, plan_day_id: null, title: titel, type: null,
