@@ -437,18 +437,60 @@ export function geraetBilanzen(
 }
 
 /**
+ * Die noch bevorstehenden Wettkämpfe – chronologisch, der nächste zuerst.
+ *
+ * **Die einzige Stelle, an der „künftig" entschieden wird.** Ein Wettkampf am
+ * heutigen Tag zählt dazu: Er steht noch bevor, bis er vorbei ist, und ein
+ * Countdown, der am Wettkampfmorgen auf „vorbei" springt, wäre falsch.
+ *
+ * Ergebnisse spielen dabei **keine** Rolle. Ein Wettkampf ohne Ergebniszeilen
+ * ist kein fehlerhafter Wettkampf, sondern ein Termin – genau das macht einen
+ * künftigen Wettkampf aus (Abschnitt 21.2).
+ *
+ * `heute` wird übergeben statt gelesen, damit sich Monats-, Jahres- und
+ * Zeitumstellungsgrenzen nachrechnen lassen. Verglichen werden `DayString`s,
+ * also lokale Kalendertage – keine UTC-Zeitstempel und keine Millisekunden.
+ */
+export function kuenftigeWettkaempfe(
+  wettkaempfe: GymCompetition[],
+  heute: DayString,
+): GymCompetition[] {
+  return wettkaempfe
+    .filter((w) => !w.deleted_at && w.day >= heute)
+    // Der Name als zweiter Schlüssel, damit zwei Termine am selben Tag eine
+    // feste Reihenfolge haben. Ohne ihn entschiede die Ladereihenfolge, und
+    // der „nächste Wettkampf" wechselte nach einem Abgleich.
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.name.localeCompare(b.name)))
+}
+
+/**
+ * Die vergangenen Wettkämpfe – der jüngste zuerst.
+ *
+ * Das Gegenstück zu `kuenftigeWettkaempfe` und dieselbe Grenze: `day < heute`.
+ */
+export function vergangeneWettkaempfe(
+  wettkaempfe: GymCompetition[],
+  heute: DayString,
+): GymCompetition[] {
+  return wettkaempfe
+    .filter((w) => !w.deleted_at && w.day < heute)
+    .sort((a, b) => (a.day > b.day ? -1 : a.day < b.day ? 1 : a.name.localeCompare(b.name)))
+}
+
+/**
  * Der nächste noch bevorstehende und der zuletzt vergangene Wettkampf.
  *
- * `heute` wird übergeben statt gelesen, damit sich die Grenzfälle prüfen
- * lassen: Ein Wettkampf am heutigen Tag gilt als der nächste, nicht als der
- * letzte.
+ * Beides über `kuenftigeWettkaempfe` und `vergangeneWettkaempfe`, damit die
+ * Grenze zwischen „kommt noch" und „ist vorbei" an **einer** Stelle steht.
+ * Phase 3C fragt dieselben Funktionen – zwei Antworten auf „welcher Wettkampf
+ * kommt als Nächstes?" würden auseinanderlaufen.
  */
 export function naechsterUndLetzter(
   wettkaempfe: GymCompetition[],
   heute: DayString,
 ): { naechster: GymCompetition | null; letzter: GymCompetition | null } {
-  const offen = wettkaempfe.filter((w) => !w.deleted_at)
-  const kuenftig = offen.filter((w) => w.day >= heute).sort((a, b) => (a.day < b.day ? -1 : 1))
-  const vergangen = offen.filter((w) => w.day < heute).sort((a, b) => (a.day > b.day ? -1 : 1))
-  return { naechster: kuenftig[0] ?? null, letzter: vergangen[0] ?? null }
+  return {
+    naechster: kuenftigeWettkaempfe(wettkaempfe, heute)[0] ?? null,
+    letzter: vergangeneWettkaempfe(wettkaempfe, heute)[0] ?? null,
+  }
 }

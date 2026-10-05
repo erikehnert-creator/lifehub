@@ -164,6 +164,25 @@ export function liegtUnten(m: Messwert): boolean | null {
   return m.position === null ? null : m.position < FELDMITTE
 }
 
+/**
+ * Ein Platz mit seiner Feldgrösse – nie das eine ohne das andere.
+ *
+ * „1. von 2" ist eine andere Auskunft als „1. von 20", und die interne
+ * Vergleichszahl `position` erscheint in der Oberfläche nirgends. Diese
+ * Formulierung steht deshalb hier und nicht in einem Bildschirm: Analyse und
+ * Wettkampfvorbereitung müssen denselben Platz gleich schreiben.
+ *
+ * Die kurze Form für eine Kachel oder Kennzeile. Für den Fliesstext der
+ * Begründung gibt es daneben eine ausgeschriebene Fassung („Platz 3 von 6").
+ *
+ * `null`, wenn kein Vergleichsfeld dasteht.
+ */
+export function platzImFeld(m: Messwert): string | null {
+  if (m.rang === null || m.anzahl === null) return null
+  const geteilt = (m.gleich ?? 1) > 1 ? ' geteilt' : ''
+  return `${m.rang}.${geteilt} von ${m.anzahl}`
+}
+
 /* ============================================================= Fokus */
 
 /**

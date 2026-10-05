@@ -1685,3 +1685,89 @@ table.data tbody tr:hover { background: var(--surface-2); }
 @media (max-width: 460px) {
   .wp-wahl { max-width: 100%; flex: 1 1 100%; }
 }
+
+/* Turnen: Naechster Wettkampf (Phase 3C)
+   ------------------------------------------------------------------
+   Mobile first, 390 px. Keine sechs grossen Kacheln - das waeren drei
+   Bildschirmhoehen; je Geraet eine Zeile mit drei Angaben. Farben
+   kommen ausschliesslich aus den .pill-Klassen weiter oben, damit
+   "faellt auf" ueberall dasselbe Grau, Gelb und Gruen hat.      */
+.wz-kopf { margin-bottom: 10px; }
+.wz-name { font-size: 16px; font-weight: 680; }
+.wz-termin {
+  font-size: 12.5px; color: var(--text-2); margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.wz-ort { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+
+.wz-geraete { display: flex; flex-direction: column; gap: 8px; }
+.wz-geraet { border-top: 1px solid var(--border); padding-top: 8px; }
+.wz-geraet:first-child { border-top: 0; padding-top: 0; }
+.wz-geraet-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.wz-geraet-name { font-size: 13.5px; font-weight: 620; }
+.wz-geraet-zeilen {
+  display: flex; flex-direction: column; gap: 1px;
+  margin-top: 3px; font-size: 11.5px; color: var(--text-muted);
+}
+
+.wz-herkunft {
+  margin-top: 10px; font-size: 11px; line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.wz-weitere {
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.wz-weitere-kopf {
+  display: block; font-size: 10.5px; color: var(--text-muted);
+  font-weight: 650; text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: 4px;
+}
+.wz-weitere-zeile {
+  display: flex; gap: 10px; font-size: 12.5px; padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Detailansicht: je Geraet ein Block, darin benannte Abschnitte. */
+.wz-detail {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 12px; background: var(--surface-1);
+}
+.wz-detail-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.wz-detail-name { font-size: 14.5px; font-weight: 680; }
+.wz-detail-erklaerung {
+  margin-top: 4px; font-size: 11.5px; line-height: 1.55;
+  color: var(--text-muted);
+}
+.wz-abschnitt { margin-top: 12px; }
+.wz-abschnitt-kopf {
+  display: block; font-size: 10.5px; color: var(--text-muted);
+  font-weight: 650; text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: 4px;
+}
+
+:root[data-theme='dark'] .wz-detail { background: var(--surface-2); }
+
+/* Der Wettkampfkontext in Phase 3A und 3B - Beschriftung, kein Hinweis
+   im Sinne von .np-hinweis: Er fordert nichts.                   */
+.np-wettkampf {
+  font-size: 11px; color: var(--text-muted); margin: 2px 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.wp-wettkampf {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.wp-wettkampf-kopf {
+  font-size: 10.5px; color: var(--text-muted); font-weight: 650;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.wp-wettkampf-wert {
+  font-size: 12.5px; font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}

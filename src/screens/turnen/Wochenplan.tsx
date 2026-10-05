@@ -52,9 +52,18 @@ import {
   wocheMitAuswahl, wochenplanung,
   type EinheitGeraet, type GeplanteEinheit, type OffenerPosten, type TerminEingang,
 } from '../../core/turnen/wochenplanung'
+import { zielKurztext, type WettkampfZiel } from '../../core/turnen/wettkampfvorbereitung'
 
-export function WochenAnsicht({ plan, onZuTraining }: {
+export function WochenAnsicht({ plan, ziel, onZuTraining }: {
   plan: PlanungsBild
+  /**
+   * Der kommende Wettkampf aus Phase 3C – **nur eine Kopfzeile**.
+   *
+   * Die Verteilung der Geräte auf die Tage bleibt unberührt: Es gibt keine
+   * Periodisierung nach Tagen bis zum Wettkampf und keine zweite
+   * Wochenplanung, die den Wettkampf einrechnet (21.12).
+   */
+  ziel: WettkampfZiel
   onZuTraining: () => void
 }) {
   const data = useData()
@@ -117,8 +126,19 @@ export function WochenAnsicht({ plan, onZuTraining }: {
   const verschiebe = (apparatus: string, sessionId: string) =>
     setVerschoben({ ...verschoben, [apparatus]: sessionId })
 
+  const wettkampf = zielKurztext(ziel)
+
   return (
     <>
+      {/* Nur der Termin und der Abstand. Was unten verteilt wird, entscheidet
+          allein Phase 3B - der Wettkampf geht in keine Verteilung ein. */}
+      {wettkampf && (
+        <div className="wp-wettkampf">
+          <span className="wp-wettkampf-kopf">Nächster Wettkampf</span>
+          <span className="wp-wettkampf-wert">{wettkampf}</span>
+        </div>
+      )}
+
       <div className="row mb8">
         <span className="muted small">
           {woche.keineTermine

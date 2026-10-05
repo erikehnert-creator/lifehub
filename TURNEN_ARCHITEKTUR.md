@@ -630,6 +630,18 @@ oder Stabilität neu zu bewerten.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 20.
 
+### Phase 3C — Kommender Wettkampf *(umgesetzt am 05.10.2026, keine Migration)*
+
+`core/turnen/wettkampfvorbereitung.ts` · `screens/turnen/Wettkampfziel.tsx` als
+Block oberhalb von „Nächstes Training" auf der Turnübersicht · **keine Tabelle,
+keine Schemaänderung** · ein künftiger Wettkampf ist eine gewöhnliche
+`gym_competitions`-Zeile mit einem Datum in der Zukunft und noch ohne
+`gym_results` · Countdown kalendarisch über `tagDifferenz`, Gerätestand aus den
+fertigen Bildern von 2C/2D/2E zusammengeführt · **kein 0–100-Score**, getrennte
+beobachtbare Dimensionen je Gerät.
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 21.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -3187,4 +3199,293 @@ und es ist **keine zweite Planungsdatenbank** entstanden.
 ```
 npx vitest run tests/turnen-wochenplanung.test.ts tests/turnen-einheiten.test.ts
 node tests/turnen-wochenplanung-e2e.mjs
+```
+
+## 21. Phase 3C: Kommender Wettkampf und Wettkampfstand
+
+Umgesetzt am 05.10.2026. **Keine Tabelle, keine Migration, keine Änderung an
+einer Edge Function.**
+
+### 21.1 Die Frage, die diese Phase beantwortet
+
+> „Welcher Wettkampf kommt als Nächstes, und welche konkreten offenen bzw.
+> stabilen Punkte zeigen meine aktuellen Daten je Gerät?"
+
+Bis dahin kannte LifeHub Wettkämpfe nur rückblickend: Was geturnt wurde, wo das
+im Feld stand, was daraus für das Training folgt (2B bis 2E). Die Richtung nach
+vorn fehlte vollständig.
+
+Nicht beantwortet wird: ob die Zeit reicht, wie das Training deshalb aussehen
+sollte, welche Punktzahl zu erwarten ist. Dazu steht in LifeHub nichts, und
+Abschnitt 21.14 sagt, warum das so bleibt.
+
+### 21.2 Ein künftiger Wettkampf ist ein Wettkampf
+
+**Keine zweite Tabelle, kein Statusfeld, keine Migration.**
+
+Geprüft wurde zuerst, was `gym_competitions` bereits trägt: `day`, `name`,
+`location`, `class_name`, `rank_allround`, `score_allround`, `protocol_url`,
+`note`. Keine Spalte davon ist verpflichtend ausser Tag und Name, und
+`gym_results` hängt am Wettkampf, nicht umgekehrt. Ein Wettkampf mit
+
+```
+competition
+results = []
+```
+
+ist deshalb **gültig** und war es immer – `planeErgebnisse()` legt für ein Gerät
+ohne Angaben ausdrücklich keine Zeile an (13.5), und die Wettkampfliste zeigt
+seit Phase 2B1 eine Pille „geplant" für `day >= heute`. Ein künftiger Wettkampf
+ist damit kein Sonderfall, sondern ein Wettkampf, der seine Ergebnisse noch
+nicht hat.
+
+Was daraus folgt: Es gibt **keine** Tabelle `competition_goals`, keine
+`upcoming_competitions`, kein `readiness`, kein `gym_competitions.status` und
+keine gespeicherte Gerätebewertung. Countdown und Gerätestand sind gerechnet
+(`core/turnen/wettkampfvorbereitung.ts`); nach dem nächsten Training steht von
+selbst etwas anderes da. Eine gespeicherte Wettkampfbereitschaft wäre ab dem
+ersten erfassten Durchgang falsch, ohne dass es auffällt – dieselbe Überlegung
+wie in 17.1, 19.9 und 20.9.
+
+Historische Wettkämpfe werden dadurch **nicht** angefasst. Sie behalten ihre
+Werte und ihre eingefrorenen Kürfassungen.
+
+### 21.3 Anlegen
+
+Der vorhandene Wettkampfeditor konnte es schon: Das Datumsfeld ist frei, und
+nur der Name ist Pflicht. Geändert hat sich die **Sprache**, nicht der
+Datensatz – bei einem Datum in der Zukunft heisst der Editor „Wettkampf planen",
+und die Geräteauswahl fragt nicht mehr nach den Geräten, „an denen du gestartet
+bist". Noten werden nirgends erzwungen.
+
+### 21.4 Der nächste Wettkampf
+
+**Eine Regel, an einer Stelle.** `kuenftigeWettkaempfe()` in
+`core/turnen/wettkampf.ts` ist die einzige Stelle, die entscheidet, was
+„künftig" heisst: `day >= heute`, nicht gelöscht, chronologisch, bei
+Gleichstand nach Namen. `naechsterUndLetzter()` – das die Wettkampfliste schon
+benutzt – ruft sie jetzt auf, und Phase 3C ruft dieselbe Funktion. Zwei
+Antworten auf „welcher Wettkampf kommt als Nächstes?" würden auseinanderlaufen.
+
+Ein Wettkampf **am heutigen Tag** zählt als der nächste. Ein Countdown, der am
+Wettkampfmorgen auf „vorbei" springt, wäre falsch.
+
+Bei mehreren künftigen Wettkämpfen ist der erste primär, die übrigen stehen als
+einfache Liste darunter (21.8).
+
+**Ohne Wettkampf bleibt alles andere unverändert.** Der Block sagt dann „Noch
+kein kommender Wettkampf eingetragen" und bietet den Weg in den Reiter
+Wettkämpfe. Phase 3A und 3B rechnen daneben weiter wie bisher; das
+Trainingssystem hängt an keinem Wettkampf.
+
+**Und umgekehrt: Der Termin hängt nicht am Elementkatalog.** Die Turnübersicht
+zeigt ohne ein einziges Element den Einstieg – dahinter war die Wettkampfkarte
+zunächst unerreichbar, obwohl der Termin dastand. Steht ein kommender Wettkampf
+an, erscheint sie deshalb **über** dem Einstieg, der darunter bleibt.
+
+Erfunden wird dabei nichts: kein Element, keine Kür, keine Gerätekarte, keine
+sechs Geräte. Gezeigt werden Name, Datum und Abstand, und gesagt wird, dass
+Turndaten fehlen („Noch keine Elemente oder Wettkampfküren hinterlegt"). Ohne
+Gerätestand gibt es auch keinen Knopf in eine Detailansicht über nichts. Ist
+weder ein Element noch ein Termin da, bleibt der Einstieg allein stehen – eine
+Karte über nichts wäre nur Lärm.
+
+### 21.5 Der Countdown ist kalendarisch
+
+Gerechnet wird mit `tagDifferenz` (also `diffDays`) über zwei lokale
+Kalendertage – kein `toISOString().slice(...)`, keine feste 86 400 000, keine
+parallele UTC-Tageslogik. Der Unit-Test prüft am Quelltext, dass keines davon im
+Modul steht, und rechnet Monatswechsel, Jahreswechsel und beide
+Zeitumstellungen nach.
+
+Beschriftet wird mit dem vorhandenen `relativeDay()` („heute", „morgen",
+„übermorgen", „in 5 Tagen"). Jenseits seiner Siebentagegrenze zeigt es das
+Datum; dort – und nur dort – formuliert `countdownText()` „in 24 Tagen" mit
+derselben Wortwahl weiter.
+
+**Keine Bewertung des Abstands.** Kein „24 Tage reichen aus", kein „du bist spät
+dran". Eine Prüfung hält das am Wortlaut fest.
+
+### 21.6 Welche Geräte ein Wettkampf umfasst, weiss LifeHub nicht
+
+Geprüft: `gym_competitions` hat kein Feld dafür, und es ist auch nicht
+ableitbar. Ein künftiger Wettkampf hat keine Ergebniszeilen, aus denen sich der
+Umfang ergäbe, und ob er Mehrkampf oder Gerätefinale ist, steht nirgends. Ein
+angenommenes „alle sechs Geräte" wäre bei jedem Gerätefinale falsch.
+
+**Keine Schemaänderung dafür.** Abgeleitet wird stattdessen, in dieser
+Reihenfolge (`geraeteUmfang()`):
+
+| Herkunft | wann | was sie bedeutet |
+|---|---|---|
+| `ergebniszeilen` | zu diesem Wettkampf stehen schon `gym_results` | die genaueste Auskunft, die es gibt |
+| `wettkampfkueren` | sonst: Geräte mit aktiver Wettkampfkür | eine Annahme über die **Vorbereitung**, keine über den Wettkampf |
+| `keine` | weder noch | nichts zu zeigen |
+
+Die Oberfläche sagt die Herkunft ausdrücklich dazu: „Geräte aus den aktuellen
+Wettkampfküren. Welche Geräte dieser Wettkampf umfasst, erfasst LifeHub nicht."
+
+Eine Spalte dafür wäre vertretbar, wenn Erik Wettkämpfe mit abweichendem
+Geräteumfang führt und das störend auffällt. Sie wurde **nicht** gebaut, weil
+sie heute nichts löst, was die Ableitung nicht löst, und weil eine Spalte, die
+gepflegt werden muss, auch ungepflegt bleiben kann.
+
+### 21.7 Kein Readiness Score
+
+**Es gibt keine Zahl von 0 bis 100 und nichts, was „82 % wettkampfbereit"
+heisst.** Eine solche Zahl müsste Elementstabilität, Kürstabilität,
+Schwierigkeit, Tagesform, Wettkampferfahrung und den Zeitabstand gegeneinander
+gewichten; für keine dieser Gewichtungen steht in LifeHub eine Grundlage. Sie
+wäre Scheingenauigkeit – eine Zahl, die genau aussieht, weil sie zwei Stellen
+hat. Dieselbe Zurückhaltung wie bei der Gesamtnote in 17.2.
+
+Angezeigt werden stattdessen **getrennte, beobachtbare Dimensionen** je Gerät,
+alle aus vorhandenen Rechnungen:
+
+| Dimension | Quelle |
+|---|---|
+| Wettkampfkür vorhanden / fehlt | 2A (`wettkampfKuerJeGeraet`) |
+| Schwierigkeitssumme der Kürelemente | 2A (`schwierigkeitAus`) – **kein D-Wert** |
+| Einzelelemente: Lage und auffällige Elemente | 2D (`TrainingsLage`, `GeraetFokus.auffaellige`) |
+| Kür am Stück | 2E (`KuerDurchgangsLage`) |
+| letzte vollständige Kür, Durchgänge im 56-Tage-Fenster | 2E (`DurchgangsBild`) |
+| letzter Wettkampf: D, E, Endnote, Platz im Feld | 2C (`Messwert`, `platzImFeld`) |
+
+**Keine zweite Berechnung.** Phase 3C bekommt `TrainingsfokusBild` und
+`WettkampfAnalyse` fertig herein und schlägt darin nach. Der Unit-Test prüft am
+Quelltext, dass das Modul weder `statusVorschlag` noch `trefferbild` noch
+`elementBild` noch `durchgangsBild` noch `kuerElemente` noch `fassungsInhalt`
+aufruft.
+
+Eine zusammenfassende Kategorie gibt es (`GeraeteStand`), aber sie entsteht
+ausschliesslich aus zwei vorhandenen Kategorien:
+
+```
+keine Wettkampfkür                          -> kuer_fehlt
+2D sagt gemischt oder instabil              -> elemente_auffaellig
+2E sagt gemischt oder instabil              -> kuer_am_stueck_auffaellig
+eine Seite hat zu wenig Daten               -> daten_fehlen
+beide Seiten sagen stabil                   -> stabile_basis
+```
+
+Sie **verdeckt nichts**: Die Lage der Durchgänge steht in der Anzeige immer
+daneben, auch wenn die Elemente führen. Und `stabile_basis` heisst „die aktuell
+erfassten Trainingsdaten zeigen keinen der definierten offenen Punkte" – nicht
+„wettkampfbereit". Der Vorbehalt steht in `STAND_ERKLAERUNG` und erscheint in
+der Detailansicht mit; eine Prüfung hält ihn am Wortlaut fest.
+
+### 21.8 Mehrere kommende Wettkämpfe
+
+Der nächste ist primär, weitere stehen als Liste. **Keine Periodisierung
+zwischen zwei Saisonhöhepunkten**, keine Einteilung in Aufbau- und
+Höhepunktwettkämpfe, kein Prioritätsmodell. Dafür bräuchte LifeHub eine
+Saisonplanung; es hat keine.
+
+### 21.9 Ein vergangener Termin ohne Ergebnis
+
+Sobald das Datum überschritten ist, erscheint ein Wettkampf nicht mehr als
+kommender. Steht dazu keine Ergebniszeile, wird das benannt – mit einem Weg in
+den vorhandenen Editor und den vorhandenen Protokollimport.
+
+**Keine automatische Ergebnisannahme.** Ein vergangenes Datum heisst nicht, dass
+teilgenommen wurde: Es kann eine Absage, eine Verletzung, ein verpasster Termin
+sein. Es wird deshalb nichts erzeugt – kein Ergebnis, kein Status, keine
+Platzierung. Festgestellt wird allein, dass der Termin vorbei ist und noch
+nichts erfasst wurde.
+
+### 21.10 Keine Kausalität zwischen Training und Wettkampfnote
+
+Ein E-Wert im Protokoll gehört zur ganzen Kür, nicht zu einem Element – dieselbe
+Feststellung wie in 17.6. Es steht deshalb nirgends „Reck ist schwach, weil
+Element X unsicher ist".
+
+Zulässig und getrennt dargestellt:
+
+- „Im aktuellen Training sind zwei Elemente der Reck-Kür auffällig."
+- „Im letzten Wettkampf lag die Ausführung dort relativ unter der Feldmitte."
+
+Die zweite Aussage erscheint nur ab `MINDESTFELD_FUER_FOKUS` Turnern im Feld –
+in einem Feld von zwei kann die Position nur 0 oder 1 sein, und „unter der
+Feldmitte" wäre dort ein Münzwurf. Dieselbe Schwelle wie in 16.5, nicht eine
+zweite daneben.
+
+### 21.11 Anschluss an Phase 3A
+
+Phase 3A bleibt der Trainingsvorschlag. Phase 3C liefert dazu **Beschriftung**:
+am Gerät steht, wie weit der Wettkampf weg ist und wie es dort aktuell steht
+(`wettkampfHinweis`).
+
+**Keine Periodisierung nach Tagen bis zum Wettkampf.** Kein „unter 14 Tagen
+keine neuen Elemente mehr", keine Entlastung, kein Peaking. Priorität,
+Reihenfolge, Inhalte und Umfang kommen unverändert aus `trainingsplanung()`;
+ein Unit-Test stellt denselben Datenstand mit 5 und mit 25 Tagen Abstand
+nebeneinander und verlangt, dass sich **nur** der Countdown unterscheidet.
+
+### 21.12 Anschluss an Phase 3B
+
+In den kommenden Einheiten steht oben eine Zeile „Nächster Wettkampf: Name · in
+24 Tagen". Die Verteilung der Geräte auf die Tage bleibt Phase 3B und rechnet
+den Wettkampf nicht ein. **Keine zweite Wochenplanung.**
+
+### 21.13 Trainingsdaten gehören zu ihrer Kürfassung
+
+Die Phase-2E-Regel gilt unverändert: Durchgänge einer **anderen** Fassung zählen
+nicht als Stabilität der aktuellen Kür. Für die Vorbereitung heisst das – acht
+stabile Durchgänge der alten Fassung, null der neuen – ausdrücklich:
+
+> Aktuelle Kürfassung noch nicht erfasst. Durchgänge früherer Fassungen zählen
+> dafür nicht.
+
+und nicht „8 stabile Durchgänge". Die Zahl der früheren Durchgänge steht dabei,
+damit sichtbar ist, was nicht mitgezählt wird.
+
+Ob sich die Kür **seit dem letzten Wettkampf** geändert hat, entscheidet derselbe
+Vergleich zweier Inhalts-IDs aus `fassungsId()`: die Fassung, auf die das
+damalige Ergebnis zeigt, gegen die ID des jetzigen Zustands der Kür
+(`KuerDurchgaenge.fassungId`). **Keine zweite Versionierungslogik.** Fehlt eine
+der beiden IDs, ist die Frage nicht entscheidbar und bleibt `null` – ein `false`
+wäre eine Behauptung.
+
+Gesagt wird dann „Die Kür wurde seit dem letzten Wettkampf geändert" und
+ausdrücklich **nicht**, dass die neue Kür besser wäre. Dazu fehlen die
+Wertungsregeln.
+
+### 21.14 Was Phase 3C nicht baut
+
+- Peaking, Tapering, Deload, Periodisierung
+- automatische Reduktion neuer Elemente vor dem Wettkampf
+- schlaf-, HRV- oder pulsbasierte Trainingssteuerung
+- sportwissenschaftliche Belastungsmodelle
+- Vorhersage der Wettkampfpunktzahl
+- automatische Terminverschiebung, Push-Erinnerungen, KI-Trainer
+- eine Verknüpfung des künftigen Wettkampfs mit einer eigenen eingefrorenen
+  Kürfassung (geplant wird mit dem **aktuellen** Stand; die Historie behält ihre
+  Fassungen)
+
+Phase 3C endet bei: **„Welcher Wettkampf kommt als Nächstes und welche konkreten
+offenen bzw. stabilen Punkte zeigen meine aktuellen Daten je Gerät?"**
+
+### 21.15 Aufwand
+
+Gerechnet wird **einmal** je Datenänderung, und zwar für 3A, 3B und 3C
+gemeinsam: `screens/turnen/bild.ts` hält das eine `useMemo` mit 2C, 2E, 2D, 3A
+und 3C. Vorher rechnete `NaechstesTraining` dieselben Zwischenergebnisse selbst;
+drei Blöcke mit drei eigenen Rechnungen wären drei Zustände, die nach einer
+Änderung nicht zwingend gleichzeitig aktuell sind.
+
+Phase 3C selbst arbeitet den Bestand nicht erneut durch: Sie sortiert die
+Wettkämpfe, indiziert die Ergebniszeilen des letzten Wettkampfs und schlägt im
+Trainingsfokus nach. Gemessen mit 100 Wettkämpfen, 600 Ergebnissen, 600
+Vergleichszeilen, 96 Elementen, 4 000 Versuchen und 1 000 Kürdurchgängen:
+**0,1 ms je Aufruf** (`turnen-wettkampfvorbereitung.test.ts`). Kein `loadAll()`,
+keine neue Abfrage.
+
+### 21.16 Einspielen
+
+**Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
+`supabase functions deploy`. Das Datenmodell ist unverändert.
+
+```
+npx vitest run tests/turnen-wettkampfvorbereitung.test.ts tests/turnen-wettkampf.test.ts
+node tests/turnen-wettkampfziel-e2e.mjs
 ```

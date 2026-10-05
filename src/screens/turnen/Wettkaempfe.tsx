@@ -19,6 +19,20 @@
  * Endnote ergibt; die Gegenüberstellung unter den Feldern ist ein Hinweis
  * ohne Urteil und hält niemanden vom Speichern ab. Fehlende Noten bleiben
  * leer und erscheinen als „—", nie als 0.
+ *
+ * ---------------------------------------------------------------------------
+ * Ein kommender Wettkampf ist hier kein Sonderfall
+ *
+ * Seit Phase 3C wird ein Wettkampf mit einem Datum in der Zukunft auch als
+ * **Termin** gelesen (`core/turnen/wettkampfvorbereitung.ts`, angezeigt auf der
+ * Turnübersicht). Dafür war **keine** Schemaänderung nötig: Ein Wettkampf ohne
+ * Ergebniszeilen war immer gültig – `planeErgebnisse()` legt für ein Gerät ohne
+ * Angaben keine Zeile an –, und die Liste kennzeichnet `day >= heute` seit
+ * Phase 2B1 als „geplant".
+ *
+ * Geändert hat sich nur die **Sprache** des Editors: Bei einem künftigen Datum
+ * heisst er „Wettkampf planen" und fragt nicht nach den Geräten, an denen man
+ * gestartet ist. Erzwungen wird nichts, und es entsteht kein Statusfeld.
  */
 import React, { useMemo, useRef, useState } from 'react'
 import { Card, Field, Modal, Empty, Confirm, Collapsible, StatusPill } from '../../ui/components'
@@ -517,6 +531,24 @@ function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
   const [loeschen, setLoeschen] = useState(false)
   const [kuerFuer, setKuerFuer] = useState<string | null>(null)
 
+  /**
+   * Liegt das eingetippte Datum in der Zukunft?
+   *
+   * Dann ist dieser Wettkampf ein **Termin**, und der Editor darf nicht in der
+   * Vergangenheitsform nach Ergebnissen fragen. Gespeichert wird derselbe
+   * Datensatz wie immer: Ein Wettkampf ohne Ergebniszeilen ist gültig, und
+   * erzwungen wird hier nichts (TURNEN_ARCHITEKTUR.md, 21.3).
+   *
+   * **Echt grösser als heute**, und damit absichtlich eine andere Grenze als
+   * `kuenftigeWettkaempfe()` (`day >= heute`). Die beiden beantworten
+   * verschiedene Fragen: Dort geht es darum, ob der Wettkampf noch bevorsteht –
+   * am Wettkampfmorgen steht er das –, hier darum, wonach dieses Formular
+   * fragt. Das Datumsfeld steht beim Anlegen auf heute, und wer den Editor
+   * öffnet, um einen heute geturnten Wettkampf einzutragen, soll nicht
+   * „Wettkampf planen" lesen.
+   */
+  const kuenftig = tag > todayString()
+
   const vorhandene = useMemo(
     () => data.gymResults.filter((r) => !r.deleted_at && wettkampf && r.competition_id === wettkampf.id),
     [data.gymResults, wettkampf],
@@ -631,7 +663,9 @@ function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
   return (
     <>
       <Modal open wide
-        title={importStand ? 'Protokoll prüfen' : wettkampf ? 'Wettkampf bearbeiten' : 'Neuer Wettkampf'}
+        title={importStand ? 'Protokoll prüfen'
+          : wettkampf ? 'Wettkampf bearbeiten'
+            : kuenftig ? 'Wettkampf planen' : 'Neuer Wettkampf'}
         onClose={onClose}
         footer={<>
           {wettkampf && <button className="btn btn-danger" onClick={() => setLoeschen(true)}>Löschen</button>}
@@ -675,7 +709,10 @@ function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
         </div>
 
         {/* ------------------------------------------------- Geräte wählen */}
-        <Field label="Geräte" hint="Nur die, an denen du gestartet bist.">
+        <Field label="Geräte"
+          hint={kuenftig
+            ? 'Optional. Noten braucht ein kommender Wettkampf nicht – er ist bis dahin ein Termin.'
+            : 'Nur die, an denen du gestartet bist.'}>
           <div className="turn-geraete">
             {GERAETE.map((g) => (
               <button key={g.key} type="button"
@@ -689,8 +726,11 @@ function WettkampfEditor({ wettkampf, importStand, onZuKueren, onClose }: {
         </Field>
 
         {eingaben.length === 0 ? (
-          <Empty kompakt title="Noch kein Gerät gewählt"
-            hint="Tippe oben die Geräte an, an denen du gestartet bist." />
+          <Empty kompakt
+            title={kuenftig ? 'Keine Ergebnisse – das ist in Ordnung' : 'Noch kein Gerät gewählt'}
+            hint={kuenftig
+              ? 'Der Wettkampf wird als Termin gespeichert. Die Noten kommen nach dem Wettkampf dazu, von Hand oder per Protokollimport.'
+              : 'Tippe oben die Geräte an, an denen du gestartet bist.'} />
         ) : (
           <div className="wk-liste">
             {eingaben.map((e) => (

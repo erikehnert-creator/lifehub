@@ -55,7 +55,8 @@ export function TurnenScreen({ sub, navigate }: { sub: string; navigate: (r: str
       {sub === '' && (
         <UebersichtView
           onZuElementen={() => geh('elemente')}
-          onZuTraining={() => geh('training')} />
+          onZuTraining={() => geh('training')}
+          onZuWettkaempfen={() => geh('wettkaempfe')} />
       )}
       {sub === 'elemente' && <ElementeView />}
       {sub === 'training' && <TrainingView onZuElementen={() => geh('elemente')} />}

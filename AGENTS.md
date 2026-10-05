@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 1.916 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 1.986 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **1.935**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **2.005**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -572,6 +572,98 @@ aendert sich der Fokus, und der Rest der Woche muss sich aendern duerfen.
 node tests/turnen-wochenplanung-e2e.mjs   # Termine anlegen -> verteilt ->
                                           # erste Einheit erfassen -> Termin
                                           # geschlossen, zweite reagiert
+```
+
+### Ein kommender Wettkampf ist ein Wettkampf, kein neues Modell
+
+Seit dem 05.10.2026 (Phase 3C) beantwortet LifeHub "welcher Wettkampf kommt als
+Naechstes, und wie steht meine aktuelle Wettkampfkuer dafuer?":
+`core/turnen/wettkampfvorbereitung.ts`, angezeigt als Block **Naechster
+Wettkampf** oberhalb von "Naechstes Training" auf Turnen -> Uebersicht
+(`screens/turnen/Wettkampfziel.tsx`). **Keine Tabelle, keine Migration.**
+
+**Ein kuenftiger Wettkampf ist eine gewoehnliche `gym_competitions`-Zeile** mit
+einem Datum in der Zukunft und noch ohne `gym_results`. Geprueft und bewusst so
+gelassen: `planeErgebnisse()` legt fuer ein Geraet ohne Angaben keine Zeile an,
+und die Wettkampfliste kennzeichnete `day >= heute` schon seit Phase 2B1 als
+"geplant". Es gibt deshalb KEINE Tabelle `competition_goals`, keine
+`upcoming_competitions`, kein `readiness` und kein `gym_competitions.status`.
+Countdown und Geraetestand sind gerechnet.
+
+**"Kuenftig" wird an EINER Stelle entschieden:** `kuenftigeWettkaempfe()` in
+`core/turnen/wettkampf.ts` (`day >= heute`, nicht geloescht, chronologisch, bei
+Gleichstand nach Namen). `naechsterUndLetzter()` ruft sie jetzt auf, Phase 3C
+ruft dieselbe Funktion. Ein Wettkampf AM heutigen Tag zaehlt als der naechste -
+ein Countdown, der am Wettkampfmorgen auf "vorbei" springt, waere falsch.
+
+**Es gibt keinen Readiness Score.** Keine Zahl von 0 bis 100, kein "82 %
+wettkampfbereit". Eine solche Zahl muesste Elementstabilitaet, Kuerstabilitaet,
+Schwierigkeit, Tagesform und Zeitabstand gegeneinander gewichten, und fuer keine
+dieser Gewichtungen steht in LifeHub eine Grundlage. Angezeigt werden getrennte
+Dimensionen je Geraet: Kuer vorhanden, Schwierigkeitssumme (ausdruecklich KEIN
+D-Wert), Einzelelemente aus 2D, Kuer am Stueck aus 2E, letzte vollstaendige
+Kuer, letzter Wettkampf aus 2C. Die zusammenfassende Kategorie `GeraeteStand`
+entsteht ausschliesslich aus der 2D- und der 2E-Kategorie; `stabile_basis`
+heisst "die erfassten Daten zeigen keinen der definierten offenen Punkte" und
+NICHT "wettkampfbereit".
+
+**Phase 3C rechnet nichts neu.** Es nimmt `TrainingsfokusBild` (2D/2E) und
+`WettkampfAnalyse` (2C) fertig entgegen und schlaegt darin nach. Der Unit-Test
+prueft am Quelltext, dass das Modul weder `statusVorschlag` noch `trefferbild`
+noch `elementBild` noch `durchgangsBild` noch `kuerElemente` noch
+`fassungsInhalt` aufruft - und dass kein `new Date()`, kein `86400000` und kein
+`toISOString` darin steht.
+
+**Gerechnet wird einmal fuer 3A, 3B und 3C zusammen:**
+`screens/turnen/bild.ts` haelt das eine `useMemo`. Vorher rechnete
+`NaechstesTraining` dieselben Zwischenergebnisse selbst; drei Bloecke mit drei
+eigenen Rechnungen waeren drei Zustaende, die auseinanderlaufen koennen.
+Gemessen bei 100 Wettkaempfen, 600 Ergebnissen, 4.000 Versuchen und 1.000
+Kuerdurchgaengen: 0,1 ms je Aufruf fuer Phase 3C.
+
+**Welche Geraete ein Wettkampf umfasst, weiss LifeHub nicht** - und erfindet es
+nicht. `gym_competitions` hat kein Feld dafuer, und ein angenommenes "alle sechs
+Geraete" waere bei jedem Geraetefinale falsch. Abgeleitet wird: vorhandene
+Ergebniszeilen, sonst die Geraete mit aktiver Wettkampfkuer. Die Herkunft steht
+in der Oberflaeche dabei. KEINE Schemaaenderung dafuer.
+
+**Der Countdown ist kalendarisch und sonst nichts.** Kein "24 Tage reichen aus",
+kein "du bist spaet dran". Und keine Periodisierung: Derselbe Datenstand ergibt
+bei 5 wie bei 25 Tagen Abstand dieselben Aussagen - nur der Countdown
+unterscheidet sich. Das prueft ein Unit-Test.
+
+**Kein vergangenes Datum erzeugt ein Ergebnis.** Ein vorbei gegangener Termin
+ohne Ergebniszeile wird benannt ("Ergebnis noch nicht erfasst") und bekommt
+einen Weg in den vorhandenen Editor bzw. Protokollimport. Es wird NICHTS
+erzeugt: kein Ergebnis, kein Status, keine Platzierung. Ein vergangenes Datum
+heisst nicht, dass teilgenommen wurde.
+
+**Keine Kausalitaet zwischen Training und Wettkampfnote.** Nirgends steht "Reck
+ist schwach, weil Element X unsicher ist" - ein E-Wert gehoert zur ganzen Kuer.
+Die Trainingsbeobachtung und die Lage im Feld stehen getrennt da, und "unter der
+Feldmitte" erscheint nur ab `MINDESTFELD_FUER_FOKUS` Turnern (dieselbe Schwelle
+wie in 2C, nicht eine zweite daneben).
+
+**Die Phase-2E-Regel gilt weiter:** Durchgaenge einer alten Kuerfassung zaehlen
+nicht als Stabilitaet der aktuellen. Acht stabile Durchgaenge der alten Fassung
+und null der neuen ergeben "Aktuelle Kuerfassung noch nicht erfasst" und nicht
+"8 stabile Durchgaenge". Ob sich die Kuer seit dem letzten Wettkampf geaendert
+hat, entscheidet der Vergleich zweier Inhalts-IDs aus `fassungsId()` - keine
+zweite Versionierungslogik. Historische Wettkaempfe behalten ihre eingefrorenen
+Fassungen unberuehrt.
+
+
+**Der Termin haengt nicht am Elementkatalog.** Die Turnuebersicht zeigt ohne
+ein einziges Element den Einstieg; dahinter war die Wettkampfkarte zunaechst
+unerreichbar, obwohl der Termin dastand. Steht ein kommender Wettkampf an,
+erscheint sie deshalb UEBER dem Einstieg, der darunter bleibt. Erfunden wird
+dabei nichts - kein Element, keine Kuer, keine leere Geraetekarte und kein
+Details-Knopf ueber nichts; gesagt wird, dass Turndaten fehlen. Ohne Element
+UND ohne Termin bleibt der Einstieg allein stehen.
+```
+node tests/turnen-wettkampfziel-e2e.mjs   # kein Wettkampf -> anlegen ->
+                                          # Countdown -> Training -> Kuer
+                                          # aendern -> Historie bleibt
 ```
 
 ## FatSecret laeuft von selbst

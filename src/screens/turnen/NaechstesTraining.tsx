@@ -45,22 +45,30 @@
  *
  * Gerechnet wird der Phase-3A-Plan **einmal** und an beide Ansichten
  * weitergegeben; zwei Rechnungen wären zwei Zustände, die auseinanderlaufen
- * können.
+ * können. Seit Phase 3C steht diese Rechnung in `bild.ts` und wird von der
+ * Übersicht hereingegeben – dieselben Zwischenergebnisse tragen auch den
+ * Wettkampfblock, und dreimal dasselbe auszurechnen wären drei Zustände.
+ *
+ * ---------------------------------------------------------------------------
+ * Der Wettkampfkontext ändert den Vorschlag NICHT
+ *
+ * Seit Phase 3C steht an einem Gerät, wenn ein Wettkampf bevorsteht, der
+ * Abstand dazu und wie die Kür aktuell steht (`wettkampfHinweis`). Das ist
+ * **Beschriftung** – Priorität, Reihenfolge, Inhalte und Umfang kommen
+ * unverändert aus `trainingsplanung()`. Es gibt keine Periodisierung nach
+ * Tagen bis zum Wettkampf: Kein „unter 14 Tagen keine neuen Elemente", keine
+ * Entlastungswoche, kein Peaking. Dafür fehlt in LifeHub die Grundlage.
  */
 import React, { useMemo, useState } from 'react'
 import { Card, Segment } from '../../ui/components'
-import { useData } from '../../state/store'
-import { todayString, diffDays } from '../../core/dates'
-import { BRAUCHT_ARBEIT } from '../../core/turnen/status'
-import { bloeckeMitTag, geraetBilder } from '../../core/turnen/elemente'
-import { analyseBild } from '../../core/turnen/analyse'
-import { durchgaengeJeGeraet } from '../../core/turnen/kuerdurchgaenge'
-import { trainingsfokus } from '../../core/turnen/trainingsfokus'
 import {
   INHALT_ART_LABEL, KEIN_PLAN_TEXT, REIHENFOLGE_TEXT, ROLLE_LABEL, UMFANG_LABEL,
-  geraeteLabel, nachwaehlbar, planMitAuswahl, trainingsplanung,
+  geraeteLabel, nachwaehlbar, planMitAuswahl,
   type GeraetPlan, type PlanungsBild,
 } from '../../core/turnen/trainingsplanung'
+import {
+  wettkampfHinweis, type WettkampfZiel,
+} from '../../core/turnen/wettkampfvorbereitung'
 import { WochenAnsicht } from './Wochenplan'
 
 type Ansicht = 'einheit' | 'woche'
@@ -70,59 +78,16 @@ const ANSICHTEN: { value: Ansicht; label: string }[] = [
   { value: 'woche', label: 'Kommende Einheiten' },
 ]
 
-export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }) {
-  const data = useData()
-  const heute = todayString()
-
+export function NaechstesTraining({ bild, ziel, onZuTraining }: {
+  bild: PlanungsBild
+  ziel: WettkampfZiel
+  onZuTraining: () => void
+}) {
   const [ohne, setOhne] = useState<string[]>([])
   const [zusatz, setZusatz] = useState<string[]>([])
   const [reihenfolge, setReihenfolge] = useState<string[]>([])
   const [ohneInhalte, setOhneInhalte] = useState<string[]>([])
   const [ansicht, setAnsicht] = useState<Ansicht>('einheit')
-
-  /**
-   * Der Vorschlag.
-   *
-   * Dieselben Rechnungen wie im Trainingsfokus der Analyse, hier ein zweites
-   * Mal: `useMemo` hängt an denselben Daten, und die Planung selbst ist ein
-   * Nachschlagen. Ein gemeinsamer Zwischenspeicher über zwei Reiter hinweg
-   * wäre ein zweiter Zustand, der veralten kann.
-   */
-  const bild: PlanungsBild = useMemo(() => {
-    const bloecke = bloeckeMitTag(data.gymAttempts, data.workoutSessions)
-    const analyse = analyseBild(data.gymCompetitions, data.gymResults, data.gymBenchmarks)
-    const durchgaenge = durchgaengeJeGeraet({
-      runs: data.gymRoutineRuns,
-      versionen: data.gymRoutineVersions,
-      einheiten: data.workoutSessions,
-      kueren: data.gymRoutines,
-      kuerVerknuepfungen: data.gymRoutineElements,
-      elemente: data.gymElements,
-      heute,
-      tagDifferenz: diffDays,
-    })
-    const fokus = trainingsfokus({
-      analyse: analyse.aktuell,
-      verlauf: analyse.verlauf,
-      elemente: data.gymElements,
-      versuche: data.gymAttempts,
-      einheiten: data.workoutSessions,
-      kueren: data.gymRoutines,
-      kuerVerknuepfungen: data.gymRoutineElements,
-      durchgaenge,
-      heute,
-      tagDifferenz: diffDays,
-    })
-    return trainingsplanung({
-      fokus,
-      geraetBilder: geraetBilder(data.gymElements, bloecke, heute, diffDays, BRAUCHT_ARBEIT),
-    })
-  }, [
-    data.gymCompetitions, data.gymResults, data.gymBenchmarks,
-    data.gymElements, data.gymAttempts, data.workoutSessions,
-    data.gymRoutines, data.gymRoutineElements,
-    data.gymRoutineRuns, data.gymRoutineVersions, heute,
-  ])
 
   const plan = useMemo(
     () => planMitAuswahl(bild, { ohne, zusatz, reihenfolge, ohneInhalte }),
@@ -173,7 +138,7 @@ export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }
       <Card className="mb16" title="Nächstes Training"
         sub="Die Inhalte auf die geplanten Trainingstage verteilt"
         action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
-        <WochenAnsicht plan={bild} onZuTraining={onZuTraining} />
+        <WochenAnsicht plan={bild} ziel={ziel} onZuTraining={onZuTraining} />
       </Card>
     )
   }
@@ -207,6 +172,7 @@ export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }
           {plan.map((g, i) => (
             <NaechstesGeraet key={g.apparatus} g={g} nummer={i + 1}
               erste={i === 0} letzte={i === plan.length - 1}
+              wettkampf={wettkampfHinweis(ziel, g.apparatus)}
               onWeg={() => setOhne([...ohne, g.apparatus])}
               onHoch={() => schiebe(g.apparatus, -1)}
               onRunter={() => schiebe(g.apparatus, 1)}
@@ -251,12 +217,14 @@ export function NaechstesTraining({ onZuTraining }: { onZuTraining: () => void }
  * nicht – ein Tipp, und jede Zeile sagt, woraus sie entstanden ist.
  */
 function NaechstesGeraet({
-  g, nummer, erste, letzte, onWeg, onHoch, onRunter, onInhaltWeg,
+  g, nummer, erste, letzte, wettkampf, onWeg, onHoch, onRunter, onInhaltWeg,
 }: {
   g: GeraetPlan
   nummer: number
   erste: boolean
   letzte: boolean
+  /** Phase-3C-Kontext, oder leer. Ändert am Vorschlag nichts. */
+  wettkampf: string[]
   onWeg: () => void
   onHoch: () => void
   onRunter: () => void
@@ -282,6 +250,11 @@ function NaechstesGeraet({
       </div>
 
       <div className="np-reihenfolge">{REIHENFOLGE_TEXT[g.reihenfolgeArt]}</div>
+
+      {/* Nur Kontext. Was unten steht, ist deshalb nicht anders geworden. */}
+      {wettkampf.length > 0 && (
+        <div className="np-wettkampf">{wettkampf.join(' · ')}</div>
+      )}
 
       {g.inhalte.length === 0 ? (
         <div className="muted small">Alle Inhalte entfernt – das Gerät bleibt stehen.</div>

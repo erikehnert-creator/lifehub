@@ -42,7 +42,7 @@ import { formatNote, MINDESTPUNKTE_LINIE } from '../../core/turnen/wettkampf'
 import { statusLabel } from '../../core/turnen/status'
 import { schwierigkeitText, schwierigkeitAus } from '../../core/turnen/kueren'
 import {
-  FOKUS_LABEL, analyseBild, richtung,
+  FOKUS_LABEL, analyseBild, platzImFeld, richtung,
   type Fokus, type GeraetAnalyse, type Messwert, type VerlaufsPunkt,
 } from '../../core/turnen/analyse'
 import {
@@ -55,13 +55,6 @@ import {
   durchgaengeJeGeraet, durchgaengeLabel, durchgangText, QUALITAET_LABEL,
   type KuerDurchgaenge,
 } from '../../core/turnen/kuerdurchgaenge'
-
-/** Ein Platz mit seiner Feldgrösse – nie das eine ohne das andere. */
-function platzText(m: Messwert): string | null {
-  if (m.rang === null || m.anzahl === null) return null
-  const geteilt = (m.gleich ?? 1) > 1 ? ' geteilt' : ''
-  return `${m.rang}.${geteilt} von ${m.anzahl}`
-}
 
 /** Ein Abstand mit Vorzeichen: „+0,566", „−0,733", „0". */
 function abstandText(n: number | null): string {
@@ -120,8 +113,8 @@ export function AnalyseView({ onZuWettkaempfen }: { onZuWettkaempfen: () => void
           {a.feldgroesse !== null && (
             <span className="pill">{a.feldgroesse} Turner im Feld</span>
           )}
-          {a.mehrkampf && platzText(a.mehrkampf) && (
-            <span className="pill">Mehrkampf {platzText(a.mehrkampf)}</span>
+          {a.mehrkampf && platzImFeld(a.mehrkampf) && (
+            <span className="pill">Mehrkampf {platzImFeld(a.mehrkampf)}</span>
           )}
         </div>
 
@@ -163,7 +156,7 @@ export function AnalyseView({ onZuWettkaempfen }: { onZuWettkaempfen: () => void
 /* ========================================================= Gerätekachel */
 
 function GeraetKarte({ g }: { g: GeraetAnalyse }) {
-  const platz = platzText(g.final)
+  const platz = platzImFeld(g.final)
   return (
     <div className="wk-karte">
       <div className="wk-karte-kopf">
@@ -177,17 +170,17 @@ function GeraetKarte({ g }: { g: GeraetAnalyse }) {
         <span className="wk-note">
           <span className="wk-note-name">D</span>
           <span className="wk-note-wert">{formatNote(g.d.wert)}</span>
-          {platzText(g.d) && <span className="an-platz">{platzText(g.d)}</span>}
+          {platzImFeld(g.d) && <span className="an-platz">{platzImFeld(g.d)}</span>}
         </span>
         <span className="wk-note">
           <span className="wk-note-name">E</span>
           <span className="wk-note-wert">{formatNote(g.e.wert)}</span>
-          {platzText(g.e) && <span className="an-platz">{platzText(g.e)}</span>}
+          {platzImFeld(g.e) && <span className="an-platz">{platzImFeld(g.e)}</span>}
         </span>
         <span className="wk-note stark">
           <span className="wk-note-name">Endnote</span>
           <span className="wk-note-wert">{formatNote(g.final.wert)}</span>
-          {platzText(g.final) && <span className="an-platz">{platzText(g.final)}</span>}
+          {platzImFeld(g.final) && <span className="an-platz">{platzImFeld(g.final)}</span>}
         </span>
       </div>
 
@@ -234,7 +227,7 @@ function MesswertZeile({ name, m }: { name: string; m: Messwert }) {
       <span>{formatNote(m.wert)}</span>
       <span>{formatNote(m.median)}</span>
       <span>{formatNote(m.best)}</span>
-      <span>{platzText(m) ?? '—'}</span>
+      <span>{platzImFeld(m) ?? '—'}</span>
     </div>
   )
 }
@@ -257,9 +250,9 @@ function StaerkenCard({ analyse }: { analyse: NonNullable<ReturnType<typeof anal
             <div key={g.apparatus} className="kennzeile">
               <span className="kennzeile-name">{g.name}</span>
               <span className="kennzeile-wert">
-                {platzText(g.final) ?? '—'}
+                {platzImFeld(g.final) ?? '—'}
                 <span className="muted small">
-                  {' · '}D {platzText(g.d) ?? '—'} · E {platzText(g.e) ?? '—'}
+                  {' · '}D {platzImFeld(g.d) ?? '—'} · E {platzImFeld(g.e) ?? '—'}
                 </span>
               </span>
             </div>

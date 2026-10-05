@@ -19,6 +19,20 @@
  * Kein Kalender, keine Schichtplanung, keine erzeugten Termine – das bleibt
  * Phase 5 (TURNEN_ARCHITEKTUR.md).
  *
+ * ---------------------------------------------------------------------------
+ * Seit Phase 3C steht der Wettkampf darüber
+ *
+ * **Nächster Wettkampf** (`Wettkampfziel.tsx`) nennt den Termin, den Abstand
+ * in Kalendertagen und je Gerät den Stand der aktuellen Wettkampfkür. Er steht
+ * oberhalb des Trainingsvorschlags, weil er der Rahmen ist, in dem man ihn
+ * liest – aber der Vorschlag hängt nicht daran: Ohne eingetragenen Wettkampf
+ * bleibt alles darunter unverändert.
+ *
+ * Und umgekehrt: Der Termin hängt nicht am Elementkatalog. Steht ein Wettkampf
+ * an, während noch kein Element erfasst ist, erscheint die Karte **über** dem
+ * Einstieg statt hinter ihm. Erfunden wird dabei nichts – kein Element, keine
+ * Kür, keine Gerätekarte; die Karte sagt, dass Turndaten fehlen.
+ *
  * Eine Bildschirmhöhe, nicht mehr: Vorschlag, Gerätekacheln, was zu lange her
  * ist, was unsicher steht. Alles Weitere steht in den anderen Reitern.
  */
@@ -35,13 +49,22 @@ import {
 import { versucheGesamt } from '../../core/turnen/versuche'
 import { absolvierteTurneinheiten } from '../../core/turnen/einheiten'
 import { NaechstesTraining } from './NaechstesTraining'
+import { WettkampfZielKarte } from './Wettkampfziel'
+import { useTurnenBild } from './bild'
 
-export function UebersichtView({ onZuElementen, onZuTraining }: {
+export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }: {
   onZuElementen: () => void
   onZuTraining: () => void
+  onZuWettkaempfen: () => void
 }) {
   const data = useData()
   const heute = todayString()
+
+  /**
+   * Phase 3A, 3B und 3C rechnen auf denselben Zwischenergebnissen – deshalb
+   * **ein** Aufruf hier und nicht einer je Block (siehe `bild.ts`).
+   */
+  const { plan, ziel } = useTurnenBild()
 
   /**
    * Die absolvierten Einheiten – ausdrücklich ohne die geplanten und ohne die,
@@ -105,11 +128,30 @@ export function UebersichtView({ onZuElementen, onZuTraining }: {
 
   const hatDaten = einheiten.length > 0 || aktiveElemente.length > 0
 
+  /**
+   * Noch kein Element, kein Training – aber vielleicht schon ein Termin.
+   *
+   * Der Einstieg bleibt, wie er war. **Darüber** steht der kommende Wettkampf,
+   * falls einer eingetragen ist: Ein Termin ist eine eigenständige Auskunft und
+   * hängt nicht daran, ob der Elementkatalog schon gepflegt ist. Ihn hinter dem
+   * Element-Onboarding zu verstecken hiesse, die Information unerreichbar zu
+   * machen, obwohl sie dasteht.
+   *
+   * Erfunden wird dabei **nichts**: keine Elemente, keine Kür, keine
+   * Gerätekarten. Die Karte zeigt Name, Datum und Abstand – und sagt, dass
+   * Turndaten fehlen.
+   */
   if (!hatDaten) {
     return (
-      <Empty title="Turnen ist eingerichtet, aber noch leer"
-        hint="Lege zuerst ein paar Elemente an – danach dauert das Erfassen eines Trainings unter einer Minute."
-        action={<button className="btn btn-primary" onClick={onZuElementen}>Elemente anlegen</button>} />
+      <>
+        {ziel.naechster && (
+          <WettkampfZielKarte ziel={ziel} ohneTurndaten
+            onZuWettkaempfen={onZuWettkaempfen} />
+        )}
+        <Empty title="Turnen ist eingerichtet, aber noch leer"
+          hint="Lege zuerst ein paar Elemente an – danach dauert das Erfassen eines Trainings unter einer Minute."
+          action={<button className="btn btn-primary" onClick={onZuElementen}>Elemente anlegen</button>} />
+      </>
     )
   }
 
@@ -130,7 +172,12 @@ export function UebersichtView({ onZuElementen, onZuTraining }: {
         <Card><Stat small label="Elemente" value={String(aktiveElemente.length)} /></Card>
       </div>
 
-      <NaechstesTraining onZuTraining={onZuTraining} />
+      {/* Der Wettkampf steht ueber dem Trainingsvorschlag: Er ist der
+          Rahmen, in dem die naechste Einheit gelesen wird. Der Vorschlag
+          selbst haengt NICHT daran - ohne Wettkampf bleibt er unveraendert. */}
+      <WettkampfZielKarte ziel={ziel} onZuWettkaempfen={onZuWettkaempfen} />
+
+      <NaechstesTraining bild={plan} ziel={ziel} onZuTraining={onZuTraining} />
 
       {/* Die Geräte sind die Achse von allem – deshalb stehen sie oben und
           nicht als eigener Reiter (siehe TURNEN_ARCHITEKTUR.md, 7.2). */}
