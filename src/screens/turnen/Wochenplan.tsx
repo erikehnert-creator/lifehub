@@ -53,8 +53,9 @@ import {
   type EinheitGeraet, type GeplanteEinheit, type OffenerPosten, type TerminEingang,
 } from '../../core/turnen/wochenplanung'
 import { zielKurztext, type WettkampfZiel } from '../../core/turnen/wettkampfvorbereitung'
+import { phaseKurztext, type VorbereitungsBild } from '../../core/turnen/vorbereitungsstrategie'
 
-export function WochenAnsicht({ plan, ziel, onZuTraining }: {
+export function WochenAnsicht({ plan, ziel, vorbereitung, onZuTraining }: {
   plan: PlanungsBild
   /**
    * Der kommende Wettkampf aus Phase 3C – **nur eine Kopfzeile**.
@@ -64,6 +65,14 @@ export function WochenAnsicht({ plan, ziel, onZuTraining }: {
    * Wochenplanung, die den Wettkampf einrechnet (21.12).
    */
   ziel: WettkampfZiel
+  /**
+   * Die Vorbereitungsphase aus Phase 3D – **nur als Beschriftung**.
+   *
+   * Die Inhalte kommen bereits angepasst aus `plan`; hier entsteht keine
+   * zweite Wettkampflogik und keine zusätzliche Planungsschicht. Welche
+   * Geräte an welchen Tag kommen, entscheidet unverändert `wochenplanung()`.
+   */
+  vorbereitung: VorbereitungsBild
   onZuTraining: () => void
 }) {
   const data = useData()
@@ -127,6 +136,7 @@ export function WochenAnsicht({ plan, ziel, onZuTraining }: {
     setVerschoben({ ...verschoben, [apparatus]: sessionId })
 
   const wettkampf = zielKurztext(ziel)
+  const phase = phaseKurztext(vorbereitung)
 
   return (
     <>
@@ -136,6 +146,7 @@ export function WochenAnsicht({ plan, ziel, onZuTraining }: {
         <div className="wp-wettkampf">
           <span className="wp-wettkampf-kopf">Nächster Wettkampf</span>
           <span className="wp-wettkampf-wert">{wettkampf}</span>
+          {phase && <span className="wp-wettkampf-phase">{phase}</span>}
         </div>
       )}
 

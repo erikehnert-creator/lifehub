@@ -64,7 +64,7 @@ export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }
    * Phase 3A, 3B und 3C rechnen auf denselben Zwischenergebnissen – deshalb
    * **ein** Aufruf hier und nicht einer je Block (siehe `bild.ts`).
    */
-  const { plan, ziel } = useTurnenBild()
+  const { plan, ziel, vorbereitung, anpassungen } = useTurnenBild()
 
   /**
    * Die absolvierten Einheiten – ausdrücklich ohne die geplanten und ohne die,
@@ -145,7 +145,7 @@ export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }
     return (
       <>
         {ziel.naechster && (
-          <WettkampfZielKarte ziel={ziel} ohneTurndaten
+          <WettkampfZielKarte ziel={ziel} vorbereitung={vorbereitung} ohneTurndaten
             onZuWettkaempfen={onZuWettkaempfen} />
         )}
         <Empty title="Turnen ist eingerichtet, aber noch leer"
@@ -175,9 +175,11 @@ export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }
       {/* Der Wettkampf steht ueber dem Trainingsvorschlag: Er ist der
           Rahmen, in dem die naechste Einheit gelesen wird. Der Vorschlag
           selbst haengt NICHT daran - ohne Wettkampf bleibt er unveraendert. */}
-      <WettkampfZielKarte ziel={ziel} onZuWettkaempfen={onZuWettkaempfen} />
+      <WettkampfZielKarte ziel={ziel} vorbereitung={vorbereitung}
+        onZuWettkaempfen={onZuWettkaempfen} />
 
-      <NaechstesTraining bild={plan} ziel={ziel} onZuTraining={onZuTraining} />
+      <NaechstesTraining bild={plan} ziel={ziel} vorbereitung={vorbereitung}
+        anpassungen={anpassungen} onZuTraining={onZuTraining} />
 
       {/* Die Geräte sind die Achse von allem – deshalb stehen sie oben und
           nicht als eigener Reiter (siehe TURNEN_ARCHITEKTUR.md, 7.2). */}

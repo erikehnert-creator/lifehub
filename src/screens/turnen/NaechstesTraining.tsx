@@ -69,6 +69,10 @@ import {
 import {
   wettkampfHinweis, type WettkampfZiel,
 } from '../../core/turnen/wettkampfvorbereitung'
+import {
+  PHASE_LABEL, phaseKurztext, zurueckgestelltHinweis,
+  type VorbereitungsAnpassung, type VorbereitungsBild,
+} from '../../core/turnen/vorbereitungsstrategie'
 import { WochenAnsicht } from './Wochenplan'
 
 type Ansicht = 'einheit' | 'woche'
@@ -78,9 +82,15 @@ const ANSICHTEN: { value: Ansicht; label: string }[] = [
   { value: 'woche', label: 'Kommende Einheiten' },
 ]
 
-export function NaechstesTraining({ bild, ziel, onZuTraining }: {
+export function NaechstesTraining({
+  bild, ziel, vorbereitung, anpassungen, onZuTraining,
+}: {
+  /** Der Plan **nach** Phase 3D. Ohne Wettkampf derselbe wie vorher. */
   bild: PlanungsBild
   ziel: WettkampfZiel
+  vorbereitung: VorbereitungsBild
+  /** Was Phase 3D am Vorschlag geändert hat. Leer = nichts geändert. */
+  anpassungen: Map<string, VorbereitungsAnpassung>
   onZuTraining: () => void
 }) {
   const [ohne, setOhne] = useState<string[]>([])
@@ -120,6 +130,30 @@ export function NaechstesTraining({ bild, ziel, onZuTraining }: {
     setReihenfolge(neu)
   }
 
+  /* Wettkampftag: KEIN erfundener Trainingsplan.
+     Kein Aufwaermprogramm, keine Saetze, keine minutengenaue Vorbereitung -
+     das waere eigener Scope und steht in LifeHub nirgends. Nur die
+     Feststellung und der vorhandene Erfassungsweg; die Wochenansicht bleibt
+     erreichbar, denn die naechsten Tage sind davon unberuehrt. */
+  if (vorbereitung.phase === 'wettkampftag' && ansicht === 'einheit') {
+    return (
+      <Card className="mb16" title="Nächstes Training"
+        sub={vorbereitung.wettkampf?.name ?? undefined}
+        action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
+        <div className="np-wettkampftag">Heute ist Wettkampf.</div>
+        <div className="muted small mt8">
+          Für diesen Tag schlägt LifeHub kein Training vor. Der Wettkampfstand
+          steht in der Karte darüber.
+        </div>
+        <div className="row mt8">
+          <button className="btn btn-sm btn-primary" onClick={onZuTraining}>
+            Training frei erfassen
+          </button>
+        </div>
+      </Card>
+    )
+  }
+
   if (bild.grund) {
     return (
       <Card className="mb16" title="Nächstes Training">
@@ -138,7 +172,8 @@ export function NaechstesTraining({ bild, ziel, onZuTraining }: {
       <Card className="mb16" title="Nächstes Training"
         sub="Die Inhalte auf die geplanten Trainingstage verteilt"
         action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
-        <WochenAnsicht plan={bild} ziel={ziel} onZuTraining={onZuTraining} />
+        <WochenAnsicht plan={bild} ziel={ziel} vorbereitung={vorbereitung}
+          onZuTraining={onZuTraining} />
       </Card>
     )
   }
@@ -152,6 +187,19 @@ export function NaechstesTraining({ bild, ziel, onZuTraining }: {
         <div className="row mb8">
           <span style={{ flex: 1 }} />
           <button className="btn btn-sm btn-ghost" onClick={zurueck}>zurücksetzen</button>
+        </div>
+      )}
+
+      {/* Die Vorbereitungsphase aus 3D. Steht nur da, wenn ein Wettkampf
+          eingetragen ist - ohne einen sieht der Block aus wie vor 3D. */}
+      {phaseKurztext(vorbereitung) && (
+        <div className="np-phase">
+          <span className={`pill wz-phase-${vorbereitung.phase}`}>
+            {PHASE_LABEL[vorbereitung.phase]}
+          </span>
+          <span className="np-phase-text">
+            {vorbereitung.countdown ? `Wettkampf ${vorbereitung.countdown}` : ''}
+          </span>
         </div>
       )}
 
@@ -173,6 +221,8 @@ export function NaechstesTraining({ bild, ziel, onZuTraining }: {
             <NaechstesGeraet key={g.apparatus} g={g} nummer={i + 1}
               erste={i === 0} letzte={i === plan.length - 1}
               wettkampf={wettkampfHinweis(ziel, g.apparatus)}
+              zurueckgestellt={zurueckgestelltHinweis(anpassungen, g.apparatus)}
+              anpassung={anpassungen.get(g.apparatus) ?? null}
               onWeg={() => setOhne([...ohne, g.apparatus])}
               onHoch={() => schiebe(g.apparatus, -1)}
               onRunter={() => schiebe(g.apparatus, 1)}
@@ -217,7 +267,8 @@ export function NaechstesTraining({ bild, ziel, onZuTraining }: {
  * nicht – ein Tipp, und jede Zeile sagt, woraus sie entstanden ist.
  */
 function NaechstesGeraet({
-  g, nummer, erste, letzte, wettkampf, onWeg, onHoch, onRunter, onInhaltWeg,
+  g, nummer, erste, letzte, wettkampf, zurueckgestellt, anpassung,
+  onWeg, onHoch, onRunter, onInhaltWeg,
 }: {
   g: GeraetPlan
   nummer: number
@@ -225,6 +276,10 @@ function NaechstesGeraet({
   letzte: boolean
   /** Phase-3C-Kontext, oder leer. Ändert am Vorschlag nichts. */
   wettkampf: string[]
+  /** Satz über zurückgestellte Entwicklungsarbeit (3D), oder `null`. */
+  zurueckgestellt: string | null
+  /** Was Phase 3D hier geändert hat, oder `null`. */
+  anpassung: VorbereitungsAnpassung | null
   onWeg: () => void
   onHoch: () => void
   onRunter: () => void
@@ -278,6 +333,12 @@ function NaechstesGeraet({
         </div>
       )}
 
+      {/* Zurueckgestellt, nicht verworfen: Nach dem Wettkampf steht der
+          Kandidat von selbst wieder im Vorschlag. */}
+      {zurueckgestellt && (
+        <div className="np-zurueckgestellt">{zurueckgestellt}</div>
+      )}
+
       {g.hinweise.map((h) => <div className="np-hinweis" key={h}>{h}</div>)}
 
       <button type="button" className="btn btn-sm btn-ghost np-warum"
@@ -287,6 +348,14 @@ function NaechstesGeraet({
       {offen && (
         <div className="np-begruendung">
           {g.warum.map((s, i) => <p key={i}>{s}</p>)}
+          {/* Keine Blackbox: Was haette ohne Wettkampfkontext dagestanden,
+              und was hat Phase 3D daran geaendert? */}
+          {anpassung && (
+            <>
+              {anpassung.ohneWettkampf.map((t) => <p key={t}>{t}</p>)}
+              {anpassung.durchVorbereitung.map((t) => <p key={t}><em>{t}</em></p>)}
+            </>
+          )}
         </div>
       )}
     </div>

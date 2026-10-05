@@ -1771,3 +1771,49 @@ table.data tbody tr:hover { background: var(--surface-2); }
   font-size: 12.5px; font-weight: 560;
   font-variant-numeric: tabular-nums;
 }
+
+/* Turnen: Vorbereitungsphase (Phase 3D)
+   ------------------------------------------------------------------
+   Eine benannte Kategorie und ein Satz dazu - keine Prozentzahl und
+   keine Ampel. Die Pillen bauen auf den vorhandenen .pill-Klassen
+   auf; wettkampfnah und Wettkampftag bekommen nur eine deutlichere
+   Flaeche, keine Warnfarbe: Ein naher Wettkampf ist kein Problem. */
+.wz-phase {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0; padding: 8px 0;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.wz-phase-kopf {
+  font-size: 10.5px; color: var(--text-muted); font-weight: 650;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.wz-phase-satz {
+  flex: 1 1 100%; font-size: 11.5px; line-height: 1.5;
+  color: var(--text-muted);
+}
+.pill.wz-phase-stabilisierung { background: var(--surface-3); color: var(--text-2); }
+.pill.wz-phase-wettkampfnah { background: rgba(250,178,25,.18); color: var(--warn-text); }
+.pill.wz-phase-wettkampftag { background: rgba(250,178,25,.26); color: var(--warn-text); }
+
+.wz-detail-leitlinie {
+  margin-top: 4px; font-size: 11.5px; line-height: 1.55; color: var(--text-2);
+}
+
+/* Dieselbe Phase im Block "Naechstes Training" und in der Wochenansicht. */
+.np-phase {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.np-phase-text {
+  font-size: 11.5px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.np-zurueckgestellt {
+  margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--text-muted);
+  border-left: 2px solid var(--border-strong); padding-left: 8px;
+}
+.np-wettkampftag { font-size: 15px; font-weight: 650; }
+.wp-wettkampf-phase {
+  font-size: 11px; color: var(--text-muted);
+  flex: 1 1 100%;
+}

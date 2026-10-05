@@ -642,6 +642,20 @@ beobachtbare Dimensionen je Gerät.
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 21.
 
+### Phase 3D — Vorbereitungsstrategie *(umgesetzt am 05.10.2026, keine Migration)*
+
+`core/turnen/vorbereitungsstrategie.ts` · **keine Tabelle, keine
+Schemaänderung** · fünf benannte Vorbereitungsphasen aus den Tagen bis zum
+nächsten Wettkampf, mit den beiden vorhandenen Zeitkonventionen als Grenzen
+(14 Tage Planungshorizont aus 3B, 28 Tage „lange nicht trainiert") · sitzt
+**hinter** 3A: `planMitVorbereitung()` nimmt den fertigen Plan und gibt einen
+Plan derselben Form zurück, sodass 3B unverändert bleibt und ohne Wettkampf
+dasselbe Objekt herauskommt · bewegt ausschliesslich die Entwicklungsarbeit,
+nie Gerätewahl, Rolle oder Priorität · **keine Periodisierung, kein Score,
+keine Kürsperre.**
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 22.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -3488,4 +3502,290 @@ keine neue Abfrage.
 ```
 npx vitest run tests/turnen-wettkampfvorbereitung.test.ts tests/turnen-wettkampf.test.ts
 node tests/turnen-wettkampfziel-e2e.mjs
+```
+
+## 22. Phase 3D: Vorbereitungsstrategie
+
+Umgesetzt am 05.10.2026. **Keine Tabelle, keine Migration, keine Änderung an
+einer Edge Function.**
+
+### 22.1 Die Frage, die diese Phase beantwortet
+
+> „Wie soll sich mein Trainingsfokus verändern, wenn der Wettkampf näher
+> kommt?"
+
+Phase 3C nennt den Termin und den Stand je Gerät. Phase 3D beantwortet, welche
+der **bereits bekannten** Trainingsinhalte LifeHub deshalb zuerst nennt.
+
+Phase 3D endet bei: **„Der Wettkampfabstand verändert transparent, welche
+bereits bekannten Trainingsinhalte LifeHub priorisiert."**
+
+### 22.2 Die Abhängigkeitsrichtung
+
+```
+2C Analyse ─┐
+2E Durchgänge ─┤
+             ├─> 2D Trainingsfokus ─┬─> 3C Wettkampfvorbereitung ─┐
+                                    │                             │
+                                    └─> 3A Trainingsplanung ──────┤
+                                                                  v
+                                                 3D Vorbereitungsstrategie
+                                                                  │
+                                                                  v
+                                                   angepasster 3A-Plan
+                                                                  │
+                                                                  v
+                                                       3B Wochenplanung
+```
+
+**3D sitzt hinter 3A, nicht davor.** `planMitVorbereitung(plan, bild)` nimmt
+den fertigen 3A-Plan und gibt einen Plan **derselben Form** zurück. Daraus
+folgen drei Dinge:
+
+- **Keine Zirkularität.** `trainingsplanung.ts` importiert
+  `vorbereitungsstrategie.ts` nicht und weiss von Wettkämpfen nichts –
+  `3A → 3D → 3A` wäre genau der Kreis, der hier nicht entstehen soll. Ein
+  Test liest die `import`-Zeilen der beteiligten Module und hält die Richtung
+  fest (die Modulköpfe nennen Nachbarphasen in Prosa, und eine Erwähnung ist
+  keine Abhängigkeit).
+- **Keine Änderung an `wochenplanung.ts`.** Phase 3B bekommt den angepassten
+  Plan und verteilt ihn wie bisher. Es gibt dort keine zweite Wettkampflogik,
+  keine Phasenkonstante und keinen zweiten Planungsschritt (21.12 bleibt
+  gültig).
+- **Ohne kommenden Wettkampf passiert nichts** – und zwar durch Bauart, nicht
+  durch Absicht: `planMitVorbereitung()` gibt dann **dasselbe Objekt** zurück,
+  das es bekommen hat. Der Test prüft `plan === rohplan` mit Identität, nicht
+  mit Gleichheit.
+
+Gerechnet wird alles im vorhandenen `useMemo` in `screens/turnen/bild.ts`.
+
+### 22.3 Keine zweite Berechnung
+
+Elementstabilität, Kürstabilität, Wettkampffokus, Konkurrenzposition und
+Trainingspriorität kommen **fertig** herein. `GeraetLeitlinie` ist eine
+Umbenennung von `GeraetVorbereitung.stand` aus 3C, und der entsteht
+ausschliesslich aus der 2D- und der 2E-Kategorie.
+
+Das Modul liest keine `GymAttempt`, keine `GymRoutineRun`, keine `GymResult`
+und keine `GymBenchmark` – der einzige Datentyp, den es überhaupt kennt, ist
+`GymCompetition`, und der kommt als fertiges Objekt aus 3C. Ein Test prüft das
+am Quelltext, zusammen mit der Abwesenheit von `statusVorschlag`,
+`trefferbild`, `elementBild`, `durchgangsBild`, `stabilitaetAus`, `lageAus`,
+`empfehlungAus`, `prioritaetAus`, `kuerElemente`, `fassungsInhalt` und `rangIn`.
+
+Auch **keine eigene Tageslogik**: `tageHin` und `countdown` kommen aus Phase 3C.
+Im Modul steht kein `new Date()`, kein `86400000`, kein `toISOString`, kein
+`diffDays`.
+
+### 22.4 Die Vorbereitungsphasen
+
+Fünf benannte Kategorien, **kein Score und keine Prozentzahl**:
+
+| Tage bis zum Wettkampf | Phase | was LifeHub tut |
+|---|---|---|
+| kein Wettkampf | `keine` | nichts – der Vorschlag ist der von 3A |
+| ab 29 | `entwicklung` | nichts – 3D greift bewusst nicht ein |
+| 15 … 28 | `stabilisierung` | Entwicklungsarbeit rutscht hinter die Kür |
+| 1 … 14 | `wettkampfnah` | Entwicklungsarbeit wird zurückgestellt |
+| 0 (heute) | `wettkampftag` | kein Trainingsvorschlag für diesen Tag |
+
+Die Phase ist **global**, weil der Termin global ist. Die konkrete Empfehlung
+bleibt **gerätespezifisch** (22.7): Ein naher Wettkampf heisst nicht, dass alle
+sechs Geräte denselben Zustand haben.
+
+**Die Tageszahl entscheidet nur über die Produktstrategie.** Sie sagt nichts
+darüber, ob Erik leistungsfähig, ausgeruht oder vorbereitet ist – 14 Tage sind
+für den einen viel und für den anderen wenig.
+
+### 22.5 Die Grenzwerte – und warum es diese sind
+
+`VORBEREITUNG_SCHWELLEN` in `core/turnen/vorbereitungsstrategie.ts`, eine
+**Produktheuristik** und ausdrücklich nicht sportwissenschaftlich optimal. Es
+gibt keine Untersuchung, die sagt, dass vierzehn Tage vor einem Wettkampf etwas
+anderes gilt als fünfzehn.
+
+Beide Zahlen sind **absichtlich keine neuen**. Geprüft wurden zuerst die
+vorhandenen Zeitkonventionen des Moduls – 56 Tage Beobachtungsfenster
+(`SCHWELLEN.fensterTage`), 28 Tage „lange nicht trainiert"
+(`KUER_SCHWELLEN.langeHerTage`, zugleich `PLAN_SCHWELLEN.wartungTage`), 14 Tage
+rollender Planungshorizont (`WOCHEN_SCHWELLEN.horizontTage`), 7 Tage Grenze von
+`relativeDay()` – und zwei davon übernommen:
+
+- **`wettkampfnahTage: 14`** — der rollende Planungshorizont aus Phase 3B.
+  Innerhalb dieser Spanne liegt **jede** Einheit, die LifeHub überhaupt
+  vorausplant, zwischen heute und dem Wettkampf; es gibt dann keinen geplanten
+  Termin mehr, der nach dem Wettkampf läge. Das ist der nachvollziehbarste
+  Punkt, ab dem „die aktuelle Kür zuerst" eine Produktaussage ohne Erfindung
+  ist. Die in der Aufgabenstellung vorgeschlagenen 7 Tage wären eine **neue**
+  Zahl gewesen, der nichts im Modul entspricht.
+- **`stabilisierungTage: 28`** — dieselbe Spanne, nach der ein Gerät als „lange
+  nicht trainiert" gilt. Darüber hinaus passt noch ein vollständiger
+  Wartungsumlauf über alle Geräte, bevor der Wettkampf in Sicht kommt.
+
+`tests/turnen-vorbereitungsstrategie.test.ts` rechnet die Gleichheit mit beiden
+vorhandenen Konstanten nach. Wer dort eine ändert, bekommt einen roten Test und
+keine stille Verschiebung dieser Phasen.
+
+### 22.6 Was 3D am Plan ändert – und was nicht
+
+**Nur die Entwicklungsarbeit bewegt sich.**
+
+| Phase | `entwicklung`-Inhalt |
+|---|---|
+| `keine`, `entwicklung` | bleibt, wo 2D/3A ihn hingestellt haben |
+| `stabilisierung` | rutscht hinter Kürelemente und Kür am Stück |
+| `wettkampfnah`, `wettkampftag` | wird zurückgestellt |
+
+Die Reihenfolge von `element` und `durchgang` bleibt ausdrücklich, wie
+`reihenfolgeArtFuer()` sie bestimmt hat: Ob am Einzelelement oder an der ganzen
+Übung zu arbeiten ist, hat 2D aus Elementstabilität und Kürstabilität
+entschieden, und ein Wettkampftermin weiss darüber nichts. Würde 3D daran
+drehen, wäre das eine zweite Antwort auf dieselbe Frage.
+
+**Nicht geändert werden:** Gerätewahl, Rolle, Priorität, Auswahlgrund,
+Begründungen, Hinweise, Umfang. Ein Test stellt denselben Datenstand mit drei
+Abständen nebeneinander und verlangt, dass all das identisch bleibt.
+
+Steht die Entwicklungsarbeit danach nicht mehr vorn, wird
+`reihenfolgeArt: 'entwicklung_zuerst'` zu `'elemente_zuerst'` – sonst stünde in
+der Oberfläche „Schwierigkeit zuerst" über einer Liste, die mit etwas anderem
+beginnt. Jede andere Angabe bleibt unberührt.
+
+**Zurückstellen kann kein Gerät leer zurücklassen**, und das ist keine
+Hoffnung: Ein Entwicklungsinhalt entsteht in 3A nur bei der 2D-Empfehlung
+`schwierigkeit_pruefen`, die eine aktive Wettkampfkür voraussetzt – und sobald
+eine Kür da ist, legt 3A immer auch einen Kürdurchgang in den Plan.
+`darfZurueckstellen()` prüft es trotzdem nach.
+
+Ein Gerät, das Phase 3C **nicht** zum Wettkampf zählt (keine aktive
+Wettkampfkür, 21.6), bleibt vollständig unberührt: Es gehört zur normalen
+Trainingsarbeit.
+
+### 22.7 Die Leitlinie je Gerät
+
+| 3C-Stand | Leitlinie | Anzeige |
+|---|---|---|
+| `kuer_fehlt` | `keine_kuer` | keine Wettkampfkür hinterlegt |
+| `elemente_auffaellig` | `kuerelemente_zuerst` | offene Kürelemente zuerst |
+| `kuer_am_stueck_auffaellig` | `kuer_am_stueck_zuerst` | die Kür am Stück zuerst |
+| `daten_fehlen` + neue Fassung | `kuer_erfassen` | aktuelle Kürfassung erfassen |
+| `daten_fehlen` | `daten_fehlen` | zu wenig Daten für eine Aussage |
+| `stabile_basis` | `kuer_halten` | Kür festigen und halten |
+
+**Kein Gerät wird künstlich verschlechtert.** Ein Gerät mit `stabile_basis`
+bekommt `kuer_halten` und keine Problemaufgabe – ein Test hält am Wortlaut
+fest, dass dort nicht „Problem", „kritisch", „instabil" oder „Fehler" steht.
+
+### 22.8 Keine Kürsperre, keine Dramatisierung
+
+LifeHub sagt **nie** „du darfst die Kür jetzt nicht mehr ändern". Erik und sein
+Trainer entscheiden das.
+
+Ändert er sie zwei Tage vorher, greift Phase 2E wie immer: neue Fassung, alte
+Durchgänge zählen nicht als Stabilität der neuen (21.13). Phase 3D stellt das
+als `kuer_erfassen` fest – „aktuelle Kürfassung erfassen" – und ausdrücklich
+nicht als Warnung. Ein Test prüft, dass dort kein „Gefahr", „Warnung",
+„kritisch" oder „zu spät" steht.
+
+### 22.9 Der Wettkampftag
+
+Eigene Phase, und **kein erfundener Trainingsplan**. Der 3A-Block zeigt „Heute
+ist Wettkampf." plus den vorhandenen Erfassungsweg; die Gerätekacheln bleiben
+weg. Kein Aufwärmprogramm, keine Sätze, keine Wiederholungen, kein
+Ernährungsplan, keine minutengenaue Vorbereitung – das wäre eigener Scope.
+
+Die Wochenansicht bleibt erreichbar: Die nächsten Tage sind davon unberührt.
+Für die Daten gelten dieselben Regeln wie `wettkampfnah`, damit Phase 3B für
+die folgenden Termine sinnvolle Inhalte bekommt.
+
+### 22.10 Keine Prognose, keine Kausalität
+
+Der Konkurrenzvergleich aus 2C liefert weiterhin den Kontext, über den 2D den
+Fokus bildet – und damit mittelbar, ob es überhaupt Entwicklungsarbeit gibt.
+Behauptet wird daraus **nichts**: nirgends steht, dass ein eingebautes Element
+einen Platz brächte, und nirgends eine Punktprognose.
+
+Ebenso gibt es keine Periodisierung über mehrere Wettkämpfe: Optimiert wird
+immer nur gegen den nächsten Termin aus 3C (21.8). Liegen zwei nah beieinander,
+ändert das nichts; nach dem ersten wird der zweite von selbst primär.
+
+### 22.11 Transparenz
+
+Zu **jedem** Eingriff steht im View Model, was ohne Wettkampfkontext
+dagestanden hätte und was sich dadurch verschoben hat
+(`VorbereitungsAnpassung.ohneWettkampf` / `.durchVorbereitung`). Beide Listen
+entstehen aus dem tatsächlichen Unterschied und nicht aus einer Vorlage –
+steht dort etwas, ist es auch passiert. In der Oberfläche erscheinen sie in der
+aufklappbaren Begründung des Geräts.
+
+Ein zurückgestellter Inhalt bleibt in `zurueckgestellt` erhalten und wird
+benannt („1 Entwicklungskandidat ist bis nach dem Wettkampf zurückgestellt."),
+nicht verworfen. Nach dem Wettkampf steht er von selbst wieder im Vorschlag.
+
+In „Noch offen" (Phase 3B) kann er nicht auftauchen: Diese Liste führt
+**Geräte** und keine Inhalte – ein zurückgestellter Kandidat ist dort
+strukturell nicht darstellbar. Eine Unterscheidung „offen, weil kein Platz"
+gegen „zurückgestellt" braucht es deshalb nicht.
+
+### 22.12 Fehlende Daten
+
+Kommender Wettkampf, aber keine Kür: Phase 3C zählt das Gerät nicht zum
+Wettkampf, also gibt es auch keine Leitlinie (21.6). Keine Trainingsdaten:
+keine Entwicklungsarbeit, also kein Eingriff und keine erfundene Empfehlung.
+Keine Kürdurchgänge: `daten_fehlen` beziehungsweise `kuer_erfassen`. Keine
+Benchmarks: Die Phase funktioniert trotzdem – Konkurrenzdaten sind keine
+Voraussetzung, sie entscheiden nur mit, ob 2D überhaupt Entwicklungsarbeit
+nahelegt.
+
+### 22.13 UI
+
+- **Karte „Nächster Wettkampf"**: unter dem Termin eine Zeile
+  „Vorbereitungsphase · <Kategorie>" und ein Satz dazu (`PHASE_LEITSATZ`). In
+  der Detailansicht je Gerät eine Zeile „Für die Vorbereitung: …".
+- **Block „Nächstes Training"**: oben die Phase mit dem Abstand; je Gerät, wenn
+  etwas zurückgestellt wurde, ein kleiner Satz dazu; in der Begründung die
+  beiden Transparenzlisten. Am Wettkampftag steht dort „Heute ist Wettkampf."
+- **„Kommende Einheiten"**: die Phase in der vorhandenen Wettkampfzeile. Keine
+  zusätzliche Planungsschicht.
+
+Kein neuer Haupttab. Mobile-first, 390 px, dunkler Modus, vorhandene
+Design-Tokens; die Phasenpillen bauen auf den `.pill`-Klassen auf und bekommen
+**keine** Warnfarbe – ein naher Wettkampf ist kein Problem.
+
+### 22.14 Was Phase 3D nicht baut
+
+- Belastungskurven, Superkompensation, Deload, Tapering, Peaking
+- Volumen- oder Intensitätssteuerung, Trainingsminuten, Wiederholungszahlen
+- Schlaf-, HRV- oder pulsbasierte Trainingsänderungen
+- Regenerationsscore, Verletzungsrisiko, Wettkampfpunktprognose
+- automatische Küränderung oder Kürsperre
+- langfristige Saisonplanung über mehrere Wettkämpfe
+- einen 0-bis-100-Score oder eine Prozentangabe
+- einen automatischen „Recovery"-Modus nach einem Wettkampf
+
+### 22.15 Persistenz
+
+**Keine.** Die Phase ergibt sich aus heutigem Datum, nächstem Wettkampf und
+aktuellen Trainingsdaten. Verschiebt Erik den Wettkampf, ändert sie sich;
+löscht er ihn, verschwindet sie und 3A/3B sind wieder im Normalmodus. Es gibt
+keine Tabelle `training_phase`, `readiness` oder `competition_strategy` und
+keine Einstellung – beides wäre ab der nächsten Terminänderung falsch, ohne
+dass es auffällt.
+
+### 22.16 Aufwand
+
+Phase 3D ist eine Transformation fertiger View Models: eine Phase aus einer
+Zahl, eine Leitlinie je Gerät aus einer Kategorie, und eine Liste umsortiert.
+Gemessen über alle sechs Geräte: **0,008 ms je Aufruf**. Es wird nichts erneut
+über Versuche, Durchgänge oder die Wettkampfhistorie gelesen, kein `loadAll()`,
+keine neue Abfrage.
+
+### 22.17 Einspielen
+
+**Nichts zu tun.** Keine Migration, kein SQL-Schritt, kein
+`supabase functions deploy`. Das Datenmodell ist unverändert.
+
+```
+npx vitest run tests/turnen-vorbereitungsstrategie.test.ts
+node tests/turnen-vorbereitung-e2e.mjs
 ```

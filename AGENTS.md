@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 1.986 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 2.051 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **2.005**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **2.070**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -664,6 +664,86 @@ UND ohne Termin bleibt der Einstieg allein stehen.
 node tests/turnen-wettkampfziel-e2e.mjs   # kein Wettkampf -> anlegen ->
                                           # Countdown -> Training -> Kuer
                                           # aendern -> Historie bleibt
+```
+
+### Der Wettkampfabstand verschiebt die Prioritaet - und sonst nichts
+
+Seit dem 05.10.2026 (Phase 3D) beantwortet LifeHub "wie soll sich mein
+Trainingsfokus veraendern, wenn der Wettkampf naeher kommt?":
+`core/turnen/vorbereitungsstrategie.ts`, angezeigt in den vorhandenen Bloecken
+(Wettkampfkarte, Naechstes Training, Kommende Einheiten). **Keine Tabelle,
+keine Migration, kein neuer Reiter.**
+
+**Phase 3D sitzt HINTER 3A, nicht davor.** `planMitVorbereitung(plan, bild)`
+nimmt den fertigen 3A-Plan und gibt einen Plan DERSELBEN Form zurueck. Daraus
+folgt alles Wichtige:
+
+- `trainingsplanung.ts` importiert dieses Modul nicht und weiss von
+  Wettkaempfen nichts - `3A -> 3D -> 3A` waere genau der Kreis, der hier nicht
+  entstehen darf. Ein Test liest die `import`-Zeilen der beteiligten Module und
+  haelt die Richtung fest (Modulkoepfe nennen Nachbarphasen in Prosa, und eine
+  Erwaehnung ist keine Abhaengigkeit).
+- `wochenplanung.ts` bleibt unberuehrt: Phase 3B bekommt den angepassten Plan
+  und verteilt ihn wie bisher. Keine zweite Wettkampflogik dort.
+- **Ohne kommenden Wettkampf passiert nichts** - und zwar durch Bauart:
+  `planMitVorbereitung()` gibt dann DASSELBE Objekt zurueck. Der Test prueft
+  `plan === rohplan` mit Identitaet, nicht mit Gleichheit.
+
+**Fuenf Phasen, kein Score:** `keine`, `entwicklung` (ab 29 Tagen),
+`stabilisierung` (15-28), `wettkampfnah` (1-14), `wettkampftag` (0). Keine
+Prozentzahl, keine Ampel, keine Leistungsaussage - die Tageszahl entscheidet
+ausschliesslich ueber die Produktstrategie.
+
+**Die beiden Grenzwerte sind absichtlich keine neuen Zahlen:** 14 ist der
+rollende Planungshorizont aus Phase 3B (`WOCHEN_SCHWELLEN.horizontTage` -
+innerhalb dieser Spanne liegt jede vorausgeplante Einheit vor dem Wettkampf),
+28 die vorhandene "lange nicht trainiert"-Spanne (`KUER_SCHWELLEN.langeHerTage`
+= `PLAN_SCHWELLEN.wartungTage`). Ein Test rechnet die Gleichheit nach - wer
+eine davon aendert, bekommt einen roten Test statt einer stillen Verschiebung
+dieser Phasen.
+
+**Es bewegt sich ausschliesslich die Entwicklungsarbeit.** In der
+Stabilisierung rutscht sie hinter die Kuer, wettkampfnah wird sie
+zurueckgestellt. Die Reihenfolge von Einzelelement und Kuerdurchgang bleibt,
+wie `reihenfolgeArtFuer()` sie bestimmt hat - das hat 2D aus Element- und
+Kuerstabilitaet entschieden, und ein Termin weiss darueber nichts. Geraetewahl,
+Rolle, Prioritaet, Begruendungen und Umfang bleiben unveraendert; ein Test
+stellt denselben Datenstand mit drei Abstaenden nebeneinander und verlangt
+genau das.
+
+**Zurueckgestellt heisst nicht verworfen.** Der Inhalt bleibt im View Model
+(`VorbereitungsAnpassung.zurueckgestellt`), wird benannt und steht nach dem
+Wettkampf von selbst wieder im Vorschlag. In "Noch offen" (3B) kann er nicht
+auftauchen - diese Liste fuehrt GERAETE und keine Inhalte.
+
+**Keine Blackbox.** Zu jedem Eingriff steht im View Model, was ohne
+Wettkampfkontext dagestanden haette (`ohneWettkampf`) und was sich dadurch
+verschoben hat (`durchVorbereitung`). Beide Listen entstehen aus dem
+tatsaechlichen Unterschied, nicht aus einer Vorlage.
+
+**Keine Kuersperre und keine Dramatisierung.** LifeHub sagt nie "du darfst die
+Kuer jetzt nicht mehr aendern". Aendert Erik sie kurz vorher, greift 2E wie
+immer, und 3D stellt das als `kuer_erfassen` fest - kein "Gefahr", kein "zu
+spaet". Ein Test haelt das am Wortlaut fest.
+
+**Kein Geraet wird kuenstlich verschlechtert.** Ein stabiles Geraet bekommt
+`kuer_halten` und keine Problemaufgabe. Die Zeitphase ist global, die Leitlinie
+je Geraet bleibt geraetespezifisch und ist eine Umbenennung des 3C-Standes -
+keine dritte Messung.
+
+**Am Wettkampftag wird kein Trainingsplan erfunden.** Der Block zeigt "Heute
+ist Wettkampf." plus den vorhandenen Erfassungsweg. Kein Aufwaermprogramm,
+keine Saetze, keine Minuten, kein Ernaehrungsplan.
+
+**Nichts wird gespeichert.** Keine Tabelle `training_phase`, `readiness` oder
+`competition_strategy`, keine Einstellung. Verschiebt Erik den Wettkampf,
+aendert sich die Phase; loescht er ihn, ist 3A/3B wieder im Normalmodus.
+Gemessen kostet 3D ueber sechs Geraete 0,008 ms je Aufruf.
+
+```
+node tests/turnen-vorbereitung-e2e.mjs   # weit -> naeher -> wettkampfnah ->
+                                         # Kandidat zurueckgestellt ->
+                                         # Wettkampftag -> loeschen -> normal
 ```
 
 ## FatSecret laeuft von selbst

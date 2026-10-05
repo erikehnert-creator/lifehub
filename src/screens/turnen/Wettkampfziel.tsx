@@ -57,6 +57,10 @@ import {
   HERKUNFT_TEXT, STAND_ERKLAERUNG, STAND_LABEL, vorTagen,
   type GeraetVorbereitung, type WettkampfZiel,
 } from '../../core/turnen/wettkampfvorbereitung'
+import {
+  LEITLINIE_LABEL, PHASE_LABEL,
+  type GeraetLeitlinie, type VorbereitungsBild,
+} from '../../core/turnen/vorbereitungsstrategie'
 
 /** Welche Pille ein Gerätestand bekommt – Farbe sagt nur „fällt auf". */
 const STAND_PILL: Record<GeraetVorbereitung['stand'], string> = {
@@ -67,8 +71,16 @@ const STAND_PILL: Record<GeraetVorbereitung['stand'], string> = {
   stabile_basis: 'pill good',
 }
 
-export function WettkampfZielKarte({ ziel, ohneTurndaten, onZuWettkaempfen }: {
+export function WettkampfZielKarte({ ziel, vorbereitung, ohneTurndaten, onZuWettkaempfen }: {
   ziel: WettkampfZiel
+  /**
+   * Die Vorbereitungsphase aus Phase 3D.
+   *
+   * Nur Anzeige: Welche Inhalte dadurch anders priorisiert werden, steht im
+   * Block „Nächstes Training". Hier steht, in welcher Phase man ist und was
+   * LifeHub deshalb tut.
+   */
+  vorbereitung: VorbereitungsBild
   /**
    * Es gibt noch kein Element und kein erfasstes Training.
    *
@@ -117,6 +129,20 @@ export function WettkampfZielKarte({ ziel, ohneTurndaten, onZuWettkaempfen }: {
           {w.location && <div className="wz-ort">{w.location}</div>}
         </div>
 
+        {/* Die Vorbereitungsphase aus Phase 3D. Eine benannte Kategorie und
+            ein Satz dazu - keine Prozentzahl, keine Leistungsaussage. */}
+        {vorbereitung.phase !== 'keine' && (
+          <div className="wz-phase">
+            <span className="wz-phase-kopf">Vorbereitungsphase</span>
+            <span className={`pill wz-phase-${vorbereitung.phase}`}>
+              {PHASE_LABEL[vorbereitung.phase]}
+            </span>
+            {vorbereitung.leitsatz && (
+              <div className="wz-phase-satz">{vorbereitung.leitsatz}</div>
+            )}
+          </div>
+        )}
+
         {ziel.geraete.length === 0 ? (
           <div className="muted small mt8">
             {ohneTurndaten
@@ -154,7 +180,8 @@ export function WettkampfZielKarte({ ziel, ohneTurndaten, onZuWettkaempfen }: {
       </Card>
 
       {detail && (
-        <ZielDetail ziel={ziel} onClose={() => setDetail(false)} />
+        <ZielDetail ziel={ziel} vorbereitung={vorbereitung}
+          onClose={() => setDetail(false)} />
       )}
     </>
   )
@@ -232,8 +259,13 @@ function GeraetZeile({ g }: { g: GeraetVorbereitung }) {
  * Anrechnungsgrenzen und Verbindungen stehen in LifeHub nicht, und ohne sie
  * ist die Summe der Elementwerte kein D-Wert.
  */
-function ZielDetail({ ziel, onClose }: { ziel: WettkampfZiel; onClose: () => void }) {
+function ZielDetail({ ziel, vorbereitung, onClose }: {
+  ziel: WettkampfZiel
+  vorbereitung: VorbereitungsBild
+  onClose: () => void
+}) {
   const w = ziel.naechster!
+  const leitlinieVon = new Map(vorbereitung.geraete.map((g) => [g.apparatus, g.leitlinie]))
 
   return (
     <Modal open wide title={w.name} onClose={onClose}
@@ -262,9 +294,18 @@ function ZielDetail({ ziel, onClose }: { ziel: WettkampfZiel; onClose: () => voi
           <span className="kennzeile-name">Geräte</span>
           <span className="kennzeile-wert">{HERKUNFT_TEXT[ziel.herkunft]}</span>
         </div>
+        {vorbereitung.phase !== 'keine' && (
+          <div className="kennzeile">
+            <span className="kennzeile-name">Vorbereitung</span>
+            <span className="kennzeile-wert">{PHASE_LABEL[vorbereitung.phase]}</span>
+          </div>
+        )}
       </div>
 
-      {ziel.geraete.map((g) => <GeraetDetail key={g.apparatus} g={g} />)}
+      {ziel.geraete.map((g) => (
+        <GeraetDetail key={g.apparatus} g={g}
+          leitlinie={leitlinieVon.get(g.apparatus) ?? null} />
+      ))}
 
       <div className="muted small mt16">
         Alle Angaben sind Beobachtungen aus den erfassten Daten. LifeHub
@@ -275,7 +316,11 @@ function ZielDetail({ ziel, onClose }: { ziel: WettkampfZiel; onClose: () => voi
   )
 }
 
-function GeraetDetail({ g }: { g: GeraetVorbereitung }) {
+function GeraetDetail({ g, leitlinie }: {
+  g: GeraetVorbereitung
+  /** Die Leitlinie aus Phase 3D, oder `null` ohne kommenden Wettkampf. */
+  leitlinie: GeraetLeitlinie | null
+}) {
   const d = g.durchgaenge
   const l = g.letzterStart
 
@@ -286,6 +331,13 @@ function GeraetDetail({ g }: { g: GeraetVorbereitung }) {
         <span className={STAND_PILL[g.stand]}>{STAND_LABEL[g.stand]}</span>
       </div>
       <div className="wz-detail-erklaerung">{STAND_ERKLAERUNG[g.stand]}</div>
+      {/* Die Zeitphase ist global, die Leitlinie bleibt geraetespezifisch -
+          ein naher Wettkampf heisst nicht, dass alle Geraete gleich stehen. */}
+      {leitlinie && (
+        <div className="wz-detail-leitlinie">
+          Für die Vorbereitung: {LEITLINIE_LABEL[leitlinie]}.
+        </div>
+      )}
 
       {/* ------------------------------------------- Aktuelle Wettkampfkür */}
       <div className="wz-abschnitt">
