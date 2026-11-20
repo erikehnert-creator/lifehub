@@ -52,3 +52,28 @@ describe('Tageskapazität rechnet Wiederholungen mit', () => {
     expect(kap([termin({ all_day: 1 })], '2026-11-02').plannedMinutes).toBe(0)
   })
 })
+
+import { terminSuchtreffer } from '../src/core/termine'
+
+describe('terminSuchtreffer – Termine in der Suche', () => {
+  it('zeigt einen einzelnen Termin mit seinem Tag', () => {
+    const r = terminSuchtreffer(termin({ day: '2026-12-05', location: 'Halle' }), '2026-11-20')
+    expect(r.day).toBe('2026-12-05')
+    expect(r.sub).toContain('18:00')
+    expect(r.sub).toContain('Halle')
+    expect(r.sub).not.toContain('nächster')
+  })
+  it('springt bei einer Wiederholung zum nächsten Termin ab heute', () => {
+    const r = terminSuchtreffer(termin({ day: '2026-02-02', rrule: 'FREQ=WEEKLY;BYDAY=MO' }), '2026-11-20')
+    expect(r.day).toBe('2026-11-23')
+    expect(r.sub).toContain('nächster')
+    expect(r.sub).toContain('wöchentlich')
+  })
+  it('behält bei einer noch nicht begonnenen Serie den Starttag', () => {
+    expect(terminSuchtreffer(termin({ day: '2026-12-07', rrule: 'FREQ=WEEKLY;BYDAY=MO' }), '2026-11-20').day).toBe('2026-12-07')
+  })
+  it('zeigt bei einer beendeten Serie den Starttag als „zuletzt"', () => {
+    const r = terminSuchtreffer(termin({ day: '2026-01-05', rrule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=20260201' }), '2026-11-20')
+    expect(r.sub).toContain('zuletzt')
+  })
+})

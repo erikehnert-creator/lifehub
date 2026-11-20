@@ -9,8 +9,8 @@
  */
 import type { CalendarEvent } from './types'
 import type { DayString } from './dates'
-import { addDays, diffDays } from './dates'
-import { occurrences } from './recurrence'
+import { addDays, diffDays, formatDay, todayString } from './dates'
+import { occurrences, nextOccurrence, describeRRule } from './recurrence'
 
 export interface Vorkommen {
   event: CalendarEvent
@@ -58,4 +58,29 @@ export function vorkommenIn(events: CalendarEvent[], von: DayString, bis: DayStr
  */
 export function termineAmTag(events: CalendarEvent[], tag: DayString): Vorkommen[] {
   return vorkommenIn(events, tag, tag)
+}
+
+/**
+ * Wie ein Termin in der Suche erscheint. Bei einer Wiederholung zählt der
+ * nächste Termin ab heute, nicht der Tag, an dem die Serie einmal begann –
+ * sonst stünde „jeden Montag" mit einem Datum von vor einem Jahr da.
+ */
+export function terminSuchtreffer(
+  e: Pick<CalendarEvent, 'day' | 'rrule' | 'exdates' | 'start_time' | 'location'>,
+  heute: DayString = todayString(),
+): { day: DayString; sub: string } {
+  let tag = e.day
+  let serie = ''
+  if (e.rrule) {
+    const naechster = e.day >= heute ? e.day : nextOccurrence(e.rrule, e.day, heute)
+    if (naechster) tag = naechster
+    serie = describeRRule(e.rrule)
+  }
+  const teile = [
+    e.rrule ? `${tag >= heute ? 'nächster: ' : 'zuletzt: '}${formatDay(tag)}` : formatDay(tag),
+    serie || null,
+    e.start_time || null,
+    e.location || null,
+  ].filter(Boolean)
+  return { day: tag, sub: teile.join(' · ') }
 }

@@ -6,6 +6,7 @@ import React, { useMemo, useState } from 'react'
 import { Card, Empty } from '../ui/components'
 import { useData } from '../state/store'
 import { formatMoney } from '../core/money'
+import { terminSuchtreffer } from '../core/termine'
 import { formatDay, relativeDay, formatMonth } from '../core/dates'
 
 type Hit = {
@@ -65,10 +66,10 @@ export function SearchScreen({ navigate }: { navigate: (r: string) => void }) {
         if (e.deleted_at) continue
         const hay = `${e.title} ${e.description ?? ''} ${e.location ?? ''}`.toLowerCase()
         if (!hay.includes(q)) continue
+        const treffer = terminSuchtreffer(e)
         out.push({
           kind: 'Termin', icon: '📅', title: e.title,
-          sub: `${formatDay(e.day)}${e.start_time ? ` · ${e.start_time}` : ''}${e.location ? ` · ${e.location}` : ''}`,
-          route: '#/plan/kalender', day: e.day,
+          sub: treffer.sub, route: '#/plan/kalender', day: treffer.day,
         })
       }
     }
