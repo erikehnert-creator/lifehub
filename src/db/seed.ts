@@ -3,7 +3,7 @@
  * Alle Werte sind Daten, kein Code – jeder Eintrag ist später frei änderbar.
  */
 import { all } from './sqlite'
-import { tagesartFarbe, istStandardTagesartFarbe, TAGESART_FARBE } from '../core/tagesartFarben'
+import { tagesartFarbe, istStandardTagesartFarbe } from '../core/tagesartFarben'
 import { stableId } from '../core/ids'
 import { insert, update } from './repo'
 import { todayString, addDays, holidaysForState } from '../core/dates'
@@ -264,7 +264,6 @@ export function seedDemoData(): number {
 
   let count = 0
   const rnd = mulberry32(20260818)
-  const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
 
   const patterns: Array<[string, string, number, number, number]> = [
     // Kategorie, Händler, minCent, maxCent, Wahrscheinlichkeit pro Tag

@@ -1,7 +1,7 @@
 /**
  * PLAN · ARBEITSPLAN – Schichten auf den Kalender malen, Tagesarten pflegen.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Modal, Field, Chips, Confirm } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import {

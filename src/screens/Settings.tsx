@@ -14,7 +14,7 @@
  * Trackingwerte und FatSecret.
  */
 import { hashPin, verifyPin, randomSalt, markUnlocked } from '../core/lock'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, Modal, Field, Chips, Confirm, Collapsible } from '../ui/components'
 import { useData, useMutations } from '../state/store'
 import { exportSummaryJson, download, timestampSuffix, EXPORT_SCHEMA_VERSION } from '../io/exporters'
@@ -299,7 +299,6 @@ function ErweitertTab() {
 
 function CategoriesTab() {
   const data = useData()
-  const m = useMutations()
   const [editing, setEditing] = useState<any | 'new' | null>(null)
 
   const groups: [string, any[]][] = [
@@ -339,7 +338,6 @@ function CategoriesTab() {
 
 function CategoryEditor({ category, onClose }: { category: any | null; onClose: () => void }) {
   const m = useMutations()
-  const data = useData()
   const [name, setName] = useState(category?.name ?? '')
   const [kind, setKind] = useState(category?.kind ?? 'expense')
   const [icon, setIcon] = useState(category?.icon ?? '📦')

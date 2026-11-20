@@ -1,7 +1,7 @@
 /**
  * FINANZEN · BUDGETS – Fortschritt je Kategorie, gemessen am Zeitanteil.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Empty, Confirm, StatusPill, MoneyInput } from '../../ui/components'
 import { Meter, seriesColor } from '../../charts'
 import { useData, useMutations } from '../../state/store'

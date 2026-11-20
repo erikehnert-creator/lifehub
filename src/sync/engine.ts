@@ -20,7 +20,7 @@
 import {
   all, run, getDb, saveNow, momentaufnahme, stelleMomentaufnahmeWiederHer, sperrePersistenz,
 } from '../db/sqlite'
-import { SYNCED_TABLES, type SyncedTable } from '../db/schema'
+import { SYNCED_TABLES } from '../db/schema'
 import {
   berichtigungsText, ganzzahlSpalten, gebrocheneWerte, type SpaltenInfo,
 } from '../core/ganzzahlen'
@@ -30,7 +30,6 @@ import {
 } from '../core/natuerlicheSchluessel'
 import { nowIso } from '../core/dates'
 import { uuidv7 } from '../core/ids'
-import { getDeviceId } from '../db/repo'
 import { accessToken, currentSession, isSignedIn, setSyncRolle } from './auth'
 
 /**

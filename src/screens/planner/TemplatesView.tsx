@@ -1,7 +1,7 @@
 /**
  * PLAN · VORLAGEN – wiederkehrende Aufgaben, an den Plan gekoppelt.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Empty, Confirm, DurationInput } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import { todayString, formatDay, formatDuration, addDays, weekdayShort } from '../../core/dates'

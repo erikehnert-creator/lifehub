@@ -9,7 +9,7 @@
  * mit einem Filter davor, „Einrichten" sind Vorlagen und Arbeitsplan. Die
  * alten Adressen bleiben gültig – automatik-e2e öffnet /plan/vorlagen.
  */
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Tabs, Segment } from '../ui/components'
 import { useData } from '../state/store'
 import { CalendarView } from './Calendar'

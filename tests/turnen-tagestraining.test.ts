@@ -29,8 +29,8 @@ import { durchgaengeJeGeraet } from '../src/core/turnen/kuerdurchgaenge'
 import { trainingsfokus } from '../src/core/turnen/trainingsfokus'
 import { PLAN_SCHWELLEN, trainingsplanung } from '../src/core/turnen/trainingsplanung'
 import {
-  WOCHEN_SCHWELLEN, kapazitaetAus, plaetzeFuer, wochenplanung,
-  type TerminEingang, type WochenBild,
+  WOCHEN_SCHWELLEN, kapazitaetAus, wochenplanung,
+  type TerminEingang, type WochenBild
 } from '../src/core/turnen/wochenplanung'
 import { wettkampfvorbereitung } from '../src/core/turnen/wettkampfvorbereitung'
 import {

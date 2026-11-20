@@ -59,8 +59,8 @@ import {
   type Fokus, type VerlaufsPunkt, type WettkampfAnalyse,
 } from './analyse'
 import {
-  DURCHGANG_LAGE_LABEL, durchgaengeLabel,
-  type DurchgangsBild, type KuerDurchgaenge, type KuerDurchgangsLage,
+  durchgaengeLabel,
+  type DurchgangsBild, type KuerDurchgaenge, type KuerDurchgangsLage
 } from './kuerdurchgaenge'
 
 /* ========================================================= Stabilität */

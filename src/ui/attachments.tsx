@@ -4,7 +4,7 @@
  * Wird an Buchungen und wiederkehrenden Zahlungen eingebunden, funktioniert
  * aber für jeden Datensatz: `entityType` + `entityId` genügen.
  */
-import React, { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useData, useMutations } from '../state/store'
 import { Modal, Confirm } from './components'
 import { prepareFile, formatBytes, downloadDataUrl } from '../io/files'

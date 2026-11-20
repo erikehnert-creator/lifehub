@@ -61,7 +61,7 @@
  *
  * Reine Logik ohne Datenbank, ohne Netzwerk und ohne React.
  */
-import type { DayString } from '../dates'
+import type {} from '../dates'
 import { GERAETE, geraet, geraetName } from './geraete'
 import { KUER_SCHWELLEN } from './kueren'
 import { SCHWELLEN } from './sicherheit'

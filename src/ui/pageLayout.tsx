@@ -10,7 +10,7 @@
  * Bewusst ohne Drag & Drop: Auf dem Handy sind Auf/Ab-Knöpfe zuverlässiger
  * zu treffen als etwas zu ziehen, und die App hat dafür keine Bibliothek.
  */
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useData, useMutations } from '../state/store'
 import {
   resolveLayout, toggleCardVisible, moveCard, migriereLayout,

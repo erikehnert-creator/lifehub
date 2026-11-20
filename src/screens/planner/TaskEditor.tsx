@@ -2,7 +2,7 @@
  * PLAN · AUFGABEN-EDITOR – die Art bestimmt, wie sich eine Aufgabe über die
  * Zeit verhält. Der Termin-Editor lebt im Kalender.
  */
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Modal, Field, Chips, Confirm, DurationInput } from '../../ui/components'
 import { useMutations } from '../../state/store'
 import { todayString, formatDay, diffDays } from '../../core/dates'

@@ -6,8 +6,8 @@
  * Bei 100 % gilt das Ziel als erreicht und wandert aus der Übersicht in
  * die Liste der bestandenen Ziele – gelöscht wird nichts.
  */
-import React, { useMemo, useState } from 'react'
-import { Card, Stat, Modal, Field, Chips, Empty, Confirm, Collapsible } from '../ui/components'
+import { useMemo, useState } from 'react'
+import { Card, Modal, Field, Chips, Empty, Confirm, Collapsible } from '../ui/components'
 import { BEREICH_FARBE } from '../ui/icons'
 import { useData, useMutations } from '../state/store'
 import { accountBalances } from '../core/finance'

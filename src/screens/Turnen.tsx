@@ -24,7 +24,6 @@
  * Das war schon vor dem sechsten so und ist nachgemessen: `turnen-analyse-e2e`
  * prüft bei 390 px, dass der Reiter erreichbar ist.
  */
-import React from 'react'
 import { Tabs } from '../ui/components'
 import { UebersichtView } from './turnen/Uebersicht'
 import { ElementeView } from './turnen/Elemente'

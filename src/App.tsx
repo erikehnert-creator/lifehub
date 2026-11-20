@@ -2,20 +2,19 @@
  * App-Gerüst: Navigation, Routing (Hash-basiert), Schnelleingabe, Meldungen.
  * Desktop: Seitenleiste. Smartphone: fünf Tabs unten plus Schnelleingabe.
  */
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
-import { StoreProvider, useApp, useData } from './state/store'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { StoreProvider, useApp } from './state/store'
 import { useAutomatik } from './state/automatik'
 import { TodayScreen } from './screens/Today'
 import { FinanceScreen } from './screens/Finance'
 import { PlannerScreen } from './screens/Planner'
-import { TurnenScreen } from './screens/Turnen'
 import { TrackingScreen } from './screens/Tracking'
 import { GoalsScreen } from './screens/Goals'
 import { AnalysisScreen } from './screens/Analysis'
-import { SettingsScreen } from './screens/Settings'
 import { SearchScreen } from './screens/Search'
 import { ShoppingScreen } from './screens/Shopping'
 import { QuickAdd } from './screens/QuickAdd'
+import { BereichLaden } from './ui/BereichLaden'
 import { todayString, formatDay } from './core/dates'
 import { runSync, type SyncZustand } from './sync/engine'
 import { getStorageMode, saveNow } from './db/sqlite'
@@ -28,6 +27,14 @@ import { automatikTaktMs, type AbgleichAnlass } from './core/fatsecretImport'
 import { pendingChangeCount, hasRemoteChanges } from './sync/engine'
 import { resolvedSyncUrl, resolvedSyncKey } from './sync/config'
 import { Icon, BEREICH_FARBE, type IconName } from './ui/icons'
+
+/**
+ * Turnen und Einstellungen werden erst beim Öffnen geladen (siehe BereichLaden).
+ * Sie sind die beiden größten Bereiche und gehören nicht zu dem, was beim
+ * Start von „Heute" gebraucht wird.
+ */
+const TurnenScreen = React.lazy(() => import('./screens/Turnen').then((m) => ({ default: m.TurnenScreen })))
+const SettingsScreen = React.lazy(() => import('./screens/Settings').then((m) => ({ default: m.SettingsScreen })))
 
 interface Route { area: string; sub: string; params: Record<string, string> }
 
@@ -416,7 +423,6 @@ function Shell() {
     return () => { window.clearTimeout(timer); events.forEach((e) => window.removeEventListener(e, arm)) }
   }, [data.settings.pin_hash, unlocked, lockAfter])
 
-  const inboxCount = data.tasks.filter((t) => !t.deleted_at && t.bucket === 'inbox' && t.status === 'open').length
   const todayOpen = data.tasks.filter((t) => !t.deleted_at && t.status === 'open' && t.scheduled_on === todayString()).length
 
   if (!ready) {
@@ -457,12 +463,12 @@ function Shell() {
       case 'finanzen': return <FinanceScreen sub={route.sub} params={route.params} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'plan': return <PlannerScreen sub={route.sub} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'tracking': return <TrackingScreen sub={route.sub} navigate={navigate} />
-      case 'turnen': return <TurnenScreen sub={route.sub} params={route.params} navigate={navigate} />
+      case 'turnen': return <BereichLaden bereich="turnen"><TurnenScreen sub={route.sub} params={route.params} navigate={navigate} /></BereichLaden>
       case 'einkauf': return <ShoppingScreen />
       case 'ziele': return <GoalsScreen />
       case 'analysen': return <AnalysisScreen sub={route.sub} navigate={navigate} />
       case 'suche': return <SearchScreen navigate={navigate} />
-      case 'einstellungen': return <SettingsScreen sub={route.sub} navigate={navigate} />
+      case 'einstellungen': return <BereichLaden bereich="einstellungen"><SettingsScreen sub={route.sub} navigate={navigate} /></BereichLaden>
       default: return <TodayScreen navigate={navigate} openQuickAdd={openQuickAdd} />
     }
   }

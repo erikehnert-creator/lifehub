@@ -45,7 +45,7 @@
  * Gerechnet wird in `core/turnen/wettkampfvorbereitung.ts`, angestossen in
  * `bild.ts` gemeinsam mit Phase 3A/3B. Hier wird nur angezeigt.
  */
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Card, Empty, Modal } from '../../ui/components'
 import { formatDay, weekdayShort } from '../../core/dates'
 import { formatNote } from '../../core/turnen/wettkampf'

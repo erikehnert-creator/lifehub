@@ -32,7 +32,7 @@
  * `core/turnen/vergleich.ts` und `core/turnen/trainingsfokus.ts`. Hier wird nur
  * angezeigt.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Empty, Collapsible, Segment } from '../../ui/components'
 import { LineChart, ChartFrame } from '../../charts'
 import { useData } from '../../state/store'

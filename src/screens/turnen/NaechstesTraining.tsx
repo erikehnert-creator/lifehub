@@ -64,7 +64,7 @@
  * Tagen bis zum Wettkampf: Kein „unter 14 Tagen keine neuen Elemente", keine
  * Entlastungswoche, kein Peaking. Dafür fehlt in LifeHub die Grundlage.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Segment } from '../../ui/components'
 import {
   INHALT_ART_LABEL, KEIN_PLAN_TEXT, REIHENFOLGE_TEXT, ROLLE_LABEL, UMFANG_LABEL,

@@ -353,8 +353,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [today, setToday] = useState(todayString())
 
-  const reload = useCallback(() => setData(loadAll()), [])
-
   const toast = useCallback((text: string, undo?: () => void) => {
     const id = uuidv7()
     setToasts((t) => [...t.slice(-2), { id, text, undo }])

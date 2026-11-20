@@ -1,7 +1,7 @@
 /**
  * FINANZEN · FINANZTAG – Konten mit der Realität abgleichen.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Field, Empty, MoneyInput } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import { accountBalances } from '../../core/finance'

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  accountBalances, netWorth, availableMoney, periodTotals, monthTotals,
-  budgetStatus, budgetProgress, totalsByCategory, forecastMonth, effectOnAccount, formatSavingsRate,
+  accountBalances, netWorth, periodTotals, monthTotals,
+  budgetStatus, budgetProgress, totalsByCategory, forecastMonth, effectOnAccount, formatSavingsRate
 } from '../src/core/finance'
 import type { Account, Transaction, Budget, Category } from '../src/core/types'
 

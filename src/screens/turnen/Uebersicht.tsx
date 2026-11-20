@@ -45,7 +45,7 @@
  * Eine Bildschirmhöhe, nicht mehr: Vorschlag, Gerätekacheln, was zu lange her
  * ist, was unsicher steht. Alles Weitere steht in den anderen Reitern.
  */
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { Card, Stat, Empty } from '../../ui/components'
 import { BarChart, ChartFrame } from '../../charts'
 import { useData } from '../../state/store'

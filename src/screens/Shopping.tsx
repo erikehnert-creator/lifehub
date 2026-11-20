@@ -6,7 +6,7 @@
  * kein Bestätigen, kein Nachfragen – und ein Vorrat an Artikeln, die man
  * ohnehin jede Woche kauft, damit man sie nicht jedes Mal neu tippt.
  */
-import React, { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Card, Empty, Modal, Field, Confirm, MoneyInput } from '../ui/components'
 import { useData, useMutations } from '../state/store'
 import { formatMoney, parseAmountToCents, centsToInput } from '../core/money'

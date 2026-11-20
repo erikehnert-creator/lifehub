@@ -5,19 +5,18 @@
  */
 import React, { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Tabs, Empty, Confirm, ZonePill, DurationInput, Collapsible } from '../ui/components'
-import { LineChart, BarChart, Sparkline, Meter, seriesColor } from '../charts'
+import { LineChart, BarChart } from '../charts'
 import { useData, useMutations } from '../state/store'
 import {
-  dayValue, dailySeries, targetFor, evaluateZone, movingAverage, aggregate, groupSeries, formatMetricValue,
+  dayValue, dailySeries, targetFor, evaluateZone, movingAverage, aggregate, formatMetricValue
 } from '../core/metrics'
 import {
-  todayString, formatDay, addDays, daysInRange, formatDuration, weekdayIndex, weekdayShort,
-} from '../core/dates'
+  todayString, formatDay, addDays, formatDuration, weekdayIndex } from '../core/dates'
 import { formatNumber } from '../core/money'
 import { ErnaehrungsTag } from './Ernaehrung'
 import { MetricInput } from '../ui/metricInput'
 import { Icon, BEREICH_FARBE, type IconName } from '../ui/icons'
-import type { FoodEntry, Metric, MetricEntry, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
+import type { Metric, MetricTarget, WorkoutSession, BodyMeasurement } from '../core/types'
 import { SchlafView } from './tracking/SchlafView'
 import { DISZIPLINEN, DISZIPLIN_TURNEN } from '../core/turnen/einheiten'
 
@@ -739,7 +738,6 @@ const BODY_FIELDS: { key: keyof BodyMeasurement; label: string; unit: string }[]
 
 function BodyView() {
   const data = useData()
-  const m = useMutations()
   const [editing, setEditing] = useState<BodyMeasurement | 'new' | null>(null)
 
   const list = data.bodyMeasurements.filter((b) => !b.deleted_at)
@@ -872,7 +870,6 @@ function BodyEditor({ measurement, onClose }: { measurement: BodyMeasurement | n
 
 function TargetsView() {
   const data = useData()
-  const m = useMutations()
   const [editing, setEditing] = useState<Metric | null>(null)
   const today = todayString()
 

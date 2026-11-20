@@ -7,7 +7,6 @@
  * ist das hier bewusst nur eine Weiche und keine gemeinsame Zwischenschicht –
  * eine solche Schicht hätte alle sieben Reiter aneinandergebunden.
  */
-import React from 'react'
 import { Tabs } from '../ui/components'
 import { Overview } from './finance/Overview'
 import { TransactionsTab } from './finance/Transactions'

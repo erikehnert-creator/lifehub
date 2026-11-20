@@ -1,7 +1,5 @@
 import type { Goal } from '../core/types'
 import type { AppData } from '../state/store'
-import { dayValue } from '../core/metrics'
-import { todayString } from '../core/dates'
 import { toEuro } from '../core/money'
 
 /** Ist-Wert eines Ziels – je nach Zielart aus Konto, Metrik oder manuell. */

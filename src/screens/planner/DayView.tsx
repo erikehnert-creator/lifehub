@@ -1,7 +1,7 @@
 /**
  * PLAN · TAGESANSICHT – Tagesplan, freie Fenster, Aufgaben des Tages.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Empty } from '../../ui/components'
 import { Icon, BEREICH_FARBE } from '../../ui/icons'
 import { useData, useMutations } from '../../state/store'

@@ -127,11 +127,6 @@ export interface Messwert {
   abstandBest: number | null
 }
 
-const LEER: Messwert = {
-  wert: null, rang: null, gleich: null, anzahl: null, median: null, best: null,
-  position: null, abstandMedian: null, abstandBest: null,
-}
-
 function rund(n: number): number {
   return Math.round(n * 1000) / 1000
 }

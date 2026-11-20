@@ -10,7 +10,7 @@
  * oder eine Frist hat. Damit sagten zwei Bildschirme über denselben Tag
  * Verschiedenes – und man konnte nicht wissen, welcher recht hat.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card } from '../../ui/components'
 import { Icon } from '../../ui/icons'
 import { useData, useMutations } from '../../state/store'

@@ -35,11 +35,11 @@
  * Training ändert sich der Trainingsfokus, und der Rest der Woche muss sich
  * ändern dürfen.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Confirm, Field, Modal } from '../../ui/components'
-import { useData, useMutations } from '../../state/store'
+import { useMutations } from '../../state/store'
 import {
-  addDays, diffDays, formatDay, formatDuration, todayString, weekdayLong,
+  addDays, formatDay, formatDuration, todayString, weekdayLong
 } from '../../core/dates'
 import {
   INHALT_ART_LABEL, ROLLE_LABEL, UMFANG_LABEL,
@@ -79,7 +79,6 @@ export function WochenAnsicht({ bild, ziel, vorbereitung, onZuTraining }: {
   vorbereitung: VorbereitungsBild
   onZuTraining: () => void
 }) {
-  const data = useData()
   const m = useMutations()
   const heute = todayString()
 

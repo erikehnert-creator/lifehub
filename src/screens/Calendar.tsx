@@ -10,13 +10,13 @@
  * Tagesart (Frühschicht, Berufsschule, Urlaub) und die Aufgaben des Tages,
  * weil beides zum selben „was ist heute los" gehört.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Card, Modal, Field, Chips, Empty, Confirm, Tabs, Segment } from '../ui/components'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Card, Modal, Field, Chips, Empty, Confirm, Segment } from '../ui/components'
 import { useData, useMutations } from '../state/store'
 import {
   todayString, formatDay, formatMonth, monthOf, monthStart, monthEnd,
   startOfWeek, endOfWeek, daysInRange, addDays, addMonthsToYearMonth,
-  weekdayShort, weekdayLong, timeToMinutes, minutesToTime, diffDays, holidaysForState,
+  weekdayShort, timeToMinutes, minutesToTime, diffDays, holidaysForState
 } from '../core/dates'
 import { occurrences, buildRRule, describeRRule } from '../core/recurrence'
 import { dringlichkeit } from '../core/planner'

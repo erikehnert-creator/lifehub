@@ -20,8 +20,8 @@ import {
 } from '../../io/importer'
 import { seedDemoData } from '../../db/seed'
 import {
-  folderBackupSupported, folderState, chooseFolder, forgetFolder,
-  reconfirmPermission, writeBackup, lastBackupAt, type FolderState,
+  folderState, chooseFolder, forgetFolder,
+  reconfirmPermission, writeBackup, lastBackupAt, type FolderState
 } from '../../io/folderBackup'
 import { wipeDatabase, all, saveNow } from '../../db/sqlite'
 import { SYNCED_TABLES } from '../../db/schema'

@@ -1,7 +1,7 @@
 /**
  * FINANZEN · WIEDERKEHREND – Gehalt, Miete, Abos. Gebucht wird von selbst.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Empty, Confirm, MoneyInput } from '../../ui/components'
 import { AttachmentList } from '../../ui/attachments'
 import { useData, useMutations } from '../../state/store'

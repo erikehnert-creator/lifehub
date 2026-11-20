@@ -9,7 +9,7 @@
  * Zeit. Ob eine Nacht gut war, entscheidet der Zielbereich von `sleep_h`
  * (Tracking → Zielbereiche), nicht diese Seite.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Empty, Field, Modal, Chips } from '../../ui/components'
 import { Icon } from '../../ui/icons'
 import { BarChart, Meter, ChartFrame } from '../../charts'

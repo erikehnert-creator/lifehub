@@ -8,7 +8,7 @@
  *   - Navigationsanfragen fallen immer auf index.html zurück
  * Die Nutzdaten liegen NICHT hier, sondern in der lokalen SQLite-Datenbank.
  */
-const CACHE = 'lifehub-v5'
+const CACHE = 'lifehub-v6'
 const CORE = ['./', './index.html', './manifest.webmanifest', './sql-wasm.wasm', './sql-wasm-browser.wasm', './icon-192.png']
 
 /**
@@ -26,9 +26,32 @@ async function precache() {
     await cache.put('./index.html', new Response(html, { headers: { 'Content-Type': 'text/html' } }))
     const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map((m) => m[1])
     await Promise.all(assets.map((u) => cache.add(u).catch(() => undefined)))
+    await precacheNachladeteile(cache, assets)
   } catch {
     /* ohne Netz bleibt der vorhandene Cache bestehen */
   }
+}
+
+/**
+ * Turnen und Einstellungen liegen in eigenen Dateien, die erst beim Öffnen des
+ * Bereichs geladen werden. In der index.html stehen sie nicht - sie stecken als
+ * "./Name-Hash.js" im Hauptbündel. Ohne diesen Schritt ginge ein Bereich, den
+ * man noch nie geöffnet hat, offline nicht auf.
+ */
+async function precacheNachladeteile(cache, assets) {
+  const bundles = assets.filter((u) => u.endsWith('.js'))
+  await Promise.all(bundles.map(async (u) => {
+    try {
+      const basis = new URL(u, self.location.href)
+      const res = await cache.match(u)
+      if (!res) return
+      const text = await res.clone().text()
+      const namen = new Set([...text.matchAll(/"\.\/([A-Za-z0-9_.-]+\.js)"/g)].map((m) => m[1]))
+      await Promise.all([...namen].map((n) => cache.add(new URL(n, basis).href).catch(() => undefined)))
+    } catch {
+      /* Nachladeteile sind ein Zusatz - der Start hängt nicht davon ab */
+    }
+  }))
 }
 
 self.addEventListener('install', (event) => {

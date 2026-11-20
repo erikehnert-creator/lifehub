@@ -34,7 +34,7 @@
  * heisst er „Wettkampf planen" und fragt nicht nach den Geräten, an denen man
  * gestartet ist. Erzwungen wird nichts, und es entsteht kein Statusfeld.
  */
-import React, { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Card, Field, Modal, Empty, Confirm, Collapsible, StatusPill } from '../../ui/components'
 import { LineChart, ChartFrame } from '../../charts'
 import { useData, useMutations } from '../../state/store'

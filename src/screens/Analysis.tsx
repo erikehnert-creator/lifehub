@@ -5,22 +5,21 @@
  * Grundsatz: Ein statistischer Zusammenhang ist keine Ursache. Die Oberfläche
  * sagt das ausdrücklich, statt es dem Zufall zu überlassen.
  */
-import React, { useMemo, useState } from 'react'
-import { Card, Stat, Tabs, Segment, Empty, Collapsible, StatusPill } from '../ui/components'
+import { useMemo, useState } from 'react'
+import { Card, Stat, Tabs, Segment, Empty, Collapsible } from '../ui/components'
 import { LineChart, BarChart, YearHeatmap, RankBars, seriesColor } from '../charts'
 import { useData } from '../state/store'
 import {
-  monthTotals, monthTotalsErwartet, monthlySeries, netWorthSeries, totalsByCategory, accountBalances, formatSavingsRate,
-  expectedIncomeRest, forecastMonth, forecastStatus, ohneLeerenAnfang,
+  monthlySeries, netWorthSeries, ohneLeerenAnfang
 } from '../core/finance'
-import { dailySeries, correlation, correlationLabel, aggregate, groupSeries, formatMetricValue } from '../core/metrics'
-import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
+import { dailySeries, correlation, correlationLabel, groupSeries, formatMetricValue } from '../core/metrics'
+import { STATISTICAL_DISCLAIMER } from '../core/insights'
+import { erledigteAufgabenJeMonat, trainingseinheitenJeMonat } from '../core/monatszaehlung'
 import { ZeitversetzteZusammenhaenge } from './Zusammenhaenge'
 import { formatMoney, formatNumber, toEuro } from '../core/money'
 import {
-  todayString, monthOf, lastMonths, monthLabelShort, formatMonth, addDays,
-  monthStart, monthEnd, formatDay, daysInRange,
-} from '../core/dates'
+  todayString, monthOf, lastMonths, monthLabelShort, addDays,
+  formatDay } from '../core/dates'
 
 export function AnalysisScreen({ sub, navigate }: { sub: string; navigate: (r: string) => void }) {
   // Der Reiter "Hinweise" zeigte dieselben Karten wie Heute. Die Adresse bleibt
@@ -56,43 +55,18 @@ function OverviewTab() {
 
   const finance = useMemo(() => monthlySeries(data.transactions, list), [data.transactions, list])
   const worth = useMemo(() => netWorthSeries(data.accounts, data.transactions, list), [data.accounts, data.transactions, list])
-  // Erwartete, noch nicht gebuchte Einnahmen (z. B. Gehalt vor dem Zahltag) sind
-  // mitgerechnet – sonst widerspricht diese Kachel der Sparquote auf Heute/Finanzen.
-  const cur = useMemo(() => monthTotalsErwartet(data.transactions, data.recurring, monthOf(today), today), [data.transactions, data.recurring, today])
-
-  // Statt des schlichten „Sparbetrag bisher" (der Mitte des Monats zu optimistisch
-  // wirkt, weil er dem bisherigen Ausgeben die volle Monatseinnahme gegenüberstellt)
-  // zeigt die Kachel die Monatsprognose – dieselbe Hochrechnung wie auf Finanzen/Heute.
-  const offeneEinnahmen = useMemo(
-    () => expectedIncomeRest(data.transactions, data.recurring, monthOf(today), today),
-    [data.transactions, data.recurring, today],
-  )
-  const forecast = useMemo(
-    () => forecastMonth(data.transactions, monthOf(today), today, offeneEinnahmen.cents),
-    [data.transactions, today, offeneEinnahmen],
-  )
-  const ampel = useMemo(() => forecastStatus(forecast), [forecast])
-
   const metricCards = data.metrics.filter((m) => !m.deleted_at && m.is_enabled).slice(0, 6)
   const from = addDays(today, -(months * 30))
 
-  const tasksDone = useMemo(() => {
-    const out: { label: string; values: number[] }[] = []
-    for (const mth of list) {
-      const n = data.tasks.filter((t) => !t.deleted_at && t.completed_at && monthOf(t.completed_at.slice(0, 10)) === mth).length
-      out.push({ label: monthLabelShort(mth), values: [n] })
-    }
-    return out
-  }, [data.tasks, list])
+  const tasksDone = useMemo(
+    () => erledigteAufgabenJeMonat(data.tasks, list).map((z) => ({ label: monthLabelShort(z.monat), values: [z.anzahl] })),
+    [data.tasks, list],
+  )
 
-  const training = useMemo(() => {
-    const out: { label: string; values: number[] }[] = []
-    for (const mth of list) {
-      const n = data.workoutSessions.filter((s) => !s.deleted_at && s.status === 'completed' && monthOf(s.day) === mth).length
-      out.push({ label: monthLabelShort(mth), values: [n] })
-    }
-    return out
-  }, [data.workoutSessions, list])
+  const training = useMemo(
+    () => trainingseinheitenJeMonat(data.workoutSessions, list).map((z) => ({ label: monthLabelShort(z.monat), values: [z.anzahl] })),
+    [data.workoutSessions, list],
+  )
 
   // Kennzahlen über den gewählten Zeitraum und über alle Bereiche. Vorher
   // standen hier vier Finanzkacheln des laufenden Monats - dieselben Zahlen wie
@@ -429,40 +403,3 @@ function normalise(v: number | null, all: (number | null)[]): number | null {
   return ((v - min) / (max - min)) * 100
 }
 
-/* ---------------------------------------------------------------- Hinweise */
-
-function InsightsTab() {
-  const data = useData()
-  const today = todayString()
-  const insights = useMemo(() => generateInsights({
-    transactions: data.transactions, categories: data.categories, accounts: data.accounts,
-    budgets: data.budgets, recurring: data.recurring, tasks: data.tasks, metrics: data.metrics,
-    metricEntries: data.metricEntries, metricTargets: data.metricTargets, today,
-  }), [data, today])
-
-  if (!insights.length) {
-    return <Empty icon="💡" title="Keine Auffälligkeiten"
-      hint="Sobald genug Daten vorliegen, erscheinen hier Hinweise – jeder mit nachvollziehbarem Rechenweg." />
-  }
-
-  return (
-    <div className="grid grid-2">
-      {insights.map((i, idx) => (
-        <Card key={idx} title={i.title}
-          sub={<span className={`pill ${i.severity === 'warning' ? 'crit' : i.severity === 'attention' ? 'warn' : ''}`}>
-            {i.severity === 'warning' ? 'wichtig' : i.severity === 'attention' ? 'beachten' : 'Info'}
-          </span>}>
-          <div>{i.body}</div>
-          {i.isStatistical && <div className="hint-box mt12">{STATISTICAL_DISCLAIMER}</div>}
-          <div className="mt12">
-            <Collapsible label="Wie kommt das zustande?">
-              <pre className="small mono" style={{ whiteSpace: 'pre-wrap', margin: 0, color: 'var(--text-2)' }}>
-                {JSON.stringify(i.evidence, null, 2)}
-              </pre>
-            </Collapsible>
-          </div>
-        </Card>
-      ))}
-    </div>
-  )
-}

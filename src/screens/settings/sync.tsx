@@ -5,8 +5,8 @@
  * doppelt angelegter Zeilen. Ausgelagert aus Settings.tsx: Das ist der
  * Bereich mit der meisten eigenen Logik und den meisten Zustaenden.
  */
-import React, { useMemo, useState } from 'react'
-import { Card, Modal, Field, Chips, Empty, Confirm, Collapsible } from '../../ui/components'
+import { useMemo, useState } from 'react'
+import { Card, Field, Confirm, Collapsible } from '../../ui/components'
 import { useApp, useData, useMutations } from '../../state/store'
 import { all, getDb, saveNow } from '../../db/sqlite'
 import { formatMoney } from '../../core/money'

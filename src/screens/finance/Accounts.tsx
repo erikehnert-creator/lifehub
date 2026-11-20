@@ -1,7 +1,7 @@
 /**
  * FINANZEN · KONTEN – Liste, ein Konto von innen, Editor, Kassensturz.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Empty, Confirm, MoneyInput } from '../../ui/components'
 import { BarChart, LineChart, ChartFrame } from '../../charts'
 import { useData, useMutations } from '../../state/store'

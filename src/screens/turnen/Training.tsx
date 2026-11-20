@@ -39,13 +39,13 @@ import { geraeteDerEinheit, geraeteJeEinheit } from '../../core/turnen/elemente'
 import { wettkampfKuerJeGeraet } from '../../core/turnen/kueren'
 import { fassungsInhalt, planeFassung } from '../../core/turnen/fassungen'
 import {
-  QUALITAET_LABEL, durchgangText, eingabeAus as durchgangAus, leereEingabe,
+  QUALITAET_LABEL, eingabeAus as durchgangAus, leereEingabe,
   planeDurchgaenge, planIstLeer as durchgangsPlanIstLeer,
-  type DurchgangsEingabe, type DurchgangsStand,
+  type DurchgangsEingabe, type DurchgangsStand
 } from '../../core/turnen/kuerdurchgaenge'
 import { nowIso } from '../../core/dates'
 import type {
-  GymAttempt, GymElement, GymRoutine, GymRoutineRun, WorkoutSession,
+  GymAttempt, GymElement, GymRoutine, WorkoutSession
 } from '../../core/types'
 
 export function TrainingView({ onZuElementen, oeffneEinheit, onGeoeffnet }: {

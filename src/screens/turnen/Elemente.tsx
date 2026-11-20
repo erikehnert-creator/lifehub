@@ -9,7 +9,7 @@
  * automatisch überschriebener Status wäre eine Behauptung über etwas, das der
  * Turner besser weiss als jede Trefferquote.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Field, Modal, Chips, Empty, Confirm, StatusPill } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import { formatDay, todayString, diffDays } from '../../core/dates'

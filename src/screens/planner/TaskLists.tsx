@@ -1,7 +1,7 @@
 /**
  * PLAN · AUFGABEN – Inbox und die vollständige Liste, nach Lage gruppiert.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Empty } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import { todayString, addDays } from '../../core/dates'

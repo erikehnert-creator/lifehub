@@ -27,7 +27,7 @@
  * Elementgruppenanforderungen, die Zehn-Elemente-Regel, das Streichergebnis
  * und der Abgangsbonus fliessen nicht ein (TURNEN_ARCHITEKTUR.md, 4.2).
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Field, Modal, Empty, Confirm, StatusPill } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import { todayString, diffDays, nowIso } from '../../core/dates'

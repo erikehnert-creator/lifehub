@@ -18,7 +18,7 @@
  * kann daraus keinen Zugang herstellen. Deshalb gibt es auch kein „Token
  * noch einmal anzeigen": Es ist wirklich weg.
  */
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Card, Field, Modal, Confirm, Empty } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import { formatDay } from '../../core/dates'

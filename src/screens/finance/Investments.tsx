@@ -1,7 +1,7 @@
 /**
  * FINANZEN · INVESTMENTS – manuell erfasst, bewusst ohne Kursdaten.
  */
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Card, Stat, Modal, Field, Chips, Empty, Confirm, StatusPill, MoneyInput } from '../../ui/components'
 import { useData, useMutations } from '../../state/store'
 import {

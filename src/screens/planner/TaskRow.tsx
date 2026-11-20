@@ -1,7 +1,6 @@
 /**
  * Eine Aufgabenzeile – an mehreren Stellen dieselbe, deshalb hier allein.
  */
-import React from 'react'
 import { Icon } from '../../ui/icons'
 import { formatDay, formatDuration, relativeDay } from '../../core/dates'
 import { taskArt, dringlichkeit } from '../../core/planner'
