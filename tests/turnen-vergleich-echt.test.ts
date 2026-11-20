@@ -43,9 +43,13 @@ import type { GymCompetition, GymResult } from '../src/core/types'
 const PDF = process.env.LIFEHUB_PROTOKOLL
   ?? path.join(os.homedir(), 'Downloads', 'Sachsenmeisterschaft 2026 Einzel.pdf')
 
+// Als Variable, damit tsc das Modul nicht aufloesen will: unpdf ist absichtlich
+// nicht in package.json, und ohne die Bibliothek scheiterte sonst `tsc` im CI.
+const UNPDF = 'unpdf'
+
 let unpdfDa = false
 try {
-  await import('unpdf')
+  await import(/* @vite-ignore */ UNPDF)
   unpdfDa = true
 } catch {
   unpdfDa = false
@@ -65,7 +69,9 @@ describe.runIf(laeuft)('Konkurrenzvergleich gegen das echte Protokoll', () => {
   let vergleich: ReturnType<typeof vergleichFuer>
 
   beforeAll(async () => {
-    const { getDocumentProxy } = await import('unpdf')
+    const { getDocumentProxy } = (await import(/* @vite-ignore */ UNPDF)) as {
+      getDocumentProxy: (d: Uint8Array) => Promise<any>
+    }
     const pdf = await getDocumentProxy(new Uint8Array(readFileSync(PDF)))
     const seiten: TextStueck[][] = []
     for (let s = 1; s <= pdf.numPages; s++) {
