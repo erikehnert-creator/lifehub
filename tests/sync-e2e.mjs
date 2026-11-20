@@ -66,8 +66,8 @@ async function legeKontoAn(g, name) {
  * Einen Termin anlegen – damit `calendar_events` etwas zu senden hat.
  *
  * Über die Schnelleingabe, weil der Knopf dort auf jeder Seite erreichbar ist.
- * Der Knopf am Ende heisst „Termin erstellen", nicht „Speichern" – beim
- * Bearbeiten hiesse er anders.
+ * Neu anlegen und Bearbeiten teilen sich dasselbe Formular, der Knopf am
+ * Ende heisst in beiden Fällen „Speichern".
  */
 async function legeTerminAn(g, titel) {
   await geh(g, '/heute')
@@ -76,7 +76,7 @@ async function legeTerminAn(g, titel) {
   await g.page.locator('.modal button', { hasText: 'Termin' }).first().click()
   await g.page.waitForTimeout(600)
   await g.page.locator('.modal input').first().fill(titel)
-  await g.page.locator('.modal button', { hasText: 'Termin erstellen' }).first().click()
+  await g.page.locator('.modal button', { hasText: 'Speichern' }).first().click()
   await g.page.waitForTimeout(1200)
 }
 

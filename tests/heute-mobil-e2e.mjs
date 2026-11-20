@@ -64,7 +64,7 @@ async function main() {
     // „Ort" ist das letzte Textfeld des Formulars – Datum und Uhrzeiten haben
     // eigene Eingabearten und fallen deshalb heraus.
     await page.locator('.modal input.input:not([type=date]):not([type=time])').last().fill(ort)
-    await page.locator('.modal button:has-text("Termin erstellen")').first().click()
+    await page.locator('.modal button:has-text("Speichern")').first().click()
     await page.waitForTimeout(900)
   }
 

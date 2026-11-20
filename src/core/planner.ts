@@ -2,6 +2,7 @@
  * Tagesplanung: Kapazität, Zeitblöcke, Auswahl der heutigen Aufgaben.
  */
 import type { Task, TimeBlock, DayType, DayAssignment, CalendarEvent } from './types'
+import { termineAmTag } from './termine'
 import {
   type DayString, timeToMinutes, minutesToTime, todayString, addDays, startOfWeek,
   diffDays,
@@ -55,8 +56,12 @@ export function computeCapacity(
   }
 
   let eventMinutes = 0
-  for (const e of events) {
-    if (e.deleted_at || e.day !== day || e.all_day) continue
+  // Auch wöchentliche Wiederholungen zählen; ein mehrtägiger Termin mit Uhrzeit
+  // nur an seinem ersten Tag (wie bisher), sonst würde er jeden Tag belegen.
+  for (const v of termineAmTag(events, day)) {
+    const e = v.event
+    if (e.all_day) continue
+    if (v.teil && v.teil.nr > 1) continue
     if (e.start_time && e.end_time) {
       eventMinutes += Math.max(0, timeToMinutes(e.end_time) - timeToMinutes(e.start_time))
     }

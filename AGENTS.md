@@ -35,7 +35,7 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 2.115 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 2.149 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
 Auf Eriks Rechner sind es **2.134**: `tests/turnen-vergleich-echt.test.ts` rechnet
@@ -1023,3 +1023,10 @@ Vier Regeln in `src/sync/engine.ts`, die zusammengehoeren (Tests: `tests/sync-si
    Cursor und uebergeht Zeilen mit gleicher `server_rev` ohne Schreibzugriff.
 
 `change_log` ist lokal-only: Migration 19 braucht KEINE Servermigration.
+
+## Termine, Dialoge, Nachladen: drei Regeln, die Fehler verhindern
+
+- **Termine eines Tages immer über `termineAmTag` / `vorkommenIn` (`src/core/termine.ts`).** Wer `e.day === tag` prueft, uebersieht woechentliche Wiederholungen und mehrtaegige Termine – genau das fehlte frueher auf Heute, im Planer und in der Tageskapazitaet. Der Kalender und `computeCapacity` nutzen dieselbe Rechnung. Ein mehrtaegiger Termin mit Uhrzeit belegt Zeit nur an seinem ersten Tag.
+- **Dialoge nur ueber `Modal` (`src/ui/components.tsx`).** Es gibt dem Dialog einen Namen (`aria-labelledby`), setzt den Fokus hinein, haelt Tab im Fenster, schliesst mit Escape und gibt den Fokus an den Ausloeser zurueck. Eigene `overlay`-Konstruktionen (wie frueher das Mehr-Menue) haben all das nicht. Die Schliessen-Funktion darf bei jedem Zeichnen neu sein – `Modal` haengt seinen Effekt nur an `open`, sonst risse es dem Nutzer beim Tippen den Fokus aus dem Feld.
+- **Termine werden mit demselben Formular angelegt und bearbeitet (`TerminEditor`).** Die Schnelleingabe zeigt beim Typ „Termin" diesen Editor; ein zweites, kleineres Formular gibt es nicht mehr. Aufgaben haben noch zwei Formulare (`TaskForm` zum schnellen Anlegen, `TaskEditor` zum Bearbeiten) – wer eines aendert, prueft das andere mit.
+- **Turnen und Einstellungen werden nachgeladen (`React.lazy` in `App.tsx`, Huelle `BereichLaden`).** Der Service Worker legt die Nachladeteile beim Installieren mit ab (`precacheNachladeteile`); wer einen weiteren Bereich nachlaedt, braucht dafuer nichts zu tun, wer `public/sw.js` aendert, hebt `CACHE` an und startet `tests/lazy-offline-e2e.mjs`.

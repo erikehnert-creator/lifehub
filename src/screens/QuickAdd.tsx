@@ -12,6 +12,7 @@ import { defaultShowFrom } from '../core/planner'
 import { topMerchants, angezeigtesKonto, buchungProblem } from '../core/finance'
 import type { Transaction, TransactionType } from '../core/types'
 import { prepareFile, formatBytes } from '../io/files'
+import { TerminEditor } from './Calendar'
 
 type Kind = 'transaction' | 'task' | 'event' | 'metric' | 'note'
 
@@ -31,8 +32,24 @@ export function QuickAdd({ open, onClose, initialKind }: {
 
   const title = kind ? KINDS.find((k) => k.kind === kind)!.label : 'Was möchtest du erfassen?'
 
+  // Auswahl und Formular sind zwei Dialoge nacheinander; der zweite kennt den
+  // ursprünglichen Auslöser (den Plus-Knopf) nicht mehr. Deshalb merkt sich
+  // die Schnelleingabe ihn selbst und gibt ihm den Fokus zurück.
+  const ausloeser = React.useRef<HTMLElement | null>(null)
+  if (open && ausloeser.current === null) ausloeser.current = document.activeElement as HTMLElement | null
+  if (!open) ausloeser.current = null
+  const schliessen = () => {
+    const a = ausloeser.current
+    onClose()
+    setTimeout(() => { if (a && a !== document.body && document.contains(a)) a.focus() }, 0)
+  }
+
+  // Ein Termin wird mit demselben Formular angelegt wie bearbeitet: Wiederholung,
+  // Erinnerung, Farbe und mehrere Tage gab es vorher nur beim Bearbeiten.
+  if (open && kind === 'event') return <TerminEditor event={null} onClose={schliessen} />
+
   return (
-    <Modal open={open} title={title} onClose={onClose}>
+    <Modal open={open} title={title} onClose={schliessen}>
       {!kind && (
         <div className="grid grid-2 keep2" style={{ gap: 10 }}>
           {KINDS.map((k) => (
@@ -43,11 +60,10 @@ export function QuickAdd({ open, onClose, initialKind }: {
           ))}
         </div>
       )}
-      {kind === 'transaction' && <TransactionForm onDone={onClose} />}
-      {kind === 'task' && <TaskForm onDone={onClose} />}
-      {kind === 'event' && <EventForm onDone={onClose} />}
-      {kind === 'metric' && <MetricForm onDone={onClose} />}
-      {kind === 'note' && <NoteForm onDone={onClose} />}
+      {kind === 'transaction' && <TransactionForm onDone={schliessen} />}
+      {kind === 'task' && <TaskForm onDone={schliessen} />}
+      {kind === 'metric' && <MetricForm onDone={schliessen} />}
+      {kind === 'note' && <NoteForm onDone={schliessen} />}
     </Modal>
   )
 }
@@ -367,55 +383,6 @@ export function TaskForm({ onDone, initial }: { onDone: () => void; initial?: an
       </Field>
       <button className="btn btn-primary btn-lg" style={{ width: '100%' }} disabled={!title.trim()} onClick={submit}>
         {initial ? 'Speichern' : 'Aufgabe erstellen'}
-      </button>
-    </div>
-  )
-}
-
-export function EventForm({ onDone, initial, defaultDay }: { onDone: () => void; initial?: any; defaultDay?: string }) {
-  const m = useMutations()
-  const [title, setTitle] = useState(initial?.title ?? '')
-  const [day, setDay] = useState(initial?.day ?? defaultDay ?? todayString())
-  const [start, setStart] = useState(initial?.start_time ?? '')
-  const [end, setEnd] = useState(initial?.end_time ?? '')
-  const [allDay, setAllDay] = useState(!!initial?.all_day)
-  const [location, setLocation] = useState(initial?.location ?? '')
-
-  const submit = () => {
-    if (!title.trim()) return
-    const payload = {
-      title: title.trim(), description: null, location: location || null,
-      day, start_time: allDay ? null : (start || null), end_time: allDay ? null : (end || null),
-      all_day: allDay ? 1 : 0, timezone: 'Europe/Berlin', rrule: null, exdates: null,
-      color: null, source: 'local', external_uid: null,
-    }
-    if (initial) m.patch('calendar_events', initial.id, payload, 'Termin geändert')
-    else m.create('calendar_events', payload, 'Termin erstellt')
-    onDone()
-  }
-
-  return (
-    <div>
-      <Field label="Titel">
-        <input className="input" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
-      </Field>
-      <Field label="Datum">
-        <input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} />
-      </Field>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, marginBottom: 12 }}>
-        <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} /> Ganztägig
-      </label>
-      {!allDay && (
-        <div className="row">
-          <Field label="Von"><input className="input" type="time" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
-          <Field label="Bis"><input className="input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
-        </div>
-      )}
-      <Field label="Ort">
-        <input className="input" value={location} onChange={(e) => setLocation(e.target.value)} />
-      </Field>
-      <button className="btn btn-primary btn-lg" style={{ width: '100%' }} disabled={!title.trim()} onClick={submit}>
-        {initial ? 'Speichern' : 'Termin erstellen'}
       </button>
     </div>
   )

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { registerInput } from '../core/money'
 import { parseDuration, durationToInput, formatDuration, liveDurationPreview } from '../core/dates'
 import { Icon, type IconName } from './icons'
@@ -48,10 +48,24 @@ export function Stat({ label, value, delta, deltaKind = 'neutral', small, sub }:
 
 const MODAL_STACK: object[] = []
 
+const FOKUSSIERBAR =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Modal({ open, title, onClose, children, footer, wide }: {
   open: boolean; title: React.ReactNode; onClose: () => void
   children: React.ReactNode; footer?: React.ReactNode; wide?: boolean
 }) {
+  const titelId = useId()
+  const fensterRef = useRef<HTMLDivElement>(null)
+  // Die Schließen-Funktion wechselt bei fast jedem Aufruf (Pfeilfunktion im
+  // Aufrufer). Würde der Effekt davon abhängen, risse er bei jedem Tastendruck
+  // den Fokus aus dem Feld und gäbe ihn an den Auslöser zurück.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  // Wer den Dialog geöffnet hat, merken wir uns beim ersten Zeichnen – später
+  // hat ein Feld mit autoFocus den Fokus längst an sich gezogen.
+  const ausloeserRef = useRef<HTMLElement | null>(null)
+  if (open && ausloeserRef.current === null) ausloeserRef.current = document.activeElement as HTMLElement | null
   // Escape schließt immer nur das oberste Fenster. Ohne diesen Stapel würde ein
   // Dialog im Dialog (z. B. Belegvorschau über dem Buchungseditor) beide
   // gleichzeitig schließen.
@@ -59,27 +73,55 @@ export function Modal({ open, title, onClose, children, footer, wide }: {
     if (!open) return
     const token = {}
     MODAL_STACK.push(token)
+    const oberstes = () => MODAL_STACK[MODAL_STACK.length - 1] === token
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      if (MODAL_STACK[MODAL_STACK.length - 1] !== token) return
-      e.stopPropagation()
-      onClose()
+      if (!oberstes()) return
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onCloseRef.current()
+        return
+      }
+      // Tab bleibt im Fenster: Wer mit der Tastatur arbeitet, landet sonst
+      // hinter dem Dialog in einer Seite, die er nicht sieht.
+      if (e.key === 'Tab') {
+        const fenster = fensterRef.current
+        if (!fenster) return
+        const ziele = Array.from(fenster.querySelectorAll<HTMLElement>(FOKUSSIERBAR))
+          .filter((el) => el.offsetParent !== null || el === document.activeElement)
+        if (ziele.length === 0) { e.preventDefault(); fenster.focus(); return }
+        const erstes = ziele[0], letztes = ziele[ziele.length - 1]
+        const aktiv = document.activeElement
+        if (e.shiftKey && (aktiv === erstes || !fenster.contains(aktiv))) { e.preventDefault(); letztes.focus() }
+        else if (!e.shiftKey && (aktiv === letztes || !fenster.contains(aktiv))) { e.preventDefault(); erstes.focus() }
+      }
     }
     window.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
+
+    // Fokus ins Fenster – außer ein Feld mit autoFocus hat ihn schon. Beim
+    // Schließen geht er dorthin zurück, wo er war.
+    const fenster = fensterRef.current
+    if (fenster && !fenster.contains(document.activeElement)) {
+      const erstes = fenster.querySelector<HTMLElement>('.modal-body ' + FOKUSSIERBAR.split(', ').join(', .modal-body '))
+      ;(erstes ?? fenster).focus()
+    }
     return () => {
       window.removeEventListener('keydown', onKey)
       const i = MODAL_STACK.indexOf(token)
       if (i >= 0) MODAL_STACK.splice(i, 1)
       if (MODAL_STACK.length === 0) document.body.style.overflow = ''
+      const vorher = ausloeserRef.current
+      ausloeserRef.current = null
+      if (vorher && vorher !== document.body && document.contains(vorher)) vorher.focus()
     }
-  }, [open, onClose])
+  }, [open])
   if (!open) return null
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className={`modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true">
+      <div ref={fensterRef} className={`modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true"
+        aria-labelledby={titelId} tabIndex={-1}>
         <div className="modal-head">
-          <h2 className="modal-title">{title}</h2>
+          <h2 className="modal-title" id={titelId}>{title}</h2>
           <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ marginLeft: 'auto' }} aria-label="Schließen">✕</button>
         </div>
         <div className="modal-body">{children}</div>

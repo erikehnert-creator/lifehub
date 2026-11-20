@@ -19,6 +19,7 @@ import {
   weekdayShort, isoWeekNumber, daysInRange,
 } from '../../core/dates'
 import { tasksForDay, toggleTaskPatch } from '../../core/planner'
+import { termineAmTag } from '../../core/termine'
 import type { Task } from '../../core/types'
 import { TaskEditor } from './TaskEditor'
 
@@ -55,7 +56,7 @@ export function WeekView() {
           const assignment = data.dayAssignments.find((a) => !a.deleted_at && a.day === d)
           const dt = assignment ? data.dayTypes.find((t) => t.id === assignment.day_type_id) : null
           const tasks = jeTag.get(d) ?? []
-          const events = data.events.filter((e) => !e.deleted_at && e.day === d)
+          const events = termineAmTag(data.events, d).map((v) => v.event)
           const isToday = d === heute
           const holiday = data.holidays.find((h: any) => !h.deleted_at && h.day === d)
           const load = tasks.filter((t) => t.status !== 'done').reduce((s, t) => s + (t.duration_minutes ?? 0), 0)

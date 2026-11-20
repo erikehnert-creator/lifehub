@@ -39,6 +39,7 @@ import { generateInsights, STATISTICAL_DISCLAIMER } from '../core/insights'
 import { goalProgress } from '../core/goals'
 import { currentValueForGoal } from './goalHelpers'
 import { nextOccurrence } from '../core/recurrence'
+import { termineAmTag } from '../core/termine'
 import { TaskEditor } from './Planner'
 import { TerminEditor } from './Calendar'
 import { TaskDetail, TerminDetail } from '../ui/detailSheet'
@@ -115,11 +116,9 @@ export function TodayScreen({ navigate, openQuickAdd }: { navigate: (r: string) 
 
   const todayTasks = useMemo(() => tasksForDay(data.tasks, today), [data.tasks, today])
   const openTasks = todayTasks.filter((t) => t.status !== 'done')
-  const todayEvents = useMemo(() => data.events.filter((e) => !e.deleted_at && e.day === today), [data.events, today])
-  const todayEventsSorted = useMemo(
-    () => [...todayEvents].sort((a, b) => (a.start_time ?? '99:99').localeCompare(b.start_time ?? '99:99')),
-    [todayEvents],
-  )
+  // Wiederholungen und mehrtägige Termine zählen mit – dieselbe Rechnung wie im Kalender.
+  const todayEvents = useMemo(() => termineAmTag(data.events, today).map((v) => v.event), [data.events, today])
+  const todayEventsSorted = todayEvents
 
   const financeChecklist = useMemo(() => generateFinanceDayChecklist({
     accounts: data.accounts.filter((a) => !a.deleted_at && a.is_active),

@@ -15,6 +15,7 @@ import { SearchScreen } from './screens/Search'
 import { ShoppingScreen } from './screens/Shopping'
 import { QuickAdd } from './screens/QuickAdd'
 import { BereichLaden } from './ui/BereichLaden'
+import { Modal } from './ui/components'
 import { todayString, formatDay } from './core/dates'
 import { runSync, type SyncZustand } from './sync/engine'
 import { getStorageMode, saveNow } from './db/sqlite'
@@ -558,36 +559,31 @@ function Shell() {
 
       <button className="fab" onClick={() => openQuickAdd()} aria-label="Neu erfassen"><Icon name="plus" size={26} /></button>
 
-      <nav className="mobile-nav">
+      <nav className="mobile-nav" aria-label="Hauptnavigation">
         {NAV.map((n) => (
-          <button key={n.area} className={aktiv === n.area ? 'active' : ''} onClick={() => navigate(n.route)}>
+          <button key={n.area} className={aktiv === n.area ? 'active' : ''}
+            aria-current={aktiv === n.area ? 'page' : undefined} onClick={() => navigate(n.route)}>
             <span className="ico"><Icon name={n.icon} size={21} /></span>{n.label}
           </button>
         ))}
-        <button className={NAV_MORE.some((n) => n.area === aktiv) ? 'active' : ''} onClick={() => setMoreOpen(true)}>
+        <button className={NAV_MORE.some((n) => n.area === aktiv) ? 'active' : ''}
+          aria-haspopup="dialog" onClick={() => setMoreOpen(true)}>
           <span className="ico"><Icon name="mehr" size={21} /></span>Mehr
         </button>
       </nav>
 
-      {moreOpen && (
-        <div className="overlay" onClick={() => setMoreOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><div className="modal-title">Mehr</div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setMoreOpen(false)}>Schließen</button></div>
-            <div className="modal-body">
-              <div className="list mehr-liste">
-                {NAV_MORE.map((n) => (
-                  <button key={n.area} className={`list-row${aktiv === n.area ? ' aktiv' : ''}`} onClick={() => navigate(n.route)}>
-                    <NavSymbol n={n} groesse={20} />
-                    <span className="list-main"><span className="list-title">{n.label}</span></span>
-                    <span className="muted"><Icon name="pfeil-rechts" size={16} /></span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+      <Modal open={moreOpen} title="Mehr" onClose={() => setMoreOpen(false)}>
+        <div className="list mehr-liste">
+          {NAV_MORE.map((n) => (
+            <button key={n.area} className={`list-row${aktiv === n.area ? ' aktiv' : ''}`}
+              aria-current={aktiv === n.area ? 'page' : undefined} onClick={() => navigate(n.route)}>
+              <NavSymbol n={n} groesse={20} />
+              <span className="list-main"><span className="list-title">{n.label}</span></span>
+              <span className="muted"><Icon name="pfeil-rechts" size={16} /></span>
+            </button>
+          ))}
         </div>
-      )}
+      </Modal>
 
       <QuickAdd open={quickOpen} onClose={() => setQuickOpen(false)} initialKind={quickKind} />
 

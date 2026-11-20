@@ -13,6 +13,7 @@ import {
 import type { Task, CalendarEvent, DayType } from '../../core/types'
 import { TaskRow } from './TaskRow'
 import { TaskEditor, EventEditor } from './TaskEditor'
+import { termineAmTag } from '../../core/termine'
 
 export function DayView({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }) {
   const data = useData()
@@ -24,7 +25,7 @@ export function DayView({ openQuickAdd }: { openQuickAdd: (kind?: any) => void }
   const assignment = data.dayAssignments.find((a) => !a.deleted_at && a.day === day) ?? null
   const dayType = assignment ? data.dayTypes.find((t) => t.id === assignment.day_type_id) ?? null : null
   const tasks = useMemo(() => tasksForDay(data.tasks, day), [data.tasks, day])
-  const events = data.events.filter((e) => !e.deleted_at && e.day === day)
+  const events = useMemo(() => termineAmTag(data.events, day).map((v) => v.event), [data.events, day])
   const blocks = data.timeBlocks.filter((b) => !b.deleted_at && b.day === day)
   const capacity = useMemo(
     () => computeCapacity(day, assignment, dayType, data.timeBlocks, data.tasks, data.events, data.settings.sleep_hours ?? 8),
