@@ -457,7 +457,7 @@ function Shell() {
       case 'finanzen': return <FinanceScreen sub={route.sub} params={route.params} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'plan': return <PlannerScreen sub={route.sub} navigate={navigate} openQuickAdd={openQuickAdd} />
       case 'tracking': return <TrackingScreen sub={route.sub} navigate={navigate} />
-      case 'turnen': return <TurnenScreen sub={route.sub} navigate={navigate} />
+      case 'turnen': return <TurnenScreen sub={route.sub} params={route.params} navigate={navigate} />
       case 'einkauf': return <ShoppingScreen />
       case 'ziele': return <GoalsScreen />
       case 'analysen': return <AnalysisScreen sub={route.sub} navigate={navigate} />

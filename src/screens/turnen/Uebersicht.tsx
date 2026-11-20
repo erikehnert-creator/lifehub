@@ -33,6 +33,15 @@
  * Einstieg statt hinter ihm. Erfunden wird dabei nichts – kein Element, keine
  * Kür, keine Gerätekarte; die Karte sagt, dass Turndaten fehlen.
  *
+ * ---------------------------------------------------------------------------
+ * Seit Phase 3E steht Heute über dem Vorschlag
+ *
+ * **Heute** (`HeuteTraining.tsx`) nennt den heutigen Turntermin mit den
+ * Inhalten, die Phase 3B ihm zugeordnet hat, dazu Tagesart, Kapazität und die
+ * Nacht auf heute. Steht heute Training an, ist dieser Block primär und
+ * „Nächstes Training" entfällt – es wäre derselbe Plan ein zweites Mal.
+ * An allen anderen Tagen bleibt Heute eine schlanke Zeile.
+ *
  * Eine Bildschirmhöhe, nicht mehr: Vorschlag, Gerätekacheln, was zu lange her
  * ist, was unsicher steht. Alles Weitere steht in den anderen Reitern.
  */
@@ -49,12 +58,15 @@ import {
 import { versucheGesamt } from '../../core/turnen/versuche'
 import { absolvierteTurneinheiten } from '../../core/turnen/einheiten'
 import { NaechstesTraining } from './NaechstesTraining'
+import { HeuteTraining } from './HeuteTraining'
+import { WochenAnsicht } from './Wochenplan'
 import { WettkampfZielKarte } from './Wettkampfziel'
 import { useTurnenBild } from './bild'
 
 export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }: {
   onZuElementen: () => void
-  onZuTraining: () => void
+  /** Mit Session-ID öffnet die Erfassung genau diese vorhandene Einheit. */
+  onZuTraining: (sessionId?: string) => void
   onZuWettkaempfen: () => void
 }) {
   const data = useData()
@@ -64,7 +76,17 @@ export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }
    * Phase 3A, 3B und 3C rechnen auf denselben Zwischenergebnissen – deshalb
    * **ein** Aufruf hier und nicht einer je Block (siehe `bild.ts`).
    */
-  const { plan, ziel, vorbereitung, anpassungen } = useTurnenBild()
+  const { plan, woche, tag, ziel, vorbereitung, anpassungen } = useTurnenBild()
+
+  /**
+   * Trägt der Heute-Block den Vorschlag, oder „Nächstes Training"?
+   *
+   * Steht heute ein Termin offen – oder ist heute Wettkampf –, ist Heute die
+   * konkrete Durchführung und damit primär; „Nächstes Training" zeigte
+   * daneben denselben Plan ein zweites Mal. An allen anderen Tagen ist es
+   * umgekehrt: Heute bleibt eine schlanke Zeile, der Vorschlag kommt aus 3A.
+   */
+  const heuteFuehrt = tag.status === 'geplant' || tag.status === 'wettkampftag'
 
   /**
    * Die absolvierten Einheiten – ausdrücklich ohne die geplanten und ohne die,
@@ -178,8 +200,22 @@ export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }
       <WettkampfZielKarte ziel={ziel} vorbereitung={vorbereitung}
         onZuWettkaempfen={onZuWettkaempfen} />
 
-      <NaechstesTraining bild={plan} ziel={ziel} vorbereitung={vorbereitung}
-        anpassungen={anpassungen} onZuTraining={onZuTraining} />
+      {/* Heute steht über dem Vorschlag: Was heute ansteht, ist konkreter als
+          was sich allgemein lohnt. Genau einer von beiden traegt den
+          Umschalter auf die Wochenansicht - sonst stuende er zweimal da. */}
+      <HeuteTraining tag={tag} woche={woche} ziel={ziel} vorbereitung={vorbereitung}
+        kompakt={!heuteFuehrt}
+        wochenAnsicht={heuteFuehrt
+          ? <WochenAnsicht bild={woche} ziel={ziel} vorbereitung={vorbereitung}
+              onZuTraining={onZuTraining} />
+          : undefined}
+        onZuTraining={onZuTraining} />
+
+      {!heuteFuehrt && (
+        <NaechstesTraining bild={plan} woche={woche} ziel={ziel}
+          vorbereitung={vorbereitung} anpassungen={anpassungen}
+          onZuTraining={onZuTraining} />
+      )}
 
       {/* Die Geräte sind die Achse von allem – deshalb stehen sie oben und
           nicht als eigener Reiter (siehe TURNEN_ARCHITEKTUR.md, 7.2). */}
@@ -256,7 +292,8 @@ export function UebersichtView({ onZuElementen, onZuTraining, onZuWettkaempfen }
           )}
         </ChartFrame>
         <div className="row mt8">
-          <button className="btn btn-sm btn-primary" onClick={onZuTraining}>Training erfassen</button>
+          <button className="btn btn-sm btn-primary"
+            onClick={() => onZuTraining()}>Training erfassen</button>
         </div>
       </Card>
     </>

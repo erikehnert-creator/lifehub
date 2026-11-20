@@ -43,6 +43,11 @@
  * leere Wochenansicht sagt dann, dass nichts geplant ist – und bietet den
  * Knopf dafür an.
  *
+ * Seit Phase 3E steht dieser Block **nur an Tagen ohne offenen Turntermin**
+ * da: Steht heute Training an, nennt die Karte „Heute" den konkreten Termin,
+ * und derselbe Plan ein zweites Mal darunter wäre eine Doppelung. Der
+ * Wettkampftag gehört aus demselben Grund jetzt dorthin.
+ *
  * Gerechnet wird der Phase-3A-Plan **einmal** und an beide Ansichten
  * weitergegeben; zwei Rechnungen wären zwei Zustände, die auseinanderlaufen
  * können. Seit Phase 3C steht diese Rechnung in `bild.ts` und wird von der
@@ -73,6 +78,7 @@ import {
   PHASE_LABEL, phaseKurztext, zurueckgestelltHinweis,
   type VorbereitungsAnpassung, type VorbereitungsBild,
 } from '../../core/turnen/vorbereitungsstrategie'
+import type { WochenBild } from '../../core/turnen/wochenplanung'
 import { WochenAnsicht } from './Wochenplan'
 
 type Ansicht = 'einheit' | 'woche'
@@ -83,10 +89,12 @@ const ANSICHTEN: { value: Ansicht; label: string }[] = [
 ]
 
 export function NaechstesTraining({
-  bild, ziel, vorbereitung, anpassungen, onZuTraining,
+  bild, woche, ziel, vorbereitung, anpassungen, onZuTraining,
 }: {
   /** Der Plan **nach** Phase 3D. Ohne Wettkampf derselbe wie vorher. */
   bild: PlanungsBild
+  /** Die fertige Verteilung aus Phase 3B – für die zweite Ansicht. */
+  woche: WochenBild
   ziel: WettkampfZiel
   vorbereitung: VorbereitungsBild
   /** Was Phase 3D am Vorschlag geändert hat. Leer = nichts geändert. */
@@ -130,30 +138,6 @@ export function NaechstesTraining({
     setReihenfolge(neu)
   }
 
-  /* Wettkampftag: KEIN erfundener Trainingsplan.
-     Kein Aufwaermprogramm, keine Saetze, keine minutengenaue Vorbereitung -
-     das waere eigener Scope und steht in LifeHub nirgends. Nur die
-     Feststellung und der vorhandene Erfassungsweg; die Wochenansicht bleibt
-     erreichbar, denn die naechsten Tage sind davon unberuehrt. */
-  if (vorbereitung.phase === 'wettkampftag' && ansicht === 'einheit') {
-    return (
-      <Card className="mb16" title="Nächstes Training"
-        sub={vorbereitung.wettkampf?.name ?? undefined}
-        action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
-        <div className="np-wettkampftag">Heute ist Wettkampf.</div>
-        <div className="muted small mt8">
-          Für diesen Tag schlägt LifeHub kein Training vor. Der Wettkampfstand
-          steht in der Karte darüber.
-        </div>
-        <div className="row mt8">
-          <button className="btn btn-sm btn-primary" onClick={onZuTraining}>
-            Training frei erfassen
-          </button>
-        </div>
-      </Card>
-    )
-  }
-
   if (bild.grund) {
     return (
       <Card className="mb16" title="Nächstes Training">
@@ -172,7 +156,7 @@ export function NaechstesTraining({
       <Card className="mb16" title="Nächstes Training"
         sub="Die Inhalte auf die geplanten Trainingstage verteilt"
         action={<Segment options={ANSICHTEN} value={ansicht} onChange={setAnsicht} />}>
-        <WochenAnsicht plan={bild} ziel={ziel} vorbereitung={vorbereitung}
+        <WochenAnsicht bild={woche} ziel={ziel} vorbereitung={vorbereitung}
           onZuTraining={onZuTraining} />
       </Card>
     )

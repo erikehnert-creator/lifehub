@@ -17,7 +17,9 @@
  * Ohne konfigurierten Server passiert nichts – die App bleibt vollständig
  * nutzbar, das Änderungsjournal wächst einfach weiter.
  */
-import { all, run, getDb, saveNow } from '../db/sqlite'
+import {
+  all, run, getDb, saveNow, momentaufnahme, stelleMomentaufnahmeWiederHer, sperrePersistenz,
+} from '../db/sqlite'
 import { SYNCED_TABLES, type SyncedTable } from '../db/schema'
 import {
   berichtigungsText, ganzzahlSpalten, gebrocheneWerte, type SpaltenInfo,
@@ -29,7 +31,7 @@ import {
 import { nowIso } from '../core/dates'
 import { uuidv7 } from '../core/ids'
 import { getDeviceId } from '../db/repo'
-import { accessToken, isSignedIn, setSyncRolle } from './auth'
+import { accessToken, currentSession, isSignedIn, setSyncRolle } from './auth'
 
 /**
  * Woran der Abgleich gerade ist.
@@ -99,6 +101,61 @@ export class TabelleFehltFehler extends Error {
     super(`Die Tabelle „${tabelle}" gibt es auf dem Server nicht.`)
     this.name = 'TabelleFehltFehler'
     this.tabelle = tabelle
+  }
+}
+
+/**
+ * Einstellungen, die zu DIESEM Geraet gehoeren und nie ueber den Server laufen.
+ *
+ * PIN-Pruefsumme und Salt gehoeren ausdruecklich dazu: Wer sie synchronisiert,
+ * legt die Pruefsumme der PIN auf dem Server ab und ueberschreibt auf jedem
+ * anderen Geraet dessen eigene PIN. Auch Sperrzeit und Serveradresse sind
+ * Eigenheiten des einzelnen Geraets.
+ *
+ * Bestehende Installationen: Auf dem Server liegen aus frueheren Fassungen
+ * womoeglich noch solche Zeilen. Sie werden hier beim Holen schlicht
+ * uebergangen und nie angewendet; auf dem Server selbst wird nichts geloescht.
+ */
+export const GERAETEGEBUNDENE_EINSTELLUNGEN = [
+  'sync_url', 'sync_key', 'pin_hash', 'pin_salt', 'lock_after_minutes',
+] as const
+
+function istGeraetegebunden(table: string, row: Record<string, any>): boolean {
+  return table === 'settings'
+    && (GERAETEGEBUNDENE_EINSTELLUNGEN as readonly string[]).includes(String(row.key))
+}
+
+/* ------------------------------------------------------------- Besitzer
+ *
+ * Wem gehoert der lokale Bestand? Gemerkt wird Server + Konto in der Datenbank
+ * selbst (eine Zeile in sync_state), damit es mit einer eingespielten
+ * Sicherung mitwandert. Ohne diese Pruefung schickt ein Gerät nach einem
+ * Kontowechsel die Daten des alten Kontos in das neue - oder umgekehrt.
+ */
+const BESITZER_ZEILE = '__besitzer__'
+
+function besitzerKennung(url: string): string | null {
+  const s = currentSession()
+  const wer = s?.user_id || s?.email || ''
+  if (!wer) return null
+  return `${url.replace(/\/+$/, '')}|${wer}`
+}
+
+function lokalerBesitzer(): string | null {
+  const r = all<{ last_pull_at: string | null }>(
+    'SELECT last_pull_at FROM sync_state WHERE table_name = ?', [BESITZER_ZEILE])
+  return r.length ? (r[0].last_pull_at ?? null) : null
+}
+
+function stempleBesitzer(kennung: string): void {
+  const da = all('SELECT table_name FROM sync_state WHERE table_name = ?', [BESITZER_ZEILE])
+  if (da.length) {
+    getDb().run('UPDATE sync_state SET last_pull_at = ? WHERE table_name = ?', [kennung, BESITZER_ZEILE] as any)
+  } else {
+    getDb().run(
+      'INSERT INTO sync_state (table_name, last_server_rev, last_pull_at) VALUES (?, 0, ?)',
+      [BESITZER_ZEILE, kennung] as any,
+    )
   }
 }
 
@@ -289,6 +346,7 @@ export function mergeRows(
   table: string,
   local: Record<string, any>,
   remote: Record<string, any>,
+  lokalGeaendert?: Map<string, LokaleAenderung>,
 ): { merged: Record<string, any>; conflicted: string[] } {
   const merged: Record<string, any> = { ...remote }
   const conflicted: string[] = []
@@ -304,6 +362,24 @@ export function mergeRows(
     if (key.startsWith('_') || key === 'id' || key === 'server_rev') continue
     const remoteValue = remote[key]
     if (localValue === remoteValue) continue
+
+    // Mit Ausgangswerten (Dreiwege-Zusammenfuehrung):
+    //  - Dieses Geraet hat das Feld nicht angefasst  -> Serverstand.
+    //  - Nur dieses Geraet hat es geaendert (der Server hat noch den
+    //    Ausgangswert)                               -> eigener Wert, auch
+    //    bei kritischen Feldern: es gibt ja nichts zu entscheiden.
+    //  - Beide haben es geaendert (oder der Ausgangswert ist unbekannt)
+    //                                                -> die bisherigen Regeln.
+    // Frueher entschied allein die Zeile als Ganzes (jueEngere Aenderung
+    // gewinnt) und ueberschrieb dabei unabhaengige Aenderungen an anderen Feldern.
+    if (lokalGeaendert) {
+      const eigene = lokalGeaendert.get(key)
+      if (!eigene) continue                       // merged[key] ist schon der Serverwert
+      if (eigene.hatAusgang && (eigene.ausgang ?? null) === (remoteValue ?? null)) {
+        merged[key] = localValue
+        continue
+      }
+    }
 
     if (critical.includes(key)) {
       if (entschieden) { merged[key] = localValue; continue }
@@ -331,6 +407,36 @@ export function mergeRows(
   merged.version = Math.max(Number(local.version ?? 1), Number(remote.version ?? 1)) + 1
   merged.updated_at = nowIso()
   return { merged, conflicted }
+}
+
+/**
+ * Was dieses Geraet an einer Zeile seit dem letzten Abgleich geaendert hat -
+ * samt dem Wert, den das Feld vor der ersten dieser Aenderungen hatte.
+ */
+export interface LokaleAenderung {
+  hatAusgang: boolean
+  ausgang: any
+}
+
+function lokaleAenderungen(table: string, id: string): Map<string, LokaleAenderung> {
+  const zeilen = all<{ changed_fields: string; base_json: string | null }>(
+    'SELECT changed_fields, base_json FROM change_log WHERE table_name = ? AND row_id = ? ORDER BY seq ASC',
+    [table, id],
+  )
+  const out = new Map<string, LokaleAenderung>()
+  for (const z of zeilen) {
+    let felder: Record<string, any> = {}
+    let basis: Record<string, any> | null = null
+    try { felder = JSON.parse(z.changed_fields) ?? {} } catch { /* unlesbarer Eintrag */ }
+    try { basis = z.base_json ? JSON.parse(z.base_json) : null } catch { /* unlesbarer Eintrag */ }
+    for (const k of Object.keys(felder)) {
+      if (out.has(k)) continue        // die ERSTE Aenderung liefert den Ausgangswert
+      out.set(k, basis && k in basis
+        ? { hatAusgang: true, ausgang: basis[k] }
+        : { hatAusgang: false, ausgang: undefined })
+    }
+  }
+  return out
 }
 
 function recordConflict(table: string, id: string, local: any, remote: any, fields: string[]) {
@@ -385,6 +491,9 @@ async function request(
  * Belege tragen das Bild als Data-URL mit sich; davon passen nur wenige in
  * eine Anfrage, ohne dass sie unhandlich groß wird.
  */
+/** Wie weit vor dem Cursor die erste Abfrage je Lauf beginnt (siehe Pull-Schleife). */
+const UEBERLAPPUNG = 500
+
 function pushBatchSize(table: string): number {
   return table === 'attachments' ? 4 : 200
 }
@@ -429,8 +538,24 @@ function merkeStand(r: SyncResult): SyncResult {
   return r
 }
 
-export async function runSync(url: string, anonKey: string): Promise<SyncResult> {
-  return merkeStand(await runSyncIntern(url, anonKey))
+/**
+ * Eine gemeinsame Sperre fuer alles, was die Datenbank mit dem Server abgleicht.
+ *
+ * Vorher konnten der Knopf „Jetzt synchronisieren" und der automatische Abgleich
+ * (Start, Rueckkehr in den Vordergrund, nach jeder Aenderung) gleichzeitig
+ * laufen: zwei Durchlaeufe lasen dieselben Zeilen, sendeten sie doppelt und
+ * schrieben sich gegenseitig Cursor und Markierungen um. Jetzt laeuft immer nur
+ * einer; der naechste wartet, bis er fertig ist, und sieht dann den neuen Stand.
+ */
+let sperreKette: Promise<unknown> = Promise.resolve()
+function mitSperre<T>(arbeit: () => Promise<T>): Promise<T> {
+  const lauf = sperreKette.then(arbeit, arbeit)
+  sperreKette = lauf.then(() => undefined, () => undefined)
+  return lauf
+}
+
+export function runSync(url: string, anonKey: string): Promise<SyncResult> {
+  return mitSperre(async () => merkeStand(await runSyncIntern(url, anonKey)))
 }
 
 async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> {
@@ -447,6 +572,25 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
   const token = await accessToken(url, anonKey)
   if (!token) {
     return ergebnis({ zustand: 'nicht_angemeldet', message: 'Die Anmeldung ist abgelaufen. Bitte einmal neu anmelden.' })
+  }
+
+  const kennung = besitzerKennung(url)
+  if (kennung) {
+    const bisher = lokalerBesitzer()
+    if (bisher === null) {
+      // Bestehende Installation oder erste Verbindung: der Bestand gehoert ab
+      // jetzt zu diesem Konto. (Die erste Verbindung geht ohnehin nur ueber
+      // „vom Server uebernehmen" oder „als Quelle".)
+      stempleBesitzer(kennung)
+    } else if (bisher !== kennung) {
+      return ergebnis({
+        zustand: 'fehler',
+        message: 'Dieses Gerät gehört zu einem anderen Konto oder Server. Es wird nichts übertragen, '
+          + 'damit sich die Daten nicht vermischen. Melde dich mit dem ursprünglichen Konto an – oder '
+          + 'wähle „Vom Server übernehmen", wenn dieses Gerät künftig zu diesem Konto gehören soll '
+          + '(das ersetzt den lokalen Bestand).',
+      })
+    }
   }
 
   let pushed = 0, pulled = 0, conflicts = 0
@@ -474,18 +618,29 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
       // ---------------------------------------------------------------- PULL
       // Ebenfalls seitenweise: Der Cursor wandert mit, deshalb liefert jede
       // Runde die jeweils nächsten Zeilen.
+      //
+      // Die erste Anfrage beginnt UEBERLAPPUNG Stellen vor dem Cursor. Die
+      // Nummern kommen aus einer Sequenz, die beim Schreiben vergeben wird -
+      // nicht beim Festschreiben. Schreibt ein anderes Geraet gerade eine
+      // laengere Transaktion und ein drittes eine kurze, kann die kurze mit
+      // der hoeheren Nummer zuerst sichtbar werden. Wer dann den Cursor setzt,
+      // sieht die spaeter festgeschriebene Zeile mit der kleineren Nummer nie
+      // wieder. Die Ueberlappung holt sie beim naechsten Mal nach; bereits
+      // bekannte Zeilen werden unten ohne Schreibzugriff uebergangen.
+      let von = Math.max(0, cursorFor(table) - UEBERLAPPUNG)
       for (;;) {
         const cursor = cursorFor(table)
         const remote: any[] = (await request(
           url, anonKey, token,
-          `${table}?server_rev=gt.${cursor}&order=server_rev.asc&limit=500`,
+          `${table}?server_rev=gt.${von}&order=server_rev.asc&limit=500`,
         )) ?? []
         if (!remote.length) break
 
-        let maxRev = cursor
+        let hoechste = von
         for (const row of remote) {
-          maxRev = Math.max(maxRev, Number(row.server_rev ?? 0))
+          hoechste = Math.max(hoechste, Number(row.server_rev ?? 0))
           delete row.user_id                     // gehört nur dem Server
+          if (istGeraetegebunden(table, row)) continue   // gehört nur diesem Gerät
           const local = localRow(table, row.id)
           if (!local) {
             // Vorher prüfen, ob der natürliche Schlüssel hier schon vergeben
@@ -502,6 +657,9 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
             pulled++
             continue
           }
+          // Schon in genau dieser Fassung vorhanden (Ueberlappung): nichts tun.
+          if (Number(local._dirty) === 0 && local.server_rev !== null && local.server_rev !== undefined
+              && Number(local.server_rev) === Number(row.server_rev)) continue
           if (Number(local._dirty) === 0) {
             const cols = Object.keys(row)
             getDb().run(
@@ -512,7 +670,8 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
             continue
           }
           // Beide Seiten geändert → zusammenführen
-          const { merged, conflicted } = mergeRows(table, local, row)
+          const lokalAend = lokaleAenderungen(table, row.id)
+          const { merged, conflicted } = mergeRows(table, local, row, lokalAend.size ? lokalAend : undefined)
           const cols = Object.keys(merged).filter((c) => !c.startsWith('_') && c !== 'user_id')
           getDb().run(
             `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')}, _dirty = 1, _conflict = ? WHERE id = ?`,
@@ -521,16 +680,27 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
           if (conflicted.length) { recordConflict(table, row.id, local, row, conflicted); conflicts++ }
           pulled++
         }
-        if (maxRev > cursor) setCursor(table, maxRev, 'pull')
-        else break
-        if (remote.length < 500) break
+        if (hoechste > cursor) setCursor(table, hoechste, 'pull')
+        if (remote.length < 500 || hoechste <= von) break
+        von = hoechste
       }
       // ---------------------------------------------------------------- PUSH
       // In Schüben, bis nichts Geändertes mehr übrig ist. Ein einzelner Schub
       // mit fester Obergrenze würde bei der ersten Übertragung stillschweigend
       // Zeilen liegen lassen.
+      if (table === 'settings') {
+        // Geraetegebundene Einstellungen gelten als erledigt, ohne gesendet zu
+        // werden (siehe GERAETEGEBUNDENE_EINSTELLUNGEN).
+        getDb().run(
+          `UPDATE settings SET _dirty = 0 WHERE _dirty = 1 AND key IN (${GERAETEGEBUNDENE_EINSTELLUNGEN.map(() => '?').join(',')})`,
+          [...GERAETEGEBUNDENE_EINSTELLUNGEN] as any,
+        )
+      }
       const size = pushBatchSize(table)
-      for (;;) {
+      // Obergrenze nur als Notbremse: Aendert sich dieselbe Zeile waehrend jedes
+      // Uploads erneut, soll der Lauf irgendwann enden und beim naechsten
+      // Abgleich weitermachen.
+      for (let runde = 0; runde < 50; runde++) {
         const dirty = all<Record<string, any>>(`SELECT * FROM ${table} WHERE _dirty = 1 LIMIT ${size}`)
         if (!dirty.length) break
         berichtigt.push(...ganzzahlenBerichtigen(table, dirty))
@@ -539,15 +709,32 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
         const byId = new Map<string, any>((saved ?? []).map((r: any) => [r.id, r]))
         for (const row of dirty) {
           const server = byId.get(row.id)
+          // Den Serverstand der Zeile merken - das gilt fuer jede gesendete Zeile.
           getDb().run(
-            `UPDATE ${table} SET _dirty = 0, server_rev = ? WHERE id = ?`,
+            `UPDATE ${table} SET server_rev = ? WHERE id = ?`,
             [server?.server_rev ?? row.server_rev ?? null, row.id] as any,
+          )
+          // Als „uebertragen" gilt NUR die Fassung, die tatsaechlich gesendet
+          // wurde. Hat die Person die Zeile waehrend des Uploads erneut
+          // geaendert, steht dort jetzt eine hoehere Version - dann bleibt sie
+          // zur Uebertragung vorgemerkt. Vorher wurde jede Zeile des Schubs
+          // bedingungslos auf „sauber" gesetzt und die neuere Aenderung ging
+          // still verloren.
+          getDb().run(
+            `UPDATE ${table} SET _dirty = 0 WHERE id = ? AND version IS ?`,
+            [row.id, row.version ?? null] as any,
           )
         }
         pushed += dirty.length
         if (dirty.length < size) break
       }
-      getDb().run(`DELETE FROM change_log WHERE table_name = ?`, [table] as any)
+      // Das Aenderungsjournal gehoert zu den Zeilen, die noch zu senden sind -
+      // nicht zur ganzen Tabelle. Eintraege zu Zeilen, die waehrend des Uploads
+      // erneut geaendert wurden, bleiben deshalb stehen.
+      getDb().run(
+        `DELETE FROM change_log WHERE table_name = ? AND row_id NOT IN (SELECT id FROM ${table} WHERE _dirty = 1)`,
+        [table] as any,
+      )
       } catch (tabErr: any) {
         // Diese eine Tabelle scheitert – z. B. weil dem Server eine Spalte
         // fehlt, die diese Version der App schon schreibt. Die Zeilen bleiben
@@ -618,11 +805,39 @@ async function runSyncIntern(url: string, anonKey: string): Promise<SyncResult> 
  * null setzen und den Server als Wahrheit übernehmen. Die Zugangsdaten und die
  * PIN dieses Geräts bleiben erhalten.
  */
-export async function pullFresh(url: string, anonKey: string): Promise<SyncResult> {
+export function pullFresh(url: string, anonKey: string): Promise<SyncResult> {
+  return mitSperre(() => pullFreshIntern(url, anonKey))
+}
+
+/**
+ * Der lokale Bestand wird erst ersetzt, wenn der Serverstand vollstaendig da ist.
+ *
+ * Frueher wurde zuerst alles geloescht und gespeichert und DANN heruntergeladen.
+ * Brach der Abruf ab (Funkloch, abgelaufene Anmeldung, fehlende Tabelle auf dem
+ * Server), blieb ein leeres Geraet zurueck - samt verlorenen, noch nicht
+ * gesendeten Aenderungen.
+ *
+ * Jetzt: Momentaufnahme des alten Bestands, Speichern auf die Platte gesperrt
+ * (dort liegt bis zum Schluss der alte, vollstaendige Stand), Bestand im
+ * Arbeitsspeicher leeren und neu fuellen. Nur wenn alles durchlief UND der
+ * Server auch etwas geliefert hat, wird gespeichert. Sonst wird die
+ * Momentaufnahme zurueckgespielt - einschliesslich der offenen Aenderungen.
+ */
+async function pullFreshIntern(url: string, anonKey: string): Promise<SyncResult> {
   if (!isSignedIn()) {
     return ergebnis({ zustand: 'nicht_angemeldet', message: 'Bitte zuerst anmelden.' })
   }
-  const KEEP = ['sync_url', 'sync_key', 'pin_hash', 'pin_salt', 'lock_after_minutes']
+  const KEEP: string[] = [...GERAETEGEBUNDENE_EINSTELLUNGEN]
+  let vorher: Uint8Array
+  try {
+    vorher = momentaufnahme()
+  } catch (err: any) {
+    return ergebnis({ zustand: 'fehler', message: `Konnte den lokalen Bestand nicht sichern: ${err?.message ?? err} Es wurde nichts verändert.` })
+  }
+  const offeneAenderungen = pendingChangeCount()
+
+  let res: SyncResult
+  sperrePersistenz(true)
   try {
     for (const table of SYNCED_TABLES) {
       if (table === 'settings') {
@@ -633,15 +848,34 @@ export async function pullFresh(url: string, anonKey: string): Promise<SyncResul
     }
     getDb().run('DELETE FROM sync_state')
     getDb().run('DELETE FROM change_log')
-    await saveNow()
+    res = merkeStand(await runSyncIntern(url, anonKey))
+    // Ein leerer Server ist kein Grund, ein Geraet mit ungesendeten Aenderungen
+    // zu leeren - dafuer gibt es „Dieses Geraet als Quelle".
+    if (res.ok && res.pulled === 0 && offeneAenderungen > 0) {
+      res = ergebnis({
+        zustand: 'fehler',
+        message: 'Der Server hat nichts geliefert, dieses Gerät hat aber noch ungesendete Änderungen. '
+          + 'Abgebrochen – nimm „Dieses Gerät als Quelle", wenn dieses Gerät die richtigen Daten hat.',
+      })
+    }
   } catch (err: any) {
-    return ergebnis({ zustand: 'fehler', message: `Konnte den lokalen Bestand nicht leeren: ${err?.message ?? err}` })
+    res = ergebnis({ zustand: 'fehler', message: `Übernahme fehlgeschlagen: ${err?.message ?? err}` })
   }
-  const res = await runSync(url, anonKey)
-  if (res.ok) setSyncRolle('kopie')
-  return res.ok
-    ? { ...res, message: `Vom Server übernommen: ${res.pulled} Datensätze.` }
-    : res
+
+  if (!res.ok) {
+    try {
+      await stelleMomentaufnahmeWiederHer(vorher)
+    } finally {
+      sperrePersistenz(false)
+    }
+    await saveNow()
+    return { ...res, ok: false, message: `${res.message} Dein bisheriger Bestand auf diesem Gerät ist unverändert (auch die noch nicht gesendeten Änderungen).` }
+  }
+
+  sperrePersistenz(false)
+  await saveNow()
+  setSyncRolle('kopie')
+  return { ...res, message: `Vom Server übernommen: ${res.pulled} Datensätze.` }
 }
 
 /**
@@ -718,7 +952,11 @@ async function serverHatBestand(
  * wirklich den Serverstand ersetzen will, hat vorher etwas eingespielt – und
  * dann hat er Buchungen.
  */
-export async function pushAll(url: string, anonKey: string): Promise<SyncResult> {
+export function pushAll(url: string, anonKey: string): Promise<SyncResult> {
+  return mitSperre(() => pushAllIntern(url, anonKey))
+}
+
+async function pushAllIntern(url: string, anonKey: string): Promise<SyncResult> {
   if (!isSignedIn()) {
     return ergebnis({ zustand: 'nicht_angemeldet', message: 'Bitte zuerst anmelden.' })
   }
@@ -748,7 +986,7 @@ export async function pushAll(url: string, anonKey: string): Promise<SyncResult>
   } catch (err: any) {
     return ergebnis({ zustand: 'fehler', message: `Vorbereitung fehlgeschlagen: ${err?.message ?? err}` })
   }
-  const res = await runSync(url, anonKey)
+  const res = merkeStand(await runSyncIntern(url, anonKey))
   if (res.ok) setSyncRolle('quelle')
   return res.ok
     ? { ...res, message: `Auf den Server geladen: ${res.pushed} Datensätze.` }

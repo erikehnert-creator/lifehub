@@ -41,22 +41,26 @@ import { useData, useMutations } from '../../state/store'
 import {
   addDays, diffDays, formatDay, formatDuration, todayString, weekdayLong,
 } from '../../core/dates'
-import { computeCapacity } from '../../core/planner'
-import { geplanteTurntermine } from '../../core/turnen/einheiten'
 import {
   INHALT_ART_LABEL, ROLLE_LABEL, UMFANG_LABEL,
-  type PlanungsBild,
 } from '../../core/turnen/trainingsplanung'
 import {
   KAPAZITAET_LABEL, OFFEN_TEXT, WOCHEN_SCHWELLEN, einheitenLabel,
-  wocheMitAuswahl, wochenplanung,
-  type EinheitGeraet, type GeplanteEinheit, type OffenerPosten, type TerminEingang,
+  wocheMitAuswahl,
+  type EinheitGeraet, type GeplanteEinheit, type OffenerPosten, type WochenBild,
 } from '../../core/turnen/wochenplanung'
 import { zielKurztext, type WettkampfZiel } from '../../core/turnen/wettkampfvorbereitung'
 import { phaseKurztext, type VorbereitungsBild } from '../../core/turnen/vorbereitungsstrategie'
 
-export function WochenAnsicht({ plan, ziel, vorbereitung, onZuTraining }: {
-  plan: PlanungsBild
+export function WochenAnsicht({ bild, ziel, vorbereitung, onZuTraining }: {
+  /**
+   * Die fertige Verteilung aus `wochenplanung()`.
+   *
+   * Seit Phase 3E wird sie in `bild.ts` gerechnet und nicht mehr hier: Phase
+   * 3E nimmt den heutigen Termin daraus, und zwei Verteilungen wären zwei
+   * Antworten auf dieselbe Frage.
+   */
+  bild: WochenBild
   /**
    * Der kommende Wettkampf aus Phase 3C – **nur eine Kopfzeile**.
    *
@@ -83,43 +87,6 @@ export function WochenAnsicht({ plan, ziel, vorbereitung, onZuTraining }: {
   const [ohne, setOhne] = useState<string[]>([])
   const [neu, setNeu] = useState(false)
   const [loeschen, setLoeschen] = useState<string | null>(null)
-
-  /**
-   * Die geplanten Turneinheiten.
-   *
-   * Nur `status: 'planned'`: Eine absolvierte Einheit ist kein Termin mehr,
-   * und eine ausgefallene soll die Planung nicht belegen.
-   */
-  const termine: TerminEingang[] = useMemo(() => {
-    const sitzungen = geplanteTurntermine(data.workoutSessions)
-    return sitzungen.map((s) => {
-      // Tagesart und freie Zeit ueber die vorhandene Tagesrechnung - nicht
-      // ueber eine zweite Kapazitaetslogik im Turnen-Modul.
-      const zuordnung = data.dayAssignments.find((a) => !a.deleted_at && a.day === s.day) ?? null
-      const tagesart = zuordnung
-        ? data.dayTypes.find((t) => t.id === zuordnung.day_type_id) ?? null
-        : null
-      const kapazitaet = computeCapacity(
-        s.day, zuordnung, tagesart, data.timeBlocks, data.tasks, data.events,
-        data.settings.sleep_hours ?? 8)
-      return {
-        sessionId: s.id,
-        day: s.day,
-        titel: s.title || null,
-        dauerMinuten: s.duration_minutes ?? null,
-        tagesart: tagesart?.name ?? null,
-        freieMinuten: kapazitaet.freeMinutes,
-      }
-    })
-  }, [
-    data.workoutSessions, data.dayAssignments, data.dayTypes,
-    data.timeBlocks, data.tasks, data.events, data.settings,
-  ])
-
-  const bild = useMemo(
-    () => wochenplanung({ plan, termine, heute, tagDifferenz: diffDays }),
-    [plan, termine, heute],
-  )
 
   const woche = useMemo(
     () => wocheMitAuswahl(bild, { verschoben, ohne }),

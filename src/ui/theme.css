@@ -1817,3 +1817,77 @@ table.data tbody tr:hover { background: var(--surface-2); }
   font-size: 11px; color: var(--text-muted);
   flex: 1 1 100%;
 }
+
+/* Turnen: Heute (Phase 3E)
+   ------------------------------------------------------------------
+   Baut auf den Klassen von "Naechstes Training" und der Wochenansicht
+   auf (.np-rolle, .np-art, .np-umfang, .wp-wdh) - eine zweite
+   Formsprache fuer dieselben Begriffe waere nur Arbeit. Der
+   Tageskontext ist eine umbrechende Zeile: Bei 390 px rutschen
+   Schlaf und Kapazitaet unter die Tagesart.                       */
+.ht-status { font-size: 14.5px; font-weight: 620; }
+
+.ht-kontext {
+  display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap;
+  margin: 6px 0 10px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-2);
+}
+.ht-kontext-teil { font-variant-numeric: tabular-nums; }
+
+.ht-wettkampf-name { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
+.ht-wettkampf { margin-bottom: 4px; }
+
+.ht-einheit { margin-top: 4px; }
+.ht-einheit-kopf { font-size: 13px; font-weight: 650; margin-bottom: 4px; }
+.ht-zahl { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+
+.ht-geraete { display: flex; flex-direction: column; gap: 8px; }
+.ht-geraet {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 9px 11px; background: var(--surface-1);
+}
+.ht-geraet-kopf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.ht-name { font-size: 13.5px; font-weight: 640; }
+
+.ht-inhalte { display: flex; flex-direction: column; gap: 3px; }
+.ht-inhalt {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12.5px;
+}
+.ht-inhalt-text { flex: 1; min-width: 130px; }
+
+.ht-zurueck {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+.ht-zurueck-kopf {
+  display: block; font-size: 10.5px; color: var(--text-muted);
+  font-weight: 650; text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: 4px;
+}
+.ht-zurueck-zeile {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+}
+.ht-zurueck-zeile:last-child { border-bottom: 0; }
+
+.ht-erfasst { margin-top: 4px; }
+.ht-erfasst-zeile {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 0; border-bottom: 1px solid var(--border);
+}
+.ht-erfasst-zeile:last-child { border-bottom: 0; }
+.ht-erfasst-titel { font-size: 13px; font-weight: 620; }
+
+.ht-naechste {
+  margin-top: 8px; font-size: 12.5px; color: var(--text-2);
+}
+
+:root[data-theme='dark'] .ht-geraet { background: var(--surface-2); }
+
+@media (max-width: 460px) {
+  .ht-inhalt-text { min-width: 0; }
+}

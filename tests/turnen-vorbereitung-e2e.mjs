@@ -74,6 +74,13 @@ const zielKarte = (g) =>
   g.page.locator('.card').filter({ hasText: 'Nächster Wettkampf' }).first()
 const zielText = async (g) => (await zielKarte(g).innerText()).replace(/\n/g, ' | ')
 
+/* Seit Phase 3E tragen zwei Bloecke den Trainingsvorschlag: An einem Tag
+   mit offenem Turntermin oder Wettkampf fuehrt "Heute", sonst "Naechstes
+   Training". Beide Ablesehilfen stehen deshalb nebeneinander. */
+const heuteKarte = (g) =>
+  g.page.locator('.card').filter({ has: g.page.locator('.card-title', { hasText: /^Heute$/ }) }).first()
+const heuteText = async (g) => (await heuteKarte(g).innerText()).replace(/\n/g, ' | ')
+
 const planBlock = (g) =>
   g.page.locator('.card').filter({ hasText: 'Nächstes Training' }).first()
 const planText = async (g) => (await planBlock(g).innerText()).replace(/\n/g, ' | ')
@@ -433,15 +440,22 @@ try {
   await geh(pc, '/turnen', 2600)
   pruefe('Die Phase heisst Wettkampftag',
     (await phase(pc)) === 'Wettkampftag', `${await phase(pc)}`)
-  const tagText = await planText(pc)
+  /* Seit Phase 3E (07.10.2026) steht die Wettkampftagsaussage im Block
+     "Heute" und nicht mehr unter "Naechstes Training": An einem Tag mit
+     Wettkampf fuehrt Heute, und derselbe Hinweis zweimal untereinander waere
+     eine Doppelung (TURNEN_ARCHITEKTUR.md 23.8 und 23.10). WAS dort steht,
+     entscheidet unveraendert Phase 3D - nur die Stelle hat sich bewegt. */
+  const tagText = await heuteText(pc)
   pruefe('Es steht die Feststellung da und kein Trainingsplan',
     /Heute ist Wettkampf/.test(tagText), tagText.slice(0, 400))
+  pruefe('„Nächstes Training" steht an diesem Tag nicht zusätzlich daneben',
+    (await planBlock(pc).count()) === 0)
   pruefe('Kein Gerät wird für heute vorgeschlagen',
     (await vorschlag(pc)).length === 0, JSON.stringify(await vorschlag(pc)))
   pruefe('Und kein erfundenes Aufwärmprogramm',
     !/aufwärm|Satz|Sätze|Wiederholung|Minuten/i.test(tagText), tagText.slice(0, 400))
   pruefe('Der Erfassungsweg bleibt erreichbar',
-    (await planBlock(pc).locator('button', { hasText: 'Training frei erfassen' }).count()) > 0)
+    (await heuteKarte(pc).locator('button', { hasText: 'Training frei erfassen' }).count()) > 0)
 
   /* ========= Schritt 11: Wettkampf löschen – zurück zur normalen Planung */
   await loescheWettkampf(pc, { name: 'Sachsenmeisterschaft' })

@@ -656,6 +656,20 @@ keine Kürsperre.**
 
 Was die Umsetzung konkretisiert hat, steht in Abschnitt 22.
 
+### Phase 3E — Heutige Turneinheit und Tageskontext *(umgesetzt am 07.10.2026, keine Migration)*
+
+`core/turnen/tagestraining.ts` · **keine Tabelle, keine Schemaänderung** ·
+beantwortet „was steht heute konkret an, welche reale Kapazität habe ich dafür
+und welcher Tageskontext liegt vor?" · sitzt **hinter** 3B und konsumiert nur
+fertige Ergebnisse: der heutige Termin kommt aus `WochenBild`, die
+Wettkampfphase aus 3D, Gerätepriorität und Stabilität aus 2C/2D/2E ·
+wiederverwendet **dieselbe** `workout_sessions`-Zeile bei der Erfassung, sodass
+keine Session-Dublette entsteht · Schlaf, Tagesart und Energie sind
+**Kontext**, kein Regler: sie entfernen kein Gerät und bewerten nichts ·
+**keine Readiness, keine Schlafampel, keine Minuten je Gerät.**
+
+Was die Umsetzung konkretisiert hat, steht in Abschnitt 23.
+
 ### Phase 4 — Auswertung
 
 `screens/turnen/`-Erweiterung und/oder ein Block unter `Analysen` · nur die Auswertungen
@@ -3788,4 +3802,317 @@ keine neue Abfrage.
 ```
 npx vitest run tests/turnen-vorbereitungsstrategie.test.ts
 node tests/turnen-vorbereitung-e2e.mjs
+```
+
+---
+
+## 23. Phase 3E: Heutige Turneinheit und Tageskontext
+
+Umgesetzt am 07.10.2026. **Keine Tabelle, keine Migration, keine Änderung an
+einer Edge Function.**
+
+### 23.1 Die Frage, die diese Phase beantwortet
+
+> „Was steht heute konkret an, welche reale Kapazität habe ich dafür und
+> welcher Tageskontext liegt vor?"
+
+Phase 3A sagt, was sich lohnt. 3D verschiebt die Priorität nach dem
+Wettkampfabstand. 3B verteilt das Ergebnis auf die vorausgeplanten Termine.
+Alle drei beantworten die Frage „was" – keine davon die Frage **„heute"**.
+
+Phase 3E endet bei: **„Der heutige Turntermin steht mit seinen bereits
+zugeordneten Inhalten neben dem vorhandenen Tageskontext, und die Erfassung
+führt in dieselbe geplante Session."**
+
+Sie endet ausdrücklich **nicht** bei einer Tagesform, einer Bereitschaft oder
+einer Aussage darüber, wie hart heute trainiert werden soll.
+
+### 23.2 Die Abhängigkeitsrichtung
+
+```
+2C Analyse ─┐
+2E Durchgänge ─┤
+             ├─> 2D Trainingsfokus ─> 3A Trainingsplanung
+                                              │
+                                              v
+                                   3D Vorbereitungsstrategie
+                                              │
+                                              v
+                                      3B Wochenplanung
+                                              │
+                                              v
+                                     3E Tagestraining
+```
+
+**3E ist das Ende der Kette und konsumiert nur fertige Ergebnisse.**
+`tagestraining()` bekommt das `WochenBild` aus 3B und das `VorbereitungsBild`
+aus 3D vollständig gerechnet herein. Daraus folgt:
+
+- **Keine Rückkopplung.** `trainingsplanung.ts`, `vorbereitungsstrategie.ts`
+  und `wochenplanung.ts` importieren `tagestraining.ts` nicht. `3E → 3A` oder
+  `3E → 3D` wäre genau der Kreis, der hier nicht entstehen darf; ein Test
+  liest die `import`-Zeilen der beteiligten Module und hält die Richtung fest
+  (die Modulköpfe nennen Nachbarphasen in Prosa, und eine Erwähnung ist keine
+  Abhängigkeit).
+- **Keine zweite Verteilung.** Welches Gerät an welchen Tag kommt, hat 3B
+  entschieden. 3E schlägt den heutigen Tag in diesem Ergebnis nach und
+  verteilt nichts neu.
+- **Phase 3D bleibt gültig.** Weil 3B auf dem von 3D angepassten Plan sitzt,
+  kann eine wettkampfnah zurückgestellte Entwicklungsarbeit über 3E gar nicht
+  wieder auftauchen – nicht durch eine Prüfung, sondern durch die Reihenfolge.
+  Ein Test stellt denselben Datenstand in allen vier Vorbereitungsphasen
+  nebeneinander.
+
+Gerechnet wird in `screens/turnen/bild.ts`, jetzt in **zwei** Haken: `kern`
+hängt an den Turndaten (die teure Rechnung, 2C bis 3D), `tag` zusätzlich an
+Terminen, Tagesplan, Schlaf und Metriken. Getrennt, damit eine umgebuchte
+Aufgabe nicht die ganze Wettkampfanalyse neu rechnet. Die Wochenverteilung
+(3B) wanderte dabei aus `Wochenplan.tsx` in `bild.ts`: Phase 3E braucht sie,
+und zwei Verteilungen wären zwei Antworten auf dieselbe Frage.
+
+### 23.3 Keine zweite Berechnung
+
+Phase 3E rechnet **nichts** davon erneut:
+
+| Was | Wo es entschieden wird |
+|---|---|
+| Gerätepriorität | 2C/2D |
+| Elementstabilität | 2D |
+| Kürstabilität | 2E |
+| Wettkampffokus | 3C |
+| Vorbereitungsphase | 3D |
+| Gerät je Trainingstag | 3B |
+| Freie Zeit und Tagesart | `computeCapacity()` im Planner |
+| Schlaf je Kalendertag | `sleep_sessions.day`, gesetzt beim Import |
+
+Es gibt deshalb keine eigene Stabilitätsschwelle, keine zweite
+Kapazitätsrechnung, keine zweite Schlafaggregation und keine neue Tageslogik.
+Ein Test liest den Quelltext und hält das fest.
+
+### 23.4 Die heutige Turneinheit
+
+**Ein heutiger Turntermin ist eine `workout_sessions`-Zeile** mit lokalem Tag
+= heute, `discipline = 'turnen'` und `status = 'planned'`. Dieselbe Tabelle und
+dieselbe Statuslogik wie in Phase 3B – kein zweites Terminmodell.
+
+Fünf Fälle, in dieser Reihenfolge geprüft (`statusAus()`), weil das die
+Dringlichkeit ist:
+
+| Status | wann |
+|---|---|
+| `wettkampftag` | Phase 3D sagt Wettkampftag |
+| `geplant` | heute steht mindestens ein Turntermin offen |
+| `erfasst` | heute ist mindestens eine Turneinheit erfasst |
+| `ausgefallen` | heute ist ein Termin als ausgefallen vermerkt |
+| `kein_training` | keines davon |
+
+Ein offener Termin schlägt einen schon erfassten, weil noch etwas aussteht.
+`kein_training` ist die letzte Antwort, nie die erste.
+
+**Ohne heutigen Termin wird kein Training erfunden.** Es steht „Heute ist kein
+Turntraining geplant.", und der Vorschlag kommt wie bisher aus „Nächstes
+Training". Kein erfundenes Gerät, keine erfundene Einheit.
+
+**Mehrere Termine am selben Tag werden ALLE gezeigt.** Still einen davon zu
+wählen hiesse, den anderen zu verlieren. Die Reihenfolge ist die von 3B (Tag,
+dann Session-ID): An einer `workout_session` steht keine Uhrzeit, und eine
+erfundene Sortierung wäre schlechter als eine feste.
+
+Ein vergangener Termin, der noch `planned` ist, gilt weiter als überfällig und
+**nicht** als heute – die Festlegung aus Abschnitt 20 bleibt unberührt.
+
+### 23.5 Die Tageskapazität und was sie zurückstellt
+
+Die Kapazität kommt aus vorhandenen Angaben, in dieser Rangfolge
+(`tagesKapazitaet()`):
+
+1. **`dauer`** – an der Einheit steht eine Dauer. **Damit hat 3B schon
+   gerechnet** (`plaetzeFuer`), und 3E stellt deshalb nichts zusätzlich
+   zurück; was dort nicht hineinpasste, steht in `WochenBild.offen`. Dasselbe
+   ein zweites Mal anzuwenden würde die Einheit doppelt kürzen.
+2. **`tag`** – keine Dauer, aber die freie Zeit des Tages ist bekannt
+   (`computeCapacity().freeMinutes`). Phase 3B lässt sie bewusst aussen vor,
+   damit Turnen nicht an einem gepflegten Arbeitsplan hängt; für **heute** ist
+   sie dagegen die genaueste Auskunft, die es gibt. **Nur hier** darf 3E etwas
+   zurückstellen.
+3. **`keine`** – weder noch, dann wird über die Kapazität nichts behauptet.
+
+Verwendet werden die **vorhandenen** qualitativen Kategorien (`kapazitaetAus`,
+`plaetzeFuer` aus `wochenplanung.ts`). Keine neue Schwelle, keine neue Zahl.
+
+**Zurückgestellt wird von hinten und nie ein Schwerpunkt.** Die Reihe bleibt
+die von 3B, also die von 3A; es wird **nicht neu priorisiert**. Ein
+`schwerpunkt` ist genau das, was auch in einer kurzen Einheit bleiben soll –
+weichen muss Wartung oder Nebenfokus. Ein Schwerpunkt mitten in der Reihe wird
+übersprungen, nicht verdrängt.
+
+**Zurückgestellt heisst nicht gelöscht und nicht absolviert.** Der Inhalt steht
+unter „Heute zurückgestellt" mit seinem Grund (`ZURUECK_GRUND` = „kurze
+verfügbare Einheit", an einer Stelle) und lässt sich mit einem Griff
+mitnehmen. Nichts verschwindet stillschweigend.
+
+### 23.6 Schlaf ist Kontext, kein Trainingsregler
+
+Die Nacht auf heute steht neben der Einheit, weil sie zum Tag gehört. Sie
+**verändert nichts**: Sie entfernt kein Gerät, verbietet keine Schwierigkeit,
+streicht keinen Kürdurchgang, legt kein Trainingsvolumen fest und behauptet
+kein Verletzungsrisiko.
+
+„Nur sechs Stunden geschlafen, also heute kein schweres Element" wäre eine
+trainingswissenschaftliche Aussage, für die in LifeHub nichts steht. Deshalb
+gibt es auch **keine Schlafampel und keine Kategorie**: Der Zielbereich der
+Metrik `sleep_h` (7–9 h) existiert und wird hier bewusst nicht herangezogen –
+eine Einordnung „zu wenig geschlafen" neben einem Trainingsplan liest sich als
+Anweisung. Angezeigt werden Dauer und Uhrzeiten, sonst nichts. Ein Test hält
+das am Wortlaut fest, ein zweiter prüft, dass derselbe Datenstand mit und ohne
+Schlaf **denselben** Plan ergibt.
+
+**Die Nacht wird hier nicht gerechnet.** `NachtKontext` kommt fertig herein.
+Welche Schlafepisode zu welchem Kalendertag gehört, entscheidet ausschliesslich
+`sleep_sessions.day` – der Morgen des Aufwachens, gesetzt beim Import
+(`supabase/functions/schlaf/aggregat.ts`). Damit zählt die Nacht von
+Sonntagabend bis Montagmorgen zum Montag, **ohne** eine zweite Datumsdefinition
+und ohne eine zweite Schlafaggregation im Turnen-Modul. Geprüft sind: über
+Mitternacht, Beginn nach Mitternacht, Sommerzeit, Winterzeit, eine Nacht, die
+einem anderen Tag zugerechnet ist, und keine Daten.
+
+**Fehlender Schlaf ist kein Fehler.** Dann steht „Für die letzte Nacht liegen
+keine Schlafdaten vor." und das Training bleibt vollständig nutzbar.
+
+### 23.7 Keine minutengenaue Planung
+
+Die Entscheidung aus Phase 3A bleibt: **keine Minuten je Gerät.** Auch wenn 90
+Minuten bekannt sind, steht hier nirgends „37 min Barren" – das sähe nach einer
+Rechnung aus, hinter der keine steht. Angezeigt wird der vorhandene Umfang
+(`kurz`/`normal`/`schwerpunkt`) und die qualitative Tageskapazität. Ein Test
+prüft am Quelltext, dass keine Minutenverteilung entsteht, der E2E prüft es an
+der Oberfläche. Zeit gehört zu Phase 5.
+
+### 23.8 Der Wettkampftag
+
+Sagt Phase 3D `wettkampftag`, **erfindet 3E keinen Trainingsvorschlag.** Es
+steht „Heute ist Wettkampf." plus der Verweis auf die Wettkampfkarte darüber.
+Kein Aufwärmprogramm, keine Sätze, keine Minuten, kein Ernährungsplan.
+
+Hat Erik für heute **zusätzlich** selbst eine Turneinheit geplant, wird sie
+**nicht gelöscht und nicht still übergangen**: Sie wird getrennt genannt und
+lässt sich öffnen. Was damit passiert, entscheidet er.
+
+### 23.9 Die geplante Session wird wiederverwendet
+
+Das ist die Invariante, an der diese Phase hängt:
+
+```
+vorher:   workout_session A   status = planned    discipline = turnen
+          ↓ „Training erfassen" im Heute-Block, erfassen, speichern
+nachher:  workout_session A   status = completed
+```
+
+und **nicht**:
+
+```
+nachher:  workout_session A   status = planned
+          workout_session B   status = completed     ← Dublette
+```
+
+Umgesetzt über die Adresse: Der Knopf führt nach
+`#/turnen/training?einheit=<id>` und öffnet dort **die vorhandene Zeile** im
+Turnen-Trainingseditor. Über die Adresse und nicht über einen Zustand im
+Rahmen, damit der Weg ein Neuladen überlebt und es keinen zweiten Ort gibt, an
+dem steht, was gerade offen ist. Der Parameter wird nach dem Öffnen entfernt,
+damit ein Schliessen des Editors die Einheit nicht sofort wieder aufzieht. Eine
+Einheit, die es nicht mehr gibt oder die nicht zum Turnen gehört, wird
+übergangen – eine neue wird daraus **nicht**.
+
+Der Speicherweg selbst ist unverändert der aus Phase 3B: `m.patch` auf
+dieselbe Zeile mit `status: 'completed'`, die Versuche nach `gym_attempts`, die
+Durchgänge nach `gym_routine_runs`. **Es gibt keine zweite
+Erfassungsoberfläche.**
+
+**Nach dem Speichern** läuft alles über die vorhandenen Haken weiter: Die
+Einheit steht nicht mehr als offen, 2D und 2E kennen die neuen Versuche und
+Durchgänge, 3A und 3D reagieren darauf, und 3B rechnet die verbleibenden
+kommenden Einheiten neu. **Keine manuelle Neuberechnung**, kein „Plan
+erledigt"-Zustand, kein Knopf.
+
+### 23.10 UI und Nutzeränderungen
+
+Auf **Turnen → Übersicht** steht der Block **Heute** über dem Vorschlag:
+
+```
+Heute · Mittwoch, 7. Oktober
+
+Frühschicht · kurze Einheit · aus der heute noch freien Zeit
+Schlaf letzte Nacht · 6 h 18 min (22:42–05:58)      Wettkampfnah
+
+Barren     Schwerpunkt
+Reck       Schwerpunkt
+
+Heute zurückgestellt
+Ringe      Wartung      kurze verfügbare Einheit    + heute mitnehmen
+
+[Training erfassen]
+```
+
+**Genau einer von beiden Blöcken führt.** Steht heute ein Termin offen – oder
+ist heute Wettkampf –, ist „Heute" der primäre Block, und „Nächstes Training"
+entfällt: Es wäre derselbe Plan ein zweites Mal untereinander. An allen anderen
+Tagen ist es umgekehrt, dann bleibt Heute eine schlanke Zeile (Tageskontext und
+der nächste Termin) und der Vorschlag kommt aus 3A. Der Umschalter auf
+„Kommende Einheiten" wandert mit dem führenden Block, damit er nicht zweimal
+dasteht und Phase 3B nicht hinter dem heutigen Tag verschwindet.
+
+Mobile-first, 390 px, dunkler Modus, vorhandene Design-Tokens. Kein neuer
+Haupttab, keine Warnfarbe – ein kurzer Tag ist kein Problem.
+
+**Nutzeränderungen sind reine UI-Auswahl.** Abwählen, Zurückholen und einen
+Inhalt entfernen gehen durch `tagMitAuswahl()`, eine reine Funktion auf dem
+Arbeitsspeicherzustand der Komponente – dieselbe Überlegung wie
+`planMitAuswahl()` in 3A und `wocheMitAuswahl()` in 3B. Ein abgewähltes Gerät
+wandert in die zurückgestellten, nicht ins Nichts; ein zurückgeholtes landet an
+seinem Platz in der 3B-Reihe und nicht am Ende; bleibt von einem Gerät kein
+Inhalt übrig, bleibt das Gerät trotzdem stehen. **Gespeichert wird nichts
+davon**, und es wird auch nichts abgeglichen.
+
+### 23.11 Aufwand
+
+Phase 3E betrifft **einen** lokalen Tag und wenige Zeilen. Die
+Wochenverteilung, die Wettkampfphase und die Trainingsbilder kommen fertig
+herein; es wird nichts über den gesamten Bestand gelesen. Gemessen bei vollen
+14 Tagen Horizont: **0,002 ms je Aufruf**.
+
+Kein `loadAll()`, keine neue Abfrage, keine zweite Schlafaggregation, kein
+erneuter Vollscan durch Versuche oder Durchgänge – ein Test prüft genau das.
+Die Trennung in `kern` und `tag` (23.2) hält zusätzlich die teure Rechnung aus
+dem Weg, wenn sich nur der Tagesplan ändert.
+
+### 23.12 Was Phase 3E nicht baut
+
+- Readiness, Tagesform-Score, Belastungsampel, Regenerationsempfehlung
+- schlaf-, HRV- oder pulsbasierte Trainingsänderungen
+- Verletzungsrisiko, Übertrainingswarnung
+- minutengenaue Geräteverteilung oder eine Trainingsdauer je Gerät
+- eine zweite Kapazitäts- oder Schlafrechnung
+- eine eigene Tagesart- oder Schichtlogik
+- Ernährungsempfehlungen; FatSecret bleibt aus den Trainingsentscheidungen
+  heraus
+- einen Aufwärm- oder Wettkampftagsablauf
+- einen „Plan erledigt"-Zustand neben der Session
+
+### 23.13 Persistenz und Einspielen
+
+**Keine Persistenz.** Es gibt keine Tabelle `daily_training_plan`, `readiness`
+oder `daily_adjustment` und keine Einstellung. Das heutige Bild ergibt sich aus
+Terminen, Trainingsdaten und Tageskontext und ändert sich mit ihnen; eine
+gespeicherte Tagesauswahl wäre ab dem ersten erfassten Versuch eine zweite
+Wahrheit. Was wirklich passiert ist, steht in `workout_sessions`,
+`gym_attempts` und `gym_routine_runs`. Der E2E prüft beides am Server: keine
+passende Tabelle, keine passende Einstellung.
+
+**Nichts einzuspielen.** Keine Migration, kein SQL-Schritt, kein
+`supabase functions deploy`. Das Datenmodell ist unverändert.
+
+```
+npx vitest run tests/turnen-tagestraining.test.ts
+node tests/turnen-heute-e2e.mjs
 ```

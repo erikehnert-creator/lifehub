@@ -1234,6 +1234,19 @@ export const MIGRATIONS: Migration[] = [
     CREATE INDEX ix_gym_routine_runs_version ON gym_routine_runs(routine_version_id);
     `,
   },
+  {
+    id: 19,
+    name: 'abgleich_ausgangswerte',
+    sql: `
+    -- Der Abgleich fuehrt Aenderungen beider Seiten FELDWEISE zusammen. Dafuer
+    -- braucht er zu jeder lokalen Aenderung den Wert, den das Feld VOR dieser
+    -- Aenderung hatte (JSON: Feldname -> Ausgangswert). Nur lokal - das
+    -- Aenderungsjournal wird nie zum Server uebertragen, also ist keine
+    -- Server-Migration noetig. Aeltere Eintraege behalten NULL; fuer sie gelten
+    -- die bisherigen Zusammenfuehrungsregeln.
+    ALTER TABLE change_log ADD COLUMN base_json TEXT;
+    `,
+  },
 ]
 
 

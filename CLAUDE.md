@@ -35,10 +35,10 @@ auszuführen – ohne das bleibt die neue Spalte nur lokal vorhanden.
 
 ## Vor jedem Commit
 
-`npm test` muss grün sein (aktuell 2.051 Tests). `npx tsc --noEmit` muss fehlerfrei
+`npm test` muss grün sein (aktuell 2.115 Tests). `npx tsc --noEmit` muss fehlerfrei
 sein.
 
-Auf Eriks Rechner sind es **2.070**: `tests/turnen-vergleich-echt.test.ts` rechnet
+Auf Eriks Rechner sind es **2.134**: `tests/turnen-vergleich-echt.test.ts` rechnet
 den Konkurrenzvergleich gegen das echte Wettkampfprotokoll und übergeht sich
 selbst, wo das PDF oder `unpdf` fehlt (20 übersprungene Prüfungen). Die
 Abweichung ist Absicht - das Protokoll gehoert nicht ins Repository.
@@ -746,6 +746,97 @@ node tests/turnen-vorbereitung-e2e.mjs   # weit -> naeher -> wettkampfnah ->
                                          # Wettkampftag -> loeschen -> normal
 ```
 
+### Der heutige Tag waehlt aus - er rechnet nicht noch einmal
+
+Seit dem 07.10.2026 (Phase 3E) beantwortet LifeHub "was steht heute konkret
+an, welche reale Kapazitaet habe ich dafuer und welcher Tageskontext liegt
+vor?": `core/turnen/tagestraining.ts`, angezeigt als Block **Heute** oben auf
+Turnen -> Uebersicht (`screens/turnen/HeuteTraining.tsx`). **Keine Tabelle,
+keine Migration, kein neuer Reiter.**
+
+**3E ist das Ende der Kette `2C/2D/2E -> 3A -> 3D -> 3B -> 3E`.** Es bekommt
+das `WochenBild` aus 3B und das `VorbereitungsBild` aus 3D fertig gerechnet
+herein und schlaegt darin den heutigen Tag nach. Geraeteprioritaet,
+Elementstabilitaet, Kuerstabilitaet, Wettkampffokus, Vorbereitungsphase und die
+Verteilung auf die Tage werden NICHT neu gerechnet. `trainingsplanung.ts`,
+`vorbereitungsstrategie.ts` und `wochenplanung.ts` importieren dieses Modul
+nicht - ein Test liest die `import`-Zeilen und haelt die Richtung fest. Weil 3B
+auf dem von 3D angepassten Plan sitzt, kann eine wettkampfnah zurueckgestellte
+Entwicklungsarbeit ueber 3E gar nicht wieder auftauchen; das folgt aus der
+Reihenfolge und nicht aus einer Pruefung.
+
+**Die Wochenverteilung (3B) wird jetzt in `bild.ts` gerechnet**, nicht mehr in
+`Wochenplan.tsx`: 3E braucht sie, und zwei Verteilungen waeren zwei Antworten
+auf dieselbe Frage. `bild.ts` hat dafuer ZWEI Haken - `kern` an den Turndaten
+(die teure Rechnung) und `tag` zusaetzlich an Terminen, Tagesplan, Schlaf und
+Metriken. Wer das wieder zusammenlegt, rechnet die ganze Wettkampfanalyse neu,
+sobald eine Aufgabe umgebucht wird.
+
+**Die geplante Session wird wiederverwendet - das ist die Invariante.** Der
+Knopf im Heute-Block fuehrt nach `#/turnen/training?einheit=<id>` und oeffnet
+DIE VORHANDENE `workout_sessions`-Zeile im Turnen-Trainingseditor; der
+Speicherweg dort setzt sie per `m.patch` auf `completed`. Es darf nicht
+passieren, dass A auf `planned` stehenbleibt und daneben ein B mit `completed`
+entsteht - das waere eine Session-Dublette, und 3B wuerde A erneut verplanen.
+Ueber die Adresse und nicht ueber einen Zustand im Rahmen, damit der Weg ein
+Neuladen uebersteht. Eine Einheit, die es nicht mehr gibt oder die nicht zum
+Turnen gehoert, wird uebergangen - eine neue wird daraus nicht.
+
+**Schlaf ist Kontext, kein Trainingsregler.** Die Nacht auf heute steht neben
+der Einheit und veraendert nichts: kein Geraet entfernt, keine Schwierigkeit
+verboten, kein Kuerdurchgang gestrichen, kein Volumen festgelegt, kein
+Verletzungsrisiko behauptet. Es gibt KEINE Schlafampel und keine Kategorie -
+der Zielbereich der Metrik `sleep_h` (7-9 h) wird hier bewusst nicht
+herangezogen, weil eine Einordnung "zu wenig geschlafen" neben einem
+Trainingsplan als Anweisung gelesen wird. `SCHLAF_IST_KONTEXT` ist der
+Merkposten dafuer, wie `KEINE_PERIODISIERUNG` in `vorbereitungsstrategie.ts`.
+Fehlt die Nacht, fehlt sie, und das Training bleibt vollstaendig nutzbar.
+
+**Die Nacht wird nicht im Turnen-Modul aggregiert.** Welche Schlafepisode zu
+welchem Kalendertag gehoert, entscheidet ausschliesslich `sleep_sessions.day` -
+der Morgen des Aufwachens, gesetzt beim Import. Damit zaehlt die Nacht von
+Sonntagabend auf Montagmorgen zum Montag, ohne eine zweite Datumsdefinition.
+Wer hier nach `start_at` neu gruppiert, baut die zweite Rechnung, an der schon
+einmal Werte verschwunden sind.
+
+**Nur bei `quelle === 'tag'` darf 3E etwas zurueckstellen.** Steht an der
+Einheit eine Dauer, hat 3B die Plaetze damit schon begrenzt (`plaetzeFuer`) und
+was nicht hineinpasste steht in `WochenBild.offen`; ein zweites Mal angewandt
+wuerde die Einheit doppelt kuerzen. Die freie Zeit des Tages
+(`computeCapacity().freeMinutes`) ist dagegen fuer HEUTE die genaueste Auskunft
+- 3B laesst sie bewusst aussen vor, damit Turnen nicht am gepflegten
+Arbeitsplan haengt. Zurueckgestellt wird von hinten, nach der vorhandenen
+Reihe, und NIE ein Schwerpunkt. Der Inhalt bleibt unter "Heute zurueckgestellt"
+mit seinem Grund sichtbar und laesst sich zurueckholen; nichts wird geloescht
+oder als absolviert gefuehrt.
+
+**Mehrere Termine am selben Tag werden ALLE gezeigt**, sortiert nach der
+3B-Reihe (Tag, dann Session-ID) - an einer `workout_session` steht keine
+Uhrzeit. Still einen davon zu waehlen hiesse, den anderen zu verlieren.
+Am Wettkampftag wird KEIN Trainingsplan erfunden; ein zusaetzlich selbst
+geplanter Turntermin wird getrennt genannt und nicht geloescht.
+
+**Genau einer von zwei Bloecken fuehrt.** Steht heute ein Termin offen oder ist
+Wettkampftag, ist "Heute" primaer und "Naechstes Training" entfaellt - derselbe
+Plan zweimal untereinander waere eine Doppelung. Sonst umgekehrt: Heute bleibt
+eine schlanke Zeile, der Vorschlag kommt aus 3A. Der Umschalter auf "Kommende
+Einheiten" wandert mit dem fuehrenden Block, sonst stuende er zweimal da.
+
+**Nichts wird gespeichert - auch nicht die Tagesauswahl.** Abwaehlen,
+Zurueckholen und Inhalte entfernen gehen durch `tagMitAuswahl()`, eine reine
+Funktion, wie `planMitAuswahl()` in 3A und `wocheMitAuswahl()` in 3B. Keine
+Tabelle `daily_training_plan`, `readiness` oder `daily_adjustment`, keine
+Einstellung. Was wirklich passiert ist, steht in `workout_sessions`,
+`gym_attempts` und `gym_routine_runs`. Gemessen kostet 3E 0,002 ms je Aufruf.
+
+```
+node tests/turnen-heute-e2e.mjs   # kein Termin -> Schlaf und Tagesart ->
+                                  # Termin heute -> kurze Kapazitaet stellt
+                                  # sichtbar zurueck -> erfassen aus dem
+                                  # Block -> dieselbe Session, keine
+                                  # Dublette -> Wettkampftag
+```
+
 ## FatSecret laeuft von selbst
 
 Seit dem 13.09.2026 holt LifeHub die Ernaehrung ohne Knopfdruck: `automatisch()`
@@ -908,3 +999,27 @@ Richtungen daneben: Sie zeigte fuer heute die Aufgaben mit, die „Heute"
 bewusst verdeckt, zaehlte abgesagte in die Auslastung und liess weg, was
 liegengeblieben ist oder eine Frist hat. Zwei Bildschirme sagten ueber
 denselben Tag Verschiedenes.
+
+## Abgleich: Was auf dem Geraet bleibt, wem der Bestand gehoert, wie zusammengefuehrt wird
+
+Vier Regeln in `src/sync/engine.ts`, die zusammengehoeren (Tests: `tests/sync-sicherheit.test.ts`,
+`tests/sync-abgleich-konto.test.ts`):
+
+1. **Geraetegebundene Einstellungen** (`GERAETEGEBUNDENE_EINSTELLUNGEN`: `pin_hash`, `pin_salt`,
+   `lock_after_minutes`, `sync_url`, `sync_key`) werden weder gesendet noch angewendet. Wer eine neue
+   Einstellung einfuehrt, die nur dieses Geraet betrifft, traegt sie dort ein – sonst ueberschreibt sie
+   auf jedem anderen Geraet dessen eigenen Wert. Auf dem Server liegende Altzeilen werden uebergangen,
+   nicht geloescht.
+2. **Besitzer des Bestands:** `sync_state`-Zeile `__besitzer__` merkt sich Server + Konto. Stimmt die
+   aktuelle Anmeldung nicht damit ueberein, ueberträgt `runSync` NICHTS. Der Weg zu einem anderen Konto
+   ist „Vom Server uebernehmen" (`pullFresh`) – das ersetzt den lokalen Bestand bewusst.
+3. **Feldweise Zusammenfuehrung:** `change_log.base_json` (Migration 19, nur lokal) haelt je Aenderung
+   den Wert VOR der Aenderung. `mergeRows` entscheidet damit je Feld: nur lokal geaendert -> lokal,
+   nur am Server geaendert -> Server, beides -> bisherige Regeln (kritische Felder als Konflikt).
+   Wer `repo.update` umgeht und direkt in `change_log` schreibt, muss `base_json` mitgeben oder auf
+   NULL lassen (dann gelten die alten Regeln).
+4. **Pull-Cursor mit Ueberlappung:** `server_rev` kommt aus einer Sequenz (`nextval`), die beim Schreiben
+   vergeben wird, nicht beim Festschreiben. Der Pull beginnt deshalb `UEBERLAPPUNG` (500) Nummern vor dem
+   Cursor und uebergeht Zeilen mit gleicher `server_rev` ohne Schreibzugriff.
+
+`change_log` ist lokal-only: Migration 19 braucht KEINE Servermigration.

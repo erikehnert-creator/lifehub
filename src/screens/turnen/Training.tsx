@@ -48,9 +48,37 @@ import type {
   GymAttempt, GymElement, GymRoutine, GymRoutineRun, WorkoutSession,
 } from '../../core/types'
 
-export function TrainingView({ onZuElementen }: { onZuElementen: () => void }) {
+export function TrainingView({ onZuElementen, oeffneEinheit, onGeoeffnet }: {
+  onZuElementen: () => void
+  /**
+   * Eine Einheit, die sofort geöffnet werden soll – aus der Adresse.
+   *
+   * Seit Phase 3E führt der Heute-Block direkt hierher. Geöffnet wird
+   * ausdrücklich **die vorhandene** Zeile aus `workout_sessions`: Der
+   * Speicherweg unten setzt sie dann auf `completed`, und es entsteht keine
+   * zweite Einheit daneben.
+   */
+  oeffneEinheit?: string | null
+  /** Wird gerufen, sobald die Einheit offen ist – räumt die Adresse auf. */
+  onGeoeffnet?: () => void
+}) {
   const data = useData()
   const [offen, setOffen] = useState<WorkoutSession | 'neu' | null>(null)
+
+  /**
+   * Die aus der Adresse angeforderte Einheit öffnen – einmal.
+   *
+   * Danach wird der Parameter entfernt, damit ein Schliessen des Editors sie
+   * nicht sofort wieder aufzieht. Eine Einheit, die es nicht (mehr) gibt oder
+   * die nicht zum Turnen gehört, wird übergangen – eine neue wird daraus
+   * nicht.
+   */
+  React.useEffect(() => {
+    if (!oeffneEinheit) return
+    const s = data.workoutSessions.find((x) => x.id === oeffneEinheit && istTurnen(x))
+    if (s) setOffen(s)
+    onGeoeffnet?.()
+  }, [oeffneEinheit, data.workoutSessions, onGeoeffnet])
 
   // Die Liste zeigt ALLES, was zu Turnen gehoert - auch die geplanten
   // Termine, damit sich dort ein Training erfassen laesst. Gezaehlt wird

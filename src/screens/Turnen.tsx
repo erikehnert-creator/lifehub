@@ -33,7 +33,19 @@ import { KuerenView } from './turnen/Kueren'
 import { WettkaempfeView } from './turnen/Wettkaempfe'
 import { AnalyseView } from './turnen/Analyse'
 
-export function TurnenScreen({ sub, navigate }: { sub: string; navigate: (r: string) => void }) {
+export function TurnenScreen({ sub, params, navigate }: {
+  sub: string
+  /**
+   * Die Adressparameter – bisher nur `einheit`.
+   *
+   * Seit Phase 3E führt der Heute-Block mit `#/turnen/training?einheit=<id>`
+   * direkt in **die vorhandene** geplante Einheit. Über die Adresse und nicht
+   * über einen Zustand im Rahmen: So überlebt der Weg ein Neuladen, und es
+   * entsteht kein zweiter Ort, an dem steht, was gerade offen ist.
+   */
+  params?: Record<string, string>
+  navigate: (r: string) => void
+}) {
   const tabs = [
     { key: '', label: 'Übersicht' },
     { key: 'elemente', label: 'Elemente' },
@@ -55,11 +67,18 @@ export function TurnenScreen({ sub, navigate }: { sub: string; navigate: (r: str
       {sub === '' && (
         <UebersichtView
           onZuElementen={() => geh('elemente')}
-          onZuTraining={() => geh('training')}
+          onZuTraining={(sessionId) => navigate(
+            sessionId
+              ? `#/turnen/training?einheit=${encodeURIComponent(sessionId)}`
+              : '#/turnen/training')}
           onZuWettkaempfen={() => geh('wettkaempfe')} />
       )}
       {sub === 'elemente' && <ElementeView />}
-      {sub === 'training' && <TrainingView onZuElementen={() => geh('elemente')} />}
+      {sub === 'training' && (
+        <TrainingView onZuElementen={() => geh('elemente')}
+          oeffneEinheit={params?.einheit ?? null}
+          onGeoeffnet={() => navigate('#/turnen/training')} />
+      )}
       {sub === 'kueren' && <KuerenView onZuElementen={() => geh('elemente')} />}
       {sub === 'wettkaempfe' && <WettkaempfeView onZuKueren={() => geh('kueren')} />}
       {sub === 'analyse' && <AnalyseView onZuWettkaempfen={() => geh('wettkaempfe')} />}

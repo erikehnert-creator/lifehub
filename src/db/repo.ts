@@ -17,11 +17,21 @@ export function getDeviceId() {
   return deviceId
 }
 
-function logChange(table: string, rowId: string, op: 'insert' | 'update' | 'delete', fields: Record<string, any>, baseVersion: number) {
+/**
+ * `ausgangswerte` sind die Werte der geaenderten Felder VOR dieser Aenderung.
+ * Der Abgleich braucht sie fuer die Zusammenfuehrung (sync/engine.ts, mergeRows):
+ * Nur wer weiss, wie ein Feld vorher aussah, kann sagen, ob der Server es
+ * inzwischen auch geaendert hat - oder ob nur dieses Geraet es angefasst hat.
+ */
+function logChange(
+  table: string, rowId: string, op: 'insert' | 'update' | 'delete', fields: Record<string, any>,
+  baseVersion: number, ausgangswerte: Record<string, any> | null = null,
+) {
   getDb().run(
-    `INSERT INTO change_log (table_name, row_id, op, changed_fields, base_version, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [table, rowId, op, JSON.stringify(fields), baseVersion, nowIso()] as any,
+    `INSERT INTO change_log (table_name, row_id, op, changed_fields, base_version, created_at, base_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [table, rowId, op, JSON.stringify(fields), baseVersion, nowIso(),
+      ausgangswerte ? JSON.stringify(ausgangswerte) : null] as any,
   )
 }
 
@@ -77,6 +87,8 @@ export function update(table: SyncedTable, id: string, patch: Record<string, any
     if (current[k] !== v) changed[k] = v
   }
   if (Object.keys(changed).length === 0) return
+  const ausgangswerte: Record<string, any> = {}
+  for (const k of Object.keys(changed)) ausgangswerte[k] = current[k] ?? null
   changed.updated_at = ts
   changed.version = Number(current.version || 1) + 1
   changed.last_device_id = deviceId
@@ -85,7 +97,10 @@ export function update(table: SyncedTable, id: string, patch: Record<string, any
     `UPDATE ${table} SET ${sets}, _dirty = 1 WHERE id = ?`,
     [...Object.keys(changed).map((k) => normalise(changed[k])), id] as any,
   )
-  logChange(table, id, 'update', changed, Number(current.version || 1))
+  ausgangswerte.updated_at = current.updated_at ?? null
+  ausgangswerte.version = current.version ?? null
+  ausgangswerte.last_device_id = current.last_device_id ?? null
+  logChange(table, id, 'update', changed, Number(current.version || 1), ausgangswerte)
   scheduleSave()
 }
 
@@ -99,18 +114,19 @@ export function softDelete(table: SyncedTable, id: string): void {
      last_device_id = ?, _dirty = 1 WHERE id = ?`,
     [ts, ts, deviceId, id] as any,
   )
-  logChange(table, id, 'delete', { deleted_at: ts }, Number(current.version || 1))
+  logChange(table, id, 'delete', { deleted_at: ts }, Number(current.version || 1), { deleted_at: current.deleted_at ?? null })
   scheduleSave()
 }
 
 export function restore(table: SyncedTable, id: string): void {
+  const vorher = one<Record<string, any>>(`SELECT deleted_at FROM ${table} WHERE id = ?`, [id])
   const ts = nowIso()
   getDb().run(
     `UPDATE ${table} SET deleted_at = NULL, updated_at = ?, version = version + 1,
      last_device_id = ?, _dirty = 1 WHERE id = ?`,
     [ts, deviceId, id] as any,
   )
-  logChange(table, id, 'update', { deleted_at: null }, 0)
+  logChange(table, id, 'update', { deleted_at: null }, 0, { deleted_at: vorher?.deleted_at ?? null })
   scheduleSave()
 }
 

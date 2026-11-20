@@ -58,6 +58,17 @@ export function getStorageMode(): StorageMode { return storageMode }
 let SQL: SqlJsStatic | null = null
 let db: Database | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * Solange gesetzt, wird nichts auf die Platte geschrieben.
+ *
+ * Gebraucht von pullFresh (sync/engine.ts): Der lokale Bestand wird dort im
+ * Arbeitsspeicher geleert und neu gefuellt. Schluege der Abruf fehl und die App
+ * wuerde dazwischen speichern - oder gar abstuerzen -, laege die geleerte
+ * Fassung auf der Platte. So bleibt die Datei auf der Platte bis zum letzten
+ * Moment der alte, vollstaendige Stand.
+ */
+let persistenzGesperrt = false
+export function sperrePersistenz(an: boolean): void { persistenzGesperrt = an }
 let saveListeners: Array<(state: 'saving' | 'saved') => void> = []
 
 function openIdb(): Promise<IDBDatabase> {
@@ -170,7 +181,7 @@ export function scheduleSave(delayMs = 250): void {
 }
 
 export async function saveNow(): Promise<void> {
-  if (!db) return
+  if (!db || persistenzGesperrt) return
   const data = db.export()
   await persistFile(data)
   saveListeners.forEach((f) => f('saved'))
@@ -267,6 +278,28 @@ export function transaction(fn: () => void): void {
 /** Rohe SQLite-Datei – für Backup und Export. */
 export function exportDatabaseFile(): Uint8Array {
   return getDb().export()
+}
+
+/**
+ * Momentaufnahme des gesamten Bestands im Arbeitsspeicher.
+ * Gegenstueck: stelleMomentaufnahmeWiederHer.
+ */
+export function momentaufnahme(): Uint8Array {
+  return getDb().export()
+}
+
+/**
+ * Eine Momentaufnahme zurueckspielen, OHNE zu speichern und ohne Migrationen
+ * (sie stammt ja aus derselben Programmfassung). Das Speichern uebernimmt, wer
+ * die Persistenz wieder freigibt.
+ */
+export async function stelleMomentaufnahmeWiederHer(daten: Uint8Array): Promise<void> {
+  if (!SQL) SQL = await loadSqlJs()
+  const alt = db
+  const neu = new SQL.Database(daten)
+  neu.run('PRAGMA foreign_keys = OFF;')
+  db = neu
+  try { alt?.close() } catch { /* war schon zu */ }
 }
 
 /** Datenbank vollständig durch eine hochgeladene Datei ersetzen. */
